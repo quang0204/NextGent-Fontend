@@ -1,5 +1,5 @@
 import { apiClient } from './apiClient';
-import { CreateOrderPayload, OrderResponse, OrderDetail } from '../types/order';
+import { CreateOrderPayload, OrderResponse, OrderDetail, OrderStatus } from '../types/order';
 import { sharedStore } from './sharedStore';
 
 export const orderService = {
@@ -17,8 +17,73 @@ export const orderService = {
     }
   },
 
-  // Tra cứu đơn hàng theo mã đơn hoặc SĐT
+  // API 9.1: Tra cứu hành trình vận chuyển Public theo Mã vận đơn hoặc Mã đơn hàng
   async trackOrder(orderCode: string, phone?: string): Promise<OrderDetail | null> {
+    const clean = orderCode.trim().replace(/^#/, '');
+
+    // 1. Thử gọi API 9.1: GET /api/v1/shipments/track/{trackingCode}
+    try {
+      const trackRes = await apiClient.get<{ success: boolean; data: any }>(
+        `/shipments/track/${encodeURIComponent(clean)}`
+      );
+      if (trackRes.data?.data) {
+        const d = trackRes.data.data;
+        const statusMap: Record<string, OrderStatus> = {
+          READY_TO_PICK: 'PREPARING',
+          PICKED: 'PICKED_UP',
+          IN_TRANSIT: 'SHIPPING',
+          DELIVERED: 'COMPLETED',
+          FAILED_DELIVERY: 'CANCELLED',
+          CANCELLED: 'CANCELLED',
+        };
+
+        const existingOrder = sharedStore.getOrderByCode(d.orderCode);
+
+        const mappedOrder: OrderDetail = {
+          orderId: d.shipmentId || existingOrder?.orderId || 1,
+          orderCode: d.orderCode || clean,
+          trackingCode: d.trackingCode,
+          carrier: d.carrier,
+          status: statusMap[d.status] || (d.status as OrderStatus) || 'SHIPPING',
+          recipientName: d.recipientName,
+          recipientPhone: d.recipientPhone,
+          shippingAddress: d.shippingAddress,
+          paymentMethod: existingOrder?.paymentMethod || 'COD',
+          paymentStatus: d.status === 'DELIVERED' ? 'PAID' : (existingOrder?.paymentStatus || 'UNPAID'),
+          shippingFee: existingOrder?.shippingFee || 0,
+          subtotal: existingOrder?.subtotal || 34490000,
+          voucherDiscount: existingOrder?.voucherDiscount || 0,
+          totalAmount: existingOrder?.totalAmount || 34490000,
+          cancelReason: d.status === 'FAILED_DELIVERY' ? 'Giao hàng thất bại' : existingOrder?.cancelReason,
+          createdAt: existingOrder?.createdAt || d.timeline?.[0]?.time || new Date().toISOString(),
+          updatedAt: existingOrder?.updatedAt || new Date().toISOString(),
+          items: d.items?.map((it: any, idx: number) => ({
+            orderItemId: idx + 1,
+            variantId: idx + 1,
+            productId: idx + 1,
+            productNameSnapshot: it.productName,
+            skuSnapshot: it.color || 'Tiêu chuẩn',
+            colorSnapshot: it.color || '',
+            romSnapshot: '',
+            unitPrice: existingOrder?.items?.[idx]?.unitPrice || 34490000,
+            quantity: it.quantity || 1,
+            lineTotal: existingOrder?.items?.[idx]?.lineTotal || 34490000,
+            imageUrl: existingOrder?.items?.[idx]?.imageUrl || '/assets/products/iphone-16-pro-max.png',
+          })) || existingOrder?.items || [],
+          statusHistory: d.timeline?.map((t: any) => ({
+            time: new Date(t.time).toLocaleString('vi-VN', {
+              hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric'
+            }),
+            status: statusMap[t.status] || 'SHIPPING',
+            note: t.description || t.status,
+          })) || existingOrder?.statusHistory || []
+        };
+        return mappedOrder;
+      }
+    } catch {
+      // Bỏ qua lỗi 404 để tiếp tục fallback
+    }
+
     try {
       const response = await apiClient.get<OrderDetail>(`/customer/orders/track`, {
         params: { orderCode, phone }
