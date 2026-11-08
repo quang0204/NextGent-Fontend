@@ -148,7 +148,11 @@ export type ShipmentStatus =
   | 'WAITING_PICKUP'    // Tương thích: Đang chuẩn bị hàng
   | 'PENDING'           // Tương thích: Đang chuẩn bị hàng
   | 'PICKUP_FAILED'     // Tương thích: Giao thất bại
-  | 'FAILED';           // Tương thích: Giao thất bại
+  | 'FAILED'            // Tương thích: Giao thất bại
+  | 'READY_TO_PICK'
+  | 'PICKED'
+  | 'FAILED_DELIVERY'
+  | 'CANCELLED';
 
 export interface PortalShipment {
   shipmentId: number;

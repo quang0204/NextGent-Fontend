@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { apiClient } from '../../services/apiClient';
 import { PortalShipment, ShipmentStatus } from '../../types/portal';
 import { OrderDetail } from '../../types/order';
 import { formatVND } from '../../components/common/PriceDisplay';
@@ -40,13 +41,45 @@ export const PortalShipmentsView: React.FC = () => {
   const [failReason, setFailReason] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // API 9.2: Tải danh sách vận đơn thực tế từ Backend
+  const loadBackendShipments = useCallback(async () => {
+    try {
+      const res = await apiClient.get<{ success: boolean; data: any }>('/admin/shipments', {
+        params: { page: 1, size: 50, status: 'ALL' }
+      });
+      if (res.data?.data?.content) {
+        const backendItems: PortalShipment[] = res.data.data.content.map((b: any) => ({
+          shipmentId: b.shipmentId,
+          orderId: b.orderId,
+          orderCode: b.orderCode,
+          carrier: b.carrier,
+          trackingCode: b.trackingCode,
+          status: (b.status === 'READY_TO_PICK' ? 'PREPARING' :
+                   b.status === 'PICKED' ? 'PICKED_UP' :
+                   b.status === 'FAILED_DELIVERY' ? 'DELIVERY_FAILED' :
+                   b.status) as ShipmentStatus,
+          failReason: b.failReason,
+          recipientName: b.recipientName,
+          recipientPhone: b.recipientPhone,
+          shippingAddress: b.shippingAddress,
+          codAmount: b.paymentMethod === 'COD' ? b.orderTotalAmount : 0,
+          updatedBy: b.updatedBy,
+          updatedAt: b.updatedAt
+        }));
+        setShipments(backendItems);
+      }
+    } catch {
+      // Giữ dữ liệu sharedStore mặc định nếu chưa đăng nhập hoặc mạng offline
+    }
+  }, []);
+
   useEffect(() => {
+    loadBackendShipments();
     const unsub = sharedStore.subscribe(() => {
-      setShipments([...sharedStore.getShipments()]);
       setOrders([...sharedStore.getOrders()]);
     });
     return () => unsub();
-  }, []);
+  }, [loadBackendShipments]);
 
   const showNotification = (msg: string) => {
     setToastMessage(msg);
@@ -59,7 +92,7 @@ export const PortalShipmentsView: React.FC = () => {
     setFailReason(s.failReason || '');
   };
 
-  const handleSaveStatus = (e: React.FormEvent) => {
+  const handleSaveStatus = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingShipment) return;
 
@@ -69,18 +102,48 @@ export const PortalShipmentsView: React.FC = () => {
       return;
     }
 
-    const res = sharedStore.updateShipmentStatus(
-      editingShipment.shipmentId,
-      newStatus,
-      isFailStatus ? failReason : undefined,
-      'Điều phối viên giao vận'
-    );
+    try {
+      if (isFailStatus) {
+        // API 9.4: POST /api/v1/admin/shipments/{id}/fail-delivery
+        const res = await apiClient.post(`/admin/shipments/${editingShipment.shipmentId}/fail-delivery`, {
+          failReason: failReason.trim(),
+          note: 'Điều phối viên giao vận ghi nhận giao thất bại'
+        });
+        showNotification(res.data?.message || `✓ Đã ghi nhận giao hàng thất bại và hoàn kho vận đơn ${editingShipment.trackingCode}!`);
+      } else {
+        // API 9.3: PUT /api/v1/admin/shipments/{id}/status
+        const apiStatus = 
+          newStatus === 'PREPARING' || newStatus === 'WAITING_PICKUP' || newStatus === 'PENDING' ? 'READY_TO_PICK' :
+          newStatus === 'PICKED_UP' ? 'PICKED' :
+          newStatus;
 
-    if (res.success) {
-      showNotification(`✓ Đã cập nhật vận đơn ${editingShipment.trackingCode} và tự động đồng bộ trạng thái sang Đơn hàng #${editingShipment.orderCode}!`);
-    } else {
-      showNotification(res.message);
+        const res = await apiClient.put(`/admin/shipments/${editingShipment.shipmentId}/status`, {
+          status: apiStatus,
+          note: 'Điều phối viên giao vận cập nhật tiến trình'
+        });
+        showNotification(res.data?.message || `✓ Đã cập nhật vận đơn ${editingShipment.trackingCode} và tự động đồng bộ trạng thái sang Đơn hàng #${editingShipment.orderCode}!`);
+      }
+
+      // Đồng bộ local store
+      sharedStore.updateShipmentStatus(
+        editingShipment.shipmentId,
+        newStatus,
+        isFailStatus ? failReason : undefined,
+        'Điều phối viên giao vận'
+      );
+      loadBackendShipments();
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err.message || 'Lỗi khi cập nhật trạng thái vận đơn';
+      showNotification(`Lỗi: ${msg}`);
+      // Vẫn cập nhật local fallback
+      sharedStore.updateShipmentStatus(
+        editingShipment.shipmentId,
+        newStatus,
+        isFailStatus ? failReason : undefined,
+        'Điều phối viên giao vận'
+      );
     }
+
     setEditingShipment(null);
   };
 
