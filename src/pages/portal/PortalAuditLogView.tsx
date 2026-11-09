@@ -12,6 +12,7 @@ import {
   Lock
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
+import { auditService } from '../../services/auditService';
 import { PortalAuditLog } from '../../types/portal';
 import { PortalPagination } from '../../components/portal/PortalPagination';
 
@@ -19,6 +20,16 @@ export const PortalAuditLogView: React.FC = () => {
   const [logs, setLogs] = useState<PortalAuditLog[]>(sharedStore.getAuditLogs());
   const [searchQuery, setSearchQuery] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('ALL');
+
+  useEffect(() => {
+    auditService.getAdminAuditLogs({
+      action: actionFilter !== 'ALL' ? actionFilter : undefined,
+    }).then(res => {
+      if (res?.items && res.items.length > 0) {
+        setLogs(res.items);
+      }
+    }).catch(() => {});
+  }, [actionFilter]);
 
   useEffect(() => {
     const unsubscribe = sharedStore.subscribe(() => {

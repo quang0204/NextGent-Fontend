@@ -1,11 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { sharedStore } from '../services/sharedStore';
+import { faqService, ticketService } from '../services/feedbackService';
 import { PortalFaqItem } from '../types/portal';
 import { HelpCircle, ChevronDown, ChevronUp, Send, CheckCircle, ShieldCheck, PhoneCall, Mail } from 'lucide-react';
 
 export const FaqSupportPage: React.FC = () => {
   const [faqs, setFaqs] = useState<PortalFaqItem[]>(sharedStore.getFaqs().filter(f => f.isVisible));
   const [openIndex, setOpenIndex] = useState<number | null>(0);
+
+  useEffect(() => {
+    faqService.getFaqs().then(groups => {
+      if (groups && groups.length > 0) {
+        const flatItems = groups.flatMap(g => g.items).filter(f => f.isVisible !== false);
+        if (flatItems.length > 0) {
+          setFaqs(flatItems);
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsub = sharedStore.subscribe(() => {
@@ -21,9 +33,19 @@ export const FaqSupportPage: React.FC = () => {
   const [content, setContent] = useState('');
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !phone.trim() || !content.trim()) return;
+
+    try {
+      await ticketService.createTicket({
+        subject: `${category} - ${name.trim()} (${phone.trim()})`,
+        description: content.trim(),
+        priority: category.includes('Bảo hành') ? 'HIGH' : 'MEDIUM',
+      });
+    } catch (err) {
+      console.warn('[FaqSupportPage] createTicket error', err);
+    }
 
     setSubmitted(true);
     setName('');

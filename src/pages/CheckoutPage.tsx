@@ -6,6 +6,7 @@ import { useToastStore } from '../stores/toastStore';
 import { orderService } from '../services/orderService';
 import { sharedStore } from '../services/sharedStore';
 import { promotionService } from '../services/promotionService';
+import { paymentService } from '../services/paymentService';
 import { formatVND } from '../components/common/PriceDisplay';
 import { UserAddress } from '../types/user';
 import { 
@@ -261,6 +262,17 @@ export const CheckoutPage: React.FC = () => {
         user?.role || 'CUSTOMER',
         fullName.trim()
       );
+
+      // API 10.1: POST /api/v1/payments/create-intent
+      try {
+        await paymentService.createPaymentIntent({
+          orderId: res.orderId,
+          paymentMethod: paymentMethod === 'SIMULATED_TRANSFER' ? 'BANK_TRANSFER' : 'COD',
+          note: note.trim() || undefined,
+        });
+      } catch (intentErr) {
+        console.warn('[CheckoutPage] createPaymentIntent error', intentErr);
+      }
 
       // Quản lý dọn dẹp sau khi tạo đơn thành công:
       if (isBuyNow) {

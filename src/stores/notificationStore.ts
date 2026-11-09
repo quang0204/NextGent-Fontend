@@ -24,8 +24,9 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
   loadNotifications: async (userId: number) => {
     set({ isLoading: true, activeUserId: userId });
     try {
-      const items = await notificationService.getNotifications(userId);
-      const unread = items.filter(n => !n.isRead).length;
+      const res = await notificationService.getNotifications(userId);
+      const items = Array.isArray(res) ? res : res.items;
+      const unread = typeof res === 'object' && 'unreadCount' in res ? res.unreadCount : items.filter(n => !n.isRead).length;
       set({ notifications: items, unreadCount: unread, isLoading: false });
     } catch (err) {
       console.error('Failed to load notifications', err);

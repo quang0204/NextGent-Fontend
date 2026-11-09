@@ -7,9 +7,13 @@ import { ProductCard } from '../components/product/ProductCard';
 import { Heart, ArrowLeft, Trash2 } from 'lucide-react';
 
 export const WishlistPage: React.FC = () => {
-  const { productIds, toggleWishlist } = useWishlistStore();
+  const { productIds, toggleWishlist, syncWithBackend } = useWishlistStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    syncWithBackend();
+  }, [syncWithBackend]);
 
   useEffect(() => {
     const fetch = async () => {

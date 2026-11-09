@@ -17,6 +17,7 @@ import {
   BadgeCheck
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
+import { reviewService, ticketService } from '../../services/feedbackService';
 import { PORTAL_TICKETS } from '../../services/portalMockData';
 import { ProductReview } from '../../types/review';
 import { PortalSupportTicket } from '../../types/portal';
@@ -42,6 +43,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
     });
     return () => unsub();
   }, []);
+
   const [ratingFilter, setRatingFilter] = useState<number | 'ALL'>('ALL');
   const [reviewSearch, setReviewSearch] = useState('');
   const [replyingReviewId, setReplyingReviewId] = useState<number | null>(null);
@@ -52,6 +54,27 @@ export const PortalReviewsTicketsView: React.FC = () => {
   const [ticketStatusFilter, setTicketStatusFilter] = useState<'ALL' | 'WAITING' | 'RESOLVED' | 'REJECTED'>('ALL');
   const [selectedTicket, setSelectedTicket] = useState<PortalSupportTicket | null>(null);
   const [ticketReplyText, setTicketReplyText] = useState('');
+
+  // API 12.3: Load Admin Reviews
+  useEffect(() => {
+    reviewService.getAdminReviews({
+      rating: ratingFilter !== 'ALL' ? ratingFilter : undefined,
+      search: reviewSearch.trim() || undefined,
+    }).then(res => {
+      if (res?.items && res.items.length > 0) {
+        setReviews(res.items.map(r => ({ ...r, status: (r.status === 'HIDDEN' ? 'HIDDEN' : 'PUBLISHED') as any })));
+      }
+    }).catch(() => {});
+  }, [ratingFilter, reviewSearch]);
+
+  // API 12.5: Load Admin Tickets
+  useEffect(() => {
+    ticketService.getAdminTickets().then(res => {
+      if (res?.items && res.items.length > 0) {
+        setTickets(res.items);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Toast
   const [toastMsg, setToastMsg] = useState('');
@@ -72,12 +95,18 @@ export const PortalReviewsTicketsView: React.FC = () => {
     }));
   };
 
-  const handleSendStoreReply = (reviewId: number) => {
+  const handleSendStoreReply = async (reviewId: number) => {
     if (!storeReplyText.trim()) return;
+    try {
+      await reviewService.replyAdminReview(reviewId, storeReplyText.trim());
+    } catch (err) {
+      console.warn('[PortalReviewsTicketsView] replyAdminReview error', err);
+    }
     setReviews(prev => prev.map(r => {
       if (r.reviewId === reviewId) {
         return {...r,
           storeReply: storeReplyText.trim(),
+          reply: storeReplyText.trim(),
           repliedAt: new Date().toISOString()
         };
       }
@@ -88,10 +117,19 @@ export const PortalReviewsTicketsView: React.FC = () => {
     showToast('Đã đăng phản hồi chính thức từ NextGen Smart Tech thành công!');
   };
 
-  const handleResolveTicket = (ticketId: number, status: 'RESOLVED' | 'REJECTED') => {
+  const handleResolveTicket = async (ticketId: number, status: 'RESOLVED' | 'REJECTED') => {
     if (!ticketReplyText.trim() && status === 'RESOLVED') {
       alert('Vui lòng nhập nội dung trả lời hỗ trợ khách hàng');
       return;
+    }
+
+    try {
+      await ticketService.updateAdminTicket(ticketId, {
+        status: status === 'RESOLVED' ? 'RESOLVED' : 'CLOSED',
+        resolutionNote: ticketReplyText.trim(),
+      });
+    } catch (err) {
+      console.warn('[PortalReviewsTicketsView] updateAdminTicket error', err);
     }
 
     setTickets(prev => prev.map(t => {
@@ -99,6 +137,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
         return {...t,
           status,
           reply: ticketReplyText.trim() || undefined,
+          resolutionNote: ticketReplyText.trim() || undefined,
           handledBy: 'Nguyễn Thanh Hùng (Staff)',
           handledAt: new Date().toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
         };

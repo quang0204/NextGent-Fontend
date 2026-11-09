@@ -15,11 +15,19 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
+import { paymentService, PaymentSummaryResponse } from '../../services/paymentService';
 
 export const PortalDashboardView: React.FC = () => {
   const [orders, setOrders] = useState(sharedStore.getOrders());
   const [inventories, setInventories] = useState(sharedStore.getInventories());
   const [showAccountingRuleHelp, setShowAccountingRuleHelp] = useState(false);
+  const [paymentSummary, setPaymentSummary] = useState<PaymentSummaryResponse | null>(null);
+
+  useEffect(() => {
+    paymentService.getPaymentSummary().then(res => {
+      if (res) setPaymentSummary(res);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsubscribe = sharedStore.subscribe(() => {
@@ -34,10 +42,10 @@ export const PortalDashboardView: React.FC = () => {
   // 2. Khi phát sinh đổi trả/hoàn tiền -> ghi nhận một khoản GIẢM TRỪ DOANH THU.
   // 3. Doanh thu thuần = Doanh thu bán hàng - Giảm trừ đổi trả.
   const completedOrders = orders.filter(o => o.status === 'COMPLETED');
-  const grossRevenue = completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+  const grossRevenue = paymentSummary?.totalCollected ?? completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
-  // Giảm trừ do đổi trả (mô phỏng từ các đơn hoàn tiền sau hoàn tất)
-  const returnDeduction = 4500000; 
+  // Giảm trừ do đổi trả (mô phỏng từ các đơn hoàn tiền sau hoàn tất hoặc API 10.4)
+  const returnDeduction = paymentSummary?.totalRefunded ?? 4500000; 
   const netRevenue = Math.max(0, grossRevenue - returnDeduction);
 
   const lowStockItems = inventories.filter(i => i.availableQty <= i.minThreshold);

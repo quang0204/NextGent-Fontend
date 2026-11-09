@@ -1,0 +1,737 @@
+import { apiClient } from './apiClient';
+import { sharedStore } from './sharedStore';
+import { ProductReview } from '../types/review';
+import { PortalSupportTicket, PortalFaqItem } from '../types/portal';
+
+// ================= TYPES: REVIEWS =================
+export interface ReviewPageInfo {
+  page: number;
+  size: number;
+  totalPages: number;
+  totalElements: number;
+  hasNext: boolean;
+}
+
+export interface ProductReviewsResponse {
+  items: ProductReview[];
+  totalReviews: number;
+  averageRating: number;
+  pageInfo: ReviewPageInfo;
+}
+
+export interface CreateReviewPayload {
+  orderItemId: number;
+  rating: number;
+  comment: string;
+}
+
+export interface AdminReviewsQuery {
+  page?: number;
+  size?: number;
+  status?: 'APPROVED' | 'HIDDEN' | string;
+  rating?: number;
+  search?: string;
+}
+
+export interface AdminReviewsResponse {
+  items: ProductReview[];
+  pageInfo: ReviewPageInfo;
+}
+
+// ================= TYPES: SUPPORT TICKETS =================
+export interface CreateTicketPayload {
+  subject: string;
+  description: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+}
+
+export interface AdminTicketsQuery {
+  page?: number;
+  size?: number;
+  status?: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' | 'WAITING' | 'REJECTED' | string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT' | string;
+  search?: string;
+}
+
+export interface AdminTicketsResponse {
+  items: PortalSupportTicket[];
+  pageInfo: ReviewPageInfo;
+  statusCounts: {
+    OPEN: number;
+    IN_PROGRESS: number;
+    RESOLVED: number;
+    CLOSED: number;
+  };
+}
+
+export interface UpdateAdminTicketPayload {
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED' | string;
+  resolutionNote?: string;
+}
+
+// ================= TYPES: FAQS =================
+export interface FaqGroupItem {
+  category: string;
+  items: PortalFaqItem[];
+}
+
+export interface CreateFaqPayload {
+  question: string;
+  answer: string;
+  category: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+// ================= REVIEW SERVICE =================
+export const reviewService = {
+  /**
+   * API 12.1: GET /api/v1/reviews/product/{prodId}
+   * Xem danh sách đánh giá của sản phẩm (Public)
+   */
+  async getProductReviews(
+    prodId: number,
+    page: number = 1,
+    size: number = 10
+  ): Promise<ProductReviewsResponse> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: {
+          items: any[];
+          totalReviews: number;
+          averageRating: number;
+          pageInfo: ReviewPageInfo;
+        };
+      }>(`/reviews/product/${prodId}`, {
+        params: { page, size },
+      });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedItems: ProductReview[] = (d.items || []).map((it) => ({
+          reviewId: it.reviewId,
+          orderItemId: it.orderItemId,
+          productId: it.productId,
+          productName: it.productName,
+          variantName: it.variantName,
+          userName: it.customerName || it.userName || 'Khách hàng',
+          customerName: it.customerName,
+          userPhoneMasked: it.customerPhone || '098****321',
+          rating: it.rating,
+          comment: it.comment,
+          storeReply: it.reply || it.storeReply,
+          reply: it.reply,
+          repliedAt: it.repliedAt,
+          images: it.images || [],
+          createdAt: it.createdAt,
+          updatedAt: it.updatedAt,
+          isBuyerVerified: it.isVerifiedPurchase ?? true,
+          isVerifiedPurchase: it.isVerifiedPurchase ?? true,
+          status: it.status || 'APPROVED',
+        }));
+
+        return {
+          items: mappedItems,
+          totalReviews: d.totalReviews || mappedItems.length,
+          averageRating: d.averageRating || 5,
+          pageInfo: d.pageInfo || {
+            page,
+            size,
+            totalPages: Math.ceil((d.totalReviews || mappedItems.length) / size),
+            totalElements: d.totalReviews || mappedItems.length,
+            hasNext: false,
+          },
+        };
+      }
+    } catch (err) {
+      console.warn('[reviewService.getProductReviews] Fallback to sharedStore', err);
+    }
+
+    // Fallback sang sharedStore
+    const localReviews = sharedStore.getReviews(prodId);
+    const avg = localReviews.length > 0
+      ? Number((localReviews.reduce((sum, r) => sum + r.rating, 0) / localReviews.length).toFixed(1))
+      : 5;
+
+    return {
+      items: localReviews,
+      totalReviews: localReviews.length,
+      averageRating: avg,
+      pageInfo: {
+        page: 1,
+        size: localReviews.length,
+        totalPages: 1,
+        totalElements: localReviews.length,
+        hasNext: false,
+      },
+    };
+  },
+
+  /**
+   * API 12.2: POST /api/v1/reviews
+   * Gửi đánh giá cho sản phẩm đã mua (Client - Auth)
+   */
+  async createReview(payload: CreateReviewPayload): Promise<{
+    success: boolean;
+    message: string;
+    review?: ProductReview;
+  }> {
+    try {
+      const res = await apiClient.post<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>('/reviews', payload);
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedReview: ProductReview = {
+          reviewId: d.reviewId,
+          orderItemId: d.orderItemId,
+          productId: d.productId,
+          productName: d.productName,
+          variantName: d.variantName,
+          userName: d.customerName || 'Khách hàng',
+          userPhoneMasked: '098****321',
+          rating: d.rating,
+          comment: d.comment,
+          storeReply: d.reply,
+          reply: d.reply,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+          isBuyerVerified: d.isVerifiedPurchase ?? true,
+          isVerifiedPurchase: d.isVerifiedPurchase ?? true,
+          status: d.status || 'APPROVED',
+        };
+        return {
+          success: true,
+          message: res.data.message || 'Gửi đánh giá thành công',
+          review: mappedReview,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[reviewService.createReview] Fallback to sharedStore', err);
+      if (err.response?.data?.message) {
+        return {
+          success: false,
+          message: err.response.data.message,
+        };
+      }
+    }
+
+    // Fallback sang sharedStore
+    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const localResult = sharedStore.submitReview({
+      orderItemId: payload.orderItemId,
+      productId: 0,
+      userName: user.fullName || 'Khách hàng',
+      phone: user.phone || '0987654321',
+      rating: payload.rating,
+      comment: payload.comment,
+    });
+    return localResult;
+  },
+
+  /**
+   * API 12.3: GET /api/v1/admin/reviews
+   * Quản lý đánh giá toàn hệ thống (Portal - STAFF / ADMIN)
+   */
+  async getAdminReviews(query: AdminReviewsQuery = {}): Promise<AdminReviewsResponse> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: {
+          items: any[];
+          pageInfo: ReviewPageInfo;
+        };
+      }>('/admin/reviews', { params: query });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedItems: ProductReview[] = (d.items || []).map((it) => ({
+          reviewId: it.reviewId,
+          orderItemId: it.orderItemId,
+          productId: it.productId,
+          productName: it.productName,
+          userName: it.customerName || it.userName || 'Khách hàng',
+          customerName: it.customerName,
+          userPhoneMasked: it.customerPhone || '098****321',
+          rating: it.rating,
+          comment: it.comment,
+          storeReply: it.reply || it.storeReply,
+          reply: it.reply,
+          repliedAt: it.repliedAt,
+          createdAt: it.createdAt,
+          updatedAt: it.updatedAt,
+          isBuyerVerified: it.isVerifiedPurchase ?? true,
+          isVerifiedPurchase: it.isVerifiedPurchase ?? true,
+          status: it.status || 'APPROVED',
+        }));
+
+        return {
+          items: mappedItems,
+          pageInfo: d.pageInfo,
+        };
+      }
+    } catch (err) {
+      console.warn('[reviewService.getAdminReviews] Fallback to sharedStore', err);
+    }
+
+    // Fallback sang sharedStore
+    const all = sharedStore.getReviews();
+    let filtered = [...all];
+    if (query.rating) {
+      filtered = filtered.filter((r) => r.rating === query.rating);
+    }
+    if (query.search) {
+      const q = query.search.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          (r.comment || '').toLowerCase().includes(q) ||
+          (r.userName || '').toLowerCase().includes(q) ||
+          (r.productName || '').toLowerCase().includes(q)
+      );
+    }
+    const page = query.page || 1;
+    const size = query.size || 10;
+    const start = (page - 1) * size;
+    const slice = filtered.slice(start, start + size);
+
+    return {
+      items: slice,
+      pageInfo: {
+        page,
+        size,
+        totalPages: Math.ceil(filtered.length / size) || 1,
+        totalElements: filtered.length,
+        hasNext: start + size < filtered.length,
+      },
+    };
+  },
+
+  /**
+   * API 12.3 Phụ: PUT /api/v1/admin/reviews/{id}/reply
+   * Cửa hàng phản hồi đánh giá (Portal - STAFF / ADMIN)
+   */
+  async replyAdminReview(id: number, replyText: string): Promise<ProductReview | null> {
+    try {
+      const res = await apiClient.put<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>(`/admin/reviews/${id}/reply`, { reply: replyText });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        return {
+          reviewId: d.reviewId,
+          orderItemId: d.orderItemId,
+          productId: d.productId,
+          productName: d.productName,
+          userName: d.customerName || 'Khách hàng',
+          userPhoneMasked: '098****321',
+          rating: d.rating,
+          comment: d.comment,
+          storeReply: d.reply,
+          reply: d.reply,
+          repliedAt: d.repliedAt,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+          isBuyerVerified: d.isVerifiedPurchase ?? true,
+          isVerifiedPurchase: d.isVerifiedPurchase ?? true,
+          status: d.status || 'APPROVED',
+        };
+      }
+    } catch (err) {
+      console.warn('[reviewService.replyAdminReview] Fallback to sharedStore', err);
+    }
+
+    // Fallback: cập nhật local trong sharedStore
+    const all = sharedStore.getReviews();
+    const rev = all.find((r) => r.reviewId === id);
+    if (rev) {
+      rev.storeReply = replyText;
+      rev.reply = replyText;
+      rev.repliedAt = new Date().toISOString();
+      return rev;
+    }
+    return null;
+  },
+};
+
+// ================= SUPPORT TICKET SERVICE =================
+export const ticketService = {
+  /**
+   * API 12.4: POST /api/v1/support-tickets
+   * Gửi phiếu hỗ trợ khiếu nại / kỹ thuật (Client - Auth)
+   */
+  async createTicket(payload: CreateTicketPayload): Promise<{
+    success: boolean;
+    message: string;
+    ticket?: PortalSupportTicket;
+  }> {
+    try {
+      const res = await apiClient.post<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>('/support-tickets', payload);
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedTicket: PortalSupportTicket = {
+          ticketId: d.ticketId,
+          userId: d.userId,
+          customerName: d.customerName,
+          customerEmail: d.customerEmail,
+          customerPhone: d.customerPhone,
+          phone: d.customerPhone || '0912345678',
+          category: d.subject,
+          content: d.description,
+          subject: d.subject,
+          description: d.description,
+          priority: d.priority,
+          status: d.status,
+          handledById: d.handledById,
+          handledByName: d.handledByName,
+          resolutionNote: d.resolutionNote,
+          resolvedAt: d.resolvedAt,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        };
+        return {
+          success: true,
+          message: res.data.message || 'Gửi phiếu hỗ trợ thành công',
+          ticket: mappedTicket,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[ticketService.createTicket] Fallback to sharedStore', err);
+      if (err.response?.data?.message) {
+        return {
+          success: false,
+          message: err.response.data.message,
+        };
+      }
+    }
+
+    // Fallback
+    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const newT: PortalSupportTicket = {
+      ticketId: Date.now(),
+      customerName: user.fullName || 'Khách hàng',
+      phone: user.phone || '0912345678',
+      category: payload.subject,
+      content: payload.description,
+      subject: payload.subject,
+      description: payload.description,
+      priority: payload.priority || 'MEDIUM',
+      status: 'OPEN',
+      createdAt: new Date().toISOString(),
+    };
+    return {
+      success: true,
+      message: 'Gửi phiếu hỗ trợ thành công (đã lưu cục bộ)',
+      ticket: newT,
+    };
+  },
+
+  /**
+   * API 12.5: GET /api/v1/admin/support-tickets
+   * Quản lý phiếu hỗ trợ & thống kê trạng thái (Portal - STAFF / ADMIN)
+   */
+  async getAdminTickets(query: AdminTicketsQuery = {}): Promise<AdminTicketsResponse> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: {
+          items: any[];
+          pageInfo: ReviewPageInfo;
+          statusCounts: {
+            OPEN: number;
+            IN_PROGRESS: number;
+            RESOLVED: number;
+            CLOSED: number;
+          };
+        };
+      }>('/admin/support-tickets', { params: query });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedItems: PortalSupportTicket[] = (d.items || []).map((it) => ({
+          ticketId: it.ticketId,
+          userId: it.userId,
+          customerName: it.customerName,
+          customerEmail: it.customerEmail,
+          customerPhone: it.customerPhone,
+          phone: it.customerPhone || '0912345678',
+          category: it.subject || it.category,
+          content: it.description || it.content,
+          subject: it.subject,
+          description: it.description,
+          priority: it.priority,
+          status: it.status,
+          handledById: it.handledById,
+          handledByName: it.handledByName,
+          handledBy: it.handledByName,
+          resolutionNote: it.resolutionNote,
+          reply: it.resolutionNote,
+          createdAt: it.createdAt,
+          updatedAt: it.updatedAt,
+        }));
+
+        return {
+          items: mappedItems,
+          pageInfo: d.pageInfo,
+          statusCounts: d.statusCounts || {
+            OPEN: 0,
+            IN_PROGRESS: 0,
+            RESOLVED: 0,
+            CLOSED: 0,
+          },
+        };
+      }
+    } catch (err) {
+      console.warn('[ticketService.getAdminTickets] Fallback to sharedStore', err);
+    }
+
+    // Fallback sang sharedStore
+    const all = sharedStore.getTickets();
+    const openCount = all.filter((t) => t.status === 'WAITING' || (t.status as string) === 'OPEN').length;
+    const resolvedCount = all.filter((t) => t.status === 'RESOLVED').length;
+    const rejectedCount = all.filter((t) => t.status === 'REJECTED' || (t.status as string) === 'CLOSED').length;
+
+    return {
+      items: all,
+      pageInfo: {
+        page: 1,
+        size: all.length,
+        totalPages: 1,
+        totalElements: all.length,
+        hasNext: false,
+      },
+      statusCounts: {
+        OPEN: openCount,
+        IN_PROGRESS: 0,
+        RESOLVED: resolvedCount,
+        CLOSED: rejectedCount,
+      },
+    };
+  },
+
+  /**
+   * API 12.5 Phụ: PUT /api/v1/admin/support-tickets/{id}
+   * Tiếp nhận, xử lý & đóng phiếu hỗ trợ (Portal - STAFF / ADMIN)
+   */
+  async updateAdminTicket(
+    id: number,
+    payload: UpdateAdminTicketPayload
+  ): Promise<{ success: boolean; message: string; ticket?: PortalSupportTicket }> {
+    try {
+      const res = await apiClient.put<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>(`/admin/support-tickets/${id}`, payload);
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedTicket: PortalSupportTicket = {
+          ticketId: d.ticketId,
+          userId: d.userId,
+          customerName: d.customerName,
+          customerEmail: d.customerEmail,
+          customerPhone: d.customerPhone,
+          phone: d.customerPhone || '0912345678',
+          category: d.subject || d.category,
+          content: d.description || d.content,
+          subject: d.subject,
+          description: d.description,
+          priority: d.priority,
+          status: d.status,
+          handledById: d.handledById,
+          handledByName: d.handledByName,
+          handledBy: d.handledByName,
+          resolutionNote: d.resolutionNote,
+          reply: d.resolutionNote,
+          resolvedAt: d.resolvedAt,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        };
+        return {
+          success: true,
+          message: res.data.message || 'Cập nhật phiếu hỗ trợ thành công',
+          ticket: mappedTicket,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[ticketService.updateAdminTicket] Fallback to sharedStore', err);
+      if (err.response?.data?.message) {
+        return {
+          success: false,
+          message: err.response.data.message,
+        };
+      }
+    }
+
+    // Fallback: update local
+    const tickets = sharedStore.getTickets();
+    const t = tickets.find((item) => item.ticketId === id);
+    if (t) {
+      t.status = (payload.status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED') as any;
+      t.reply = payload.resolutionNote;
+      t.resolutionNote = payload.resolutionNote;
+      t.handledBy = 'Trần Thị CSKH (STAFF)';
+      t.handledAt = new Date().toISOString();
+    }
+    return {
+      success: true,
+      message: 'Cập nhật phiếu hỗ trợ thành công (lưu cục bộ)',
+      ticket: t,
+    };
+  },
+};
+
+// ================= FAQ SERVICE =================
+export const faqService = {
+  /**
+   * API 12.6: GET /api/v1/faqs
+   * Xem danh sách FAQ nhóm theo chuyên mục (Client - Public)
+   */
+  async getFaqs(category?: string): Promise<FaqGroupItem[]> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: Array<{
+          category: string;
+          items: Array<{
+            faqId: number;
+            question: string;
+            answer: string;
+            category: string;
+            displayOrder: number;
+            isActive: boolean;
+            createdAt: string;
+          }>;
+        }>;
+      }>('/faqs', { params: category ? { category } : {} });
+
+      if (res.data?.data && Array.isArray(res.data.data)) {
+        return res.data.data.map((group) => ({
+          category: group.category,
+          items: (group.items || []).map((it) => ({
+            faqId: it.faqId,
+            topic: it.category,
+            category: it.category,
+            question: it.question,
+            answer: it.answer,
+            isVisible: it.isActive,
+            isActive: it.isActive,
+            sortOrder: it.displayOrder,
+            displayOrder: it.displayOrder,
+            createdAt: it.createdAt,
+          })),
+        }));
+      }
+    } catch (err) {
+      console.warn('[faqService.getFaqs] Fallback to sharedStore', err);
+    }
+
+    // Fallback: nhóm từ sharedStore
+    const localFaqs = sharedStore.getFaqs();
+    const groupMap: Record<string, PortalFaqItem[]> = {};
+
+    localFaqs.forEach((f) => {
+      const cat = f.category || f.topic || 'Chung';
+      if (!groupMap[cat]) groupMap[cat] = [];
+      groupMap[cat].push({
+        ...f,
+        category: cat,
+        isActive: f.isVisible,
+        displayOrder: f.sortOrder,
+      });
+    });
+
+    return Object.keys(groupMap).map((cat) => ({
+      category: cat,
+      items: groupMap[cat],
+    }));
+  },
+
+  /**
+   * API 12.7: POST /api/v1/admin/faqs
+   * Thêm câu hỏi FAQ mới (Portal - ADMIN)
+   */
+  async createAdminFaq(payload: CreateFaqPayload): Promise<{
+    success: boolean;
+    message: string;
+    faq?: PortalFaqItem;
+  }> {
+    try {
+      const res = await apiClient.post<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>('/admin/faqs', {
+        question: payload.question,
+        answer: payload.answer,
+        category: payload.category,
+        displayOrder: payload.displayOrder ?? 1,
+        isActive: payload.isActive ?? true,
+      });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedFaq: PortalFaqItem = {
+          faqId: d.faqId,
+          topic: d.category,
+          category: d.category,
+          question: d.question,
+          answer: d.answer,
+          isVisible: d.isActive,
+          isActive: d.isActive,
+          sortOrder: d.displayOrder,
+          displayOrder: d.displayOrder,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+        };
+        // Đồng bộ sharedStore
+        sharedStore.addFaq({
+          topic: mappedFaq.topic,
+          question: mappedFaq.question,
+          answer: mappedFaq.answer,
+          isVisible: mappedFaq.isVisible,
+          sortOrder: mappedFaq.sortOrder,
+        });
+        return {
+          success: true,
+          message: res.data.message || 'Thêm FAQ thành công',
+          faq: mappedFaq,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[faqService.createAdminFaq] Fallback to sharedStore', err);
+      if (err.response?.data?.message) {
+        return {
+          success: false,
+          message: err.response.data.message,
+        };
+      }
+    }
+
+    // Fallback: Lưu vào sharedStore
+    const localFaq = sharedStore.addFaq({
+      topic: payload.category,
+      question: payload.question,
+      answer: payload.answer,
+      isVisible: payload.isActive ?? true,
+      sortOrder: payload.displayOrder ?? 1,
+    });
+    return {
+      success: true,
+      message: 'Thêm FAQ thành công (lưu cục bộ)',
+      faq: localFaq,
+    };
+  },
+};

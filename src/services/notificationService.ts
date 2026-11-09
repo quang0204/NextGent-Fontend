@@ -1,7 +1,7 @@
+import { apiClient } from './apiClient';
 import { NotificationItem } from '../types/notification';
 
 // Mock seed notifications for demo and development
-// Phân tách theo userId để bảo mật và toàn vẹn dữ liệu
 const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   {
     notificationId: 1,
@@ -86,54 +86,120 @@ const saveNotifications = (items: NotificationItem[]) => {
   }
 };
 
-/**
- * Service Abstraction cho Trung tâm Thông báo (Notifications Center)
- * Hỗ trợ mock adapter và sẵn sàng chuyển đổi RESTful API:
- * - GET    /api/notifications
- * - PATCH  /api/notifications/:id/read
- * - PATCH  /api/notifications/read-all
- * - DELETE /api/notifications/:id
- */
+export interface NotificationFetchResult {
+  items: NotificationItem[];
+  unreadCount: number;
+}
+
 export const notificationService = {
-  async getNotifications(userId: number): Promise<NotificationItem[]> {
-    // Giả lập network latency 100ms
-    await new Promise(r => setTimeout(r, 100));
+  /**
+   * API 13.3: GET /api/v1/notifications
+   * Lấy danh sách thông báo của tôi (Client - Auth)
+   */
+  async getNotifications(userId: number, page: number = 1, size: number = 20): Promise<NotificationFetchResult> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: {
+          items: any[];
+          unreadCount: number;
+          pageInfo: any;
+        };
+      }>('/notifications', { params: { page, size } });
+
+      if (res.data?.data) {
+        const d = res.data.data;
+        const mappedItems: NotificationItem[] = (d.items || []).map((it) => ({
+          notificationId: it.notificationId,
+          userId: it.userId || userId,
+          orderId: it.orderId,
+          orderCode: it.orderId ? `DH-${it.orderId}` : undefined,
+          title: it.title,
+          content: it.content,
+          type: it.orderId ? 'ORDER' : (it.type || 'SYSTEM'),
+          isRead: it.isRead,
+          createdAt: it.createdAt,
+        }));
+        return {
+          items: mappedItems,
+          unreadCount: d.unreadCount ?? mappedItems.filter((n) => !n.isRead).length,
+        };
+      }
+    } catch (err) {
+      console.warn('[notificationService.getNotifications] Fallback to local storage', err);
+    }
+
     const all = getStoredNotifications();
-    return all.filter(n => n.userId === userId).sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    const userNotifs = all
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return {
+      items: userNotifs,
+      unreadCount: userNotifs.filter((n) => !n.isRead).length,
+    };
   },
 
+  /**
+   * API 13.4: PATCH /api/v1/notifications/{id}/read
+   * Đánh dấu một thông báo đã đọc
+   */
   async markAsRead(notificationId: number): Promise<boolean> {
+    try {
+      await apiClient.patch(`/notifications/${notificationId}/read`);
+    } catch (err) {
+      console.warn('[notificationService.markAsRead] Fallback to local storage', err);
+    }
     const all = getStoredNotifications();
-    const updated = all.map(n => n.notificationId === notificationId? {...n, isRead: true }: n);
+    const updated = all.map((n) => (n.notificationId === notificationId ? { ...n, isRead: true } : n));
     saveNotifications(updated);
     return true;
   },
 
+  /**
+   * API 13.4 Phụ: PATCH /api/v1/notifications/read-all
+   * Đánh dấu tất cả thông báo đã đọc
+   */
   async markAllAsRead(userId: number): Promise<boolean> {
+    try {
+      await apiClient.patch('/notifications/read-all');
+    } catch (err) {
+      console.warn('[notificationService.markAllAsRead] Fallback to local storage', err);
+    }
     const all = getStoredNotifications();
-    const updated = all.map(n => n.userId === userId? {...n, isRead: true }: n);
+    const updated = all.map((n) => (n.userId === userId ? { ...n, isRead: true } : n));
     saveNotifications(updated);
     return true;
   },
 
+  /**
+   * API: DELETE /api/v1/notifications/{id}
+   * Xóa một thông báo
+   */
   async deleteNotification(notificationId: number): Promise<boolean> {
+    try {
+      await apiClient.delete(`/notifications/${notificationId}`);
+    } catch (err) {
+      console.warn('[notificationService.deleteNotification] Fallback to local storage', err);
+    }
     const all = getStoredNotifications();
-    const updated = all.filter(n => n.notificationId!== notificationId);
+    const updated = all.filter((n) => n.notificationId !== notificationId);
     saveNotifications(updated);
     return true;
   },
 
-  async createNotification(notif: Omit<NotificationItem, 'notificationId' | 'createdAt' | 'isRead'>): Promise<NotificationItem> {
+  async createNotification(
+    notif: Omit<NotificationItem, 'notificationId' | 'createdAt' | 'isRead'>
+  ): Promise<NotificationItem> {
     const all = getStoredNotifications();
-    const newItem: NotificationItem = {...notif,
+    const newItem: NotificationItem = {
+      ...notif,
       notificationId: Date.now(),
       isRead: false,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
     all.unshift(newItem);
     saveNotifications(all);
     return newItem;
-  }
+  },
 };

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { wishlistService } from '../services/wishlistService';
 
 interface WishlistStore {
   productIds: number[];
@@ -7,6 +8,7 @@ interface WishlistStore {
   toggleWishlist: (productId: number) => boolean; // returns true if added, false if removed
   isInWishlist: (productId: number) => boolean;
   getCount: () => number;
+  syncWithBackend: () => Promise<void>;
 }
 
 const getWishlistKey = (userId?: number | null): string => {
@@ -67,6 +69,12 @@ export const useWishlistStore = create<WishlistStore>((set, get) => ({
     const key = getWishlistKey(get().currentUserId);
     localStorage.setItem(key, JSON.stringify(updated));
     set({ productIds: updated });
+
+    // Gọi API 13.2 ngầm để đồng bộ backend
+    wishlistService.toggleWishlist(productId).catch(err => {
+      console.warn('[wishlistStore] toggleWishlist API failed, kept local state', err);
+    });
+
     return !exists;
   },
 
@@ -76,5 +84,19 @@ export const useWishlistStore = create<WishlistStore>((set, get) => ({
 
   getCount: () => {
     return get().productIds.length;
+  },
+
+  syncWithBackend: async () => {
+    try {
+      const res = await wishlistService.getWishlist();
+      if (res?.items) {
+        const ids = res.items.map(it => it.productId);
+        const key = getWishlistKey(get().currentUserId);
+        localStorage.setItem(key, JSON.stringify(ids));
+        set({ productIds: ids });
+      }
+    } catch (err) {
+      console.warn('[wishlistStore] syncWithBackend failed', err);
+    }
   }
 }));

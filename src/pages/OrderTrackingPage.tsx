@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { orderService } from '../services/orderService';
+import { paymentService, PaymentIntentData } from '../services/paymentService';
 import { sharedStore, cleanLogNote } from '../services/sharedStore';
 import { productService } from '../services/productService';
 import { useAuthStore } from '../stores/authStore';
@@ -136,6 +137,7 @@ export const OrderTrackingPage: React.FC = () => {
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [visibleCount, setVisibleCount] = useState(8);
   const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [paymentIntent, setPaymentIntent] = useState<PaymentIntentData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
 
@@ -206,6 +208,20 @@ export const OrderTrackingPage: React.FC = () => {
       setViewMode('list');
     }
   }, [urlCode]);
+
+  // API 10.1: POST /api/v1/payments/create-intent khi đơn ở trạng thái PENDING_PAYMENT
+  useEffect(() => {
+    if (order && order.status === 'PENDING_PAYMENT') {
+      paymentService.createPaymentIntent({
+        orderId: order.orderId,
+        paymentMethod: 'BANK_TRANSFER',
+      }).then(intent => {
+        if (intent) setPaymentIntent(intent);
+      }).catch(err => {
+        console.warn('[OrderTrackingPage] createPaymentIntent error', err);
+      });
+    }
+  }, [order?.orderId, order?.status]);
 
   const handleOpenReviewModal = (item: OrderItemSnapshot, ord: OrderDetail) => {
     setReviewModalItem({
@@ -617,7 +633,9 @@ export const OrderTrackingPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
                   <div className="sm:col-span-4 bg-canvas p-3 rounded-xl border border-hairline-soft text-center">
                     <img 
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=NEXTPICK_${order.orderCode}`}
+                      src={paymentIntent?.qrContent 
+                        ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(paymentIntent.qrContent)}` 
+                        : `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=NEXTPICK_${order.orderCode}`}
                       alt="VietQR Demo" 
                       className="mx-auto w-32 h-32 object-contain"
                     />
@@ -625,17 +643,31 @@ export const OrderTrackingPage: React.FC = () => {
                   </div>
 
                   <div className="sm:col-span-8 space-y-2 text-charcoal">
-                    <div>Ngân hàng: <strong className="text-ink-deep">MBBank (Ngân hàng Quân Đội)</strong></div>
-                    <div>Số tài khoản: <strong className="font-mono text-sm text-primary">0987654321</strong></div>
-                    <div>Chủ tài khoản: <strong className="text-ink-deep">CÔNG TY NEXTGEN SMART TECH RETAIL</strong></div>
-                    <div>Số tiền: <strong className="font-bold text-ink-deep">{formatVND(order.totalAmount)}</strong></div>
-                    <div>Nội dung CK: <strong className="font-mono text-ink-deep bg-canvas px-2 py-0.5 rounded border border-hairline-soft">{order.orderCode}</strong></div>
+                    <div>Ngân hàng: <strong className="text-ink-deep">{paymentIntent?.bankName || 'MBBank (Ngân hàng Quân Đội)'}</strong></div>
+                    <div>Số tài khoản: <strong className="font-mono text-sm text-primary">{paymentIntent?.bankAccountNumber || '0987654321'}</strong></div>
+                    <div>Chủ tài khoản: <strong className="text-ink-deep">{paymentIntent?.bankAccountName || 'CÔNG TY NEXTGEN SMART TECH RETAIL'}</strong></div>
+                    <div>Số tiền: <strong className="font-bold text-ink-deep">{formatVND(paymentIntent?.amount || order.totalAmount)}</strong></div>
+                    <div>Nội dung CK: <strong className="font-mono text-ink-deep bg-canvas px-2 py-0.5 rounded border border-hairline-soft">{paymentIntent?.transferContent || order.orderCode}</strong></div>
                     <p className="text-[11px] text-steel pt-1">
                       * Sau khi hoàn tất chuyển khoản, vui lòng nhấn nút bên dưới để nhân viên đối soát duyệt đơn.
                     </p>
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        // API 10.2: Xác nhận thanh toán callback
+                        if (paymentIntent?.transactionRef) {
+                          try {
+                            await paymentService.simulateCallback({
+                              transactionRef: paymentIntent.transactionRef,
+                              success: true,
+                              amount: order.totalAmount,
+                              note: 'Khách hàng xác nhận đã chuyển khoản thành công'
+                            });
+                            fetchOrder(order.orderCode);
+                          } catch (cbErr) {
+                            console.warn('[OrderTrackingPage] simulateCallback error', cbErr);
+                          }
+                        }
                         showToast("Đã ghi nhận thông báo chuyển khoản! Đang chờ nhân viên đối soát.", 'success');
                       }}
                       className="btn-marketing px-4 py-2 rounded-full text-xs font-bold"

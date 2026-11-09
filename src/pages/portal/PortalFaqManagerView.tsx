@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { faqService } from '../../services/feedbackService';
 import { PortalFaqItem } from '../../types/portal';
 import { 
   HelpCircle, 
@@ -31,6 +32,17 @@ export const PortalFaqManagerView: React.FC = () => {
   const [isVisible, setIsVisible] = useState(true);
   const [formError, setFormError] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    faqService.getFaqs().then(groups => {
+      if (groups && groups.length > 0) {
+        const flatItems = groups.flatMap(g => g.items);
+        if (flatItems.length > 0) {
+          setFaqs(flatItems);
+        }
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsub = sharedStore.subscribe(() => {
@@ -72,7 +84,7 @@ export const PortalFaqManagerView: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSaveFaq = (e: React.FormEvent) => {
+  const handleSaveFaq = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!question.trim() ||!answer.trim()) {
       setFormError('Vui lòng điền đầy đủ câu hỏi và câu trả lời!');
@@ -88,13 +100,23 @@ export const PortalFaqManagerView: React.FC = () => {
       });
       showNotification('Đã cập nhật câu hỏi FAQ thành công!');
     } else {
-      sharedStore.addFaq({
-        topic,
-        question: question.trim(),
-        answer: answer.trim(),
-        isVisible,
-        sortOrder: faqs.length + 1
-      });
+      try {
+        await faqService.createAdminFaq({
+          question: question.trim(),
+          answer: answer.trim(),
+          category: topic,
+          displayOrder: faqs.length + 1,
+          isActive: isVisible,
+        });
+      } catch (err) {
+        sharedStore.addFaq({
+          topic,
+          question: question.trim(),
+          answer: answer.trim(),
+          isVisible,
+          sortOrder: faqs.length + 1
+        });
+      }
       showNotification('Đã thêm câu hỏi FAQ mới!');
     }
 

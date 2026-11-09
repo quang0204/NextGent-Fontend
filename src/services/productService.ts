@@ -2,6 +2,7 @@ import { apiClient } from './apiClient';
 import { Product, Brand } from '../types/product';
 import { ProductReview } from '../types/review';
 import { sharedStore } from './sharedStore';
+import { reviewService } from './feedbackService';
 
 export interface ProductFilterParams {
   category?: string;
@@ -137,17 +138,17 @@ export const productService = {
     }
   },
 
-  // Lấy đánh giá của sản phẩm
+  // Lấy đánh giá của sản phẩm (API 12.1)
   async getReviews(productId: number): Promise<ProductReview[]> {
     try {
-      const response = await apiClient.get<ProductReview[]>(`/public/products/${productId}/reviews`);
-      return response.data;
+      const res = await reviewService.getProductReviews(productId);
+      return res.items;
     } catch {
       return sharedStore.getReviews(productId);
     }
   },
 
-  // Gửi đánh giá mới với kiểm tra điều kiện đã mua hàng và hoàn tất
+  // Gửi đánh giá mới với kiểm tra điều kiện đã mua hàng và hoàn tất (API 12.2)
   async submitReview(review: {
     orderItemId?: number;
     productId: number;
@@ -158,12 +159,15 @@ export const productService = {
     comment: string;
     images?: string[];
   }): Promise<{ success: boolean; message: string; review?: ProductReview }> {
-    try {
-      const response = await apiClient.post<{ success: boolean; message: string; data: ProductReview }>(`/customer/reviews`, review);
-      return { success: true, message: response.data.message, review: response.data.data };
-    } catch {
-      return sharedStore.submitReview(review);
+    if (review.orderItemId) {
+      const res = await reviewService.createReview({
+        orderItemId: review.orderItemId,
+        rating: review.rating,
+        comment: review.comment,
+      });
+      return res;
     }
+    return sharedStore.submitReview(review);
   },
 
   // Lấy danh sách sản phẩm so sánh

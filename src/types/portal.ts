@@ -82,15 +82,26 @@ export interface PortalAuditLog {
 
 export interface PortalSupportTicket {
   ticketId: number;
+  userId?: number;
   customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
   phone: string;
   category: string;
   content: string;
-  status: 'WAITING' | 'RESOLVED' | 'REJECTED';
+  subject?: string;
+  description?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  status: 'WAITING' | 'RESOLVED' | 'REJECTED' | 'OPEN' | 'IN_PROGRESS' | 'CLOSED';
   reply?: string;
   handledBy?: string;
+  handledById?: number | null;
+  handledByName?: string | null;
+  resolutionNote?: string | null;
   createdAt: string;
   handledAt?: string;
+  resolvedAt?: string | null;
+  updatedAt?: string;
 }
 
 // Bảng Categories (Bảng 3 Database)
@@ -177,10 +188,15 @@ export interface PortalShipment {
 export interface PortalFaqItem {
   faqId: number;
   topic: string;
+  category?: string;
   question: string;
   answer: string;
   isVisible: boolean;
+  isActive?: boolean;
   sortOrder: number;
+  displayOrder?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Bảng Promotions (Bảng 11 Database) & Promotion_Variants (Bảng 12 Database)
