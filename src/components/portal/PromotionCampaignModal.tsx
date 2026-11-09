@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { promotionService } from '../../services/promotionService';
 import { PortalPromotion, PortalPromotionVariant, PromotionStatus } from '../../types/portal';
 import { formatVND } from '../common/PriceDisplay';
 import { 
@@ -149,19 +150,29 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
       });
     }
 
-    // Lưu vào store
-    sharedStore.addPromotion({
+    // Gọi API 6.3: POST /api/v1/admin/promotions
+    const apiVariants = selectedIds.map(vId => ({
+      variantId: vId,
+      promoPrice: selectedVariantsMap[vId]
+    }));
+
+    promotionService.createPromotion({
       name: name.trim(),
       description: description.trim() || undefined,
-      startAt,
-      endAt,
+      startAt: new Date(startAt).toISOString(),
+      endAt: new Date(endAt).toISOString(),
       status,
-      createdBy: 'Nguyễn Thế Minh (Admin)',
-      variants: promotionVariants
+      variants: apiVariants,
+    }).then(res => {
+      if (!res.success) {
+        setErrorMsg(res.message);
+        return;
+      }
+      onSuccess();
+      onClose();
+    }).catch(err => {
+      setErrorMsg(err.message || 'Không thể tạo mới chiến dịch khuyến mãi.');
     });
-
-    onSuccess();
-    onClose();
   };
 
   return (

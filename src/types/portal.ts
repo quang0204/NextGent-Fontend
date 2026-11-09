@@ -1,4 +1,5 @@
 export interface PortalInventoryItem {
+  inventoryId?: number;
   variantId: number;
   productId: number;
   productName: string;
@@ -10,11 +11,12 @@ export interface PortalInventoryItem {
   availableQty: number;   // Tồn khả dụng (A = Q - R)
   minThreshold: number;   // Ngưỡng an toàn (Low stock alert)
   status: 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+  updatedAt?: string;
 }
 
 export interface StockAdjustmentRecord {
   id: number;
-  formCode: string;       // PKK-xxxx
+  formCode: string;       // PKK-xxxx hoặc MB05-xxxx
   sku: string;
   productName: string;
   qtySystem: number;      // Số lượng trên phần mềm trước điều chỉnh
@@ -28,13 +30,14 @@ export interface StockAdjustmentRecord {
 
 export interface StockMovementRecord {
   txnId: number;
-  formCode: string;       // PXK, PNK, PKK
+  formCode: string;       // PXK, PNK, PKK, MB03, MB05
   sku: string;
   productName: string;
-  txnType: 'EXPORT' | 'RETURN' | 'ADJUST' | 'IMPORT';
+  txnType: 'EXPORT' | 'RETURN' | 'ADJUST' | 'IMPORT' | 'ADJUSTMENT' | string;
   quantityChange: number;
   qtyBefore: number;
   qtyAfter: number;
+  orderId?: number;
   reason: string;
   performedBy: string;
   performedAt: string;

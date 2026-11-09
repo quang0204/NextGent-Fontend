@@ -4,6 +4,7 @@ import { useCartStore } from '../stores/cartStore';
 import { useToastStore } from '../stores/toastStore';
 import { formatVND } from '../components/common/PriceDisplay';
 import { sharedStore } from '../services/sharedStore';
+import { promotionService } from '../services/promotionService';
 import { 
   Trash2, 
   Plus, 
@@ -53,45 +54,45 @@ export const CartPage: React.FC = () => {
   const [voucherCode, setVoucherCode] = useState('');
   const [voucherDiscount, setVoucherDiscount] = useState(0);
   const [appliedVoucher, setAppliedVoucher] = useState('');
+  const [vouchers, setVouchers] = useState(sharedStore.getVouchers());
 
-  const vouchers = sharedStore.getVouchers();
+  // API 6.5: GET /api/v1/vouchers/valid
+  useEffect(() => {
+    promotionService.getValidVouchers().then(res => {
+      if (res && res.length > 0) {
+        setVouchers(res.map(v => ({
+          voucherId: v.voucherId,
+          code: v.code,
+          discountType: (v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE') ? 'PERCENT' : 'FIXED',
+          discountValue: v.discountValue,
+          maxDiscount: v.maxDiscount || undefined,
+          minOrderValue: v.minOrderValue,
+          usageLimit: v.usageLimit,
+          usedCount: v.usedCount,
+          startAt: '',
+          expiredAt: v.expiredAt,
+          isActive: true,
+        })));
+      }
+    }).catch(() => {});
+  }, []);
+
   const subtotal = getSelectedTotalAmount();
   const selectedCount = getSelectedCount();
   const finalTotal = Math.max(0, subtotal - voucherDiscount);
   const isAllSelected = items.length > 0 && selectedItemIds.length === items.length;
 
-  const applyVoucherByCode = (codeToApply: string) => {
+  // API 6.6: POST /api/v1/vouchers/apply
+  const applyVoucherByCode = async (codeToApply: string) => {
     const cleanCode = codeToApply.trim().toUpperCase();
-    const v = vouchers.find(vc => vc.code === cleanCode);
+    const res = await promotionService.applyVoucher(cleanCode, subtotal);
 
-    if (!v) {
-      showToast('Mã voucher không tồn tại trong hệ thống!', 'error');
+    if (!res.success) {
+      showToast(res.message, 'error');
       return;
     }
 
-    if (!v.isActive) {
-      showToast(`Mã ${cleanCode} hiện đang tạm ngưng áp dụng!`, 'warning');
-      return;
-    }
-
-    if (v.usedCount >= v.usageLimit) {
-      showToast(`Mã ${cleanCode} đã hết lượt sử dụng trong đợt khuyến mãi này!`, 'warning');
-      return;
-    }
-
-    if (subtotal < v.minOrderValue) {
-      showToast(`Mã ${cleanCode} chỉ áp dụng cho đơn hàng từ ${formatVND(v.minOrderValue)} trở lên!`, 'warning');
-      return;
-    }
-
-    let discount = 0;
-    if (v.discountType === 'FIXED') {
-      discount = v.discountValue;
-    } else {
-      const calc = Math.round((subtotal * v.discountValue) / 100);
-      discount = v.maxDiscount ? Math.min(calc, v.maxDiscount) : calc;
-    }
-
+    const discount = res.data?.discountAmount || 0;
     setVoucherDiscount(discount);
     setAppliedVoucher(cleanCode);
     setVoucherCode(cleanCode);

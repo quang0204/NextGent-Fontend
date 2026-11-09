@@ -292,11 +292,12 @@ export const OrderTrackingPage: React.FC = () => {
 
   const handleConfirmCancel = async () => {
     if (!order) return;
-    const success = await orderService.cancelOrder(order.orderId, cancelReason);
+    const success = await orderService.cancelOrder(order.orderCode, cancelReason);
     if (success) {
       showToast("Hủy đơn hàng thành công! Số lượng sản phẩm đã được giải phóng và hoàn lại tồn kho bán lẻ.", 'success');
       setShowCancelModal(false);
       fetchOrder(order.orderCode);
+      loadAllOrders();
     } else {
       showToast("Đơn hàng không ở trạng thái cho phép tự hủy (chỉ hủy được khi Chờ thanh toán hoặc Chờ xác nhận).", 'warning');
     }

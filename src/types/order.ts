@@ -73,3 +73,23 @@ export interface OrderResponse {
   paymentDeadline?: string;
   createdAt: string;
 }
+
+export interface OrderPipelineSummary {
+  pendingPayment: number;
+  waitingConfirmation: number;
+  confirmed: number;
+  preparing: number;
+  shipping: number;
+  completed: number;
+  cancelled: number;
+}
+
+export interface AdminOrdersPageResponse {
+  content: OrderDetail[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  hasNext: boolean;
+  pipelineSummary?: OrderPipelineSummary;
+}

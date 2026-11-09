@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { promotionService } from '../../services/promotionService';
 import { PortalVoucher, PortalPromotion } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { PromotionCampaignModal } from '../../components/portal/PromotionCampaignModal';
@@ -43,6 +44,57 @@ export const PortalPromotionsView: React.FC = () => {
   const [minOrderValue, setMinOrderValue] = useState<number>(5000000);
   const [usageLimit, setUsageLimit] = useState<number>(200);
 
+  // API 6.2: GET /api/v1/admin/promotions
+  const loadPromotions = useCallback(async () => {
+    try {
+      const res = await promotionService.getAdminPromotions();
+      if (res?.content && res.content.length > 0) {
+        setPromotions(res.content.map(p => ({
+          promotionId: p.promotionId,
+          name: p.name,
+          description: p.description,
+          startAt: p.startAt,
+          endAt: p.endAt,
+          status: p.status,
+          createdBy: p.createdBy,
+          createdAt: p.createdAt,
+          variants: p.variants || [],
+        })));
+      }
+    } catch (err) {
+      console.warn('[PortalPromotionsView] loadPromotions error', err);
+    }
+  }, []);
+
+  // API 6.7: GET /api/v1/admin/vouchers
+  const loadVouchers = useCallback(async () => {
+    try {
+      const res = await promotionService.getAdminVouchers();
+      if (res?.content && res.content.length > 0) {
+        setVouchers(res.content.map(v => ({
+          voucherId: v.voucherId,
+          code: v.code,
+          discountType: (v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE') ? 'PERCENT' : 'FIXED',
+          discountValue: v.discountValue,
+          maxDiscount: v.maxDiscount || undefined,
+          minOrderValue: v.minOrderValue,
+          usageLimit: v.usageLimit,
+          usedCount: v.usedCount,
+          startAt: v.startAt || '',
+          expiredAt: v.expiredAt,
+          isActive: v.isActive,
+        })));
+      }
+    } catch (err) {
+      console.warn('[PortalPromotionsView] loadVouchers error', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPromotions();
+    loadVouchers();
+  }, [loadPromotions, loadVouchers]);
+
   useEffect(() => {
     const unsubscribe = sharedStore.subscribe(() => {
       setPromotions([...sharedStore.getPromotions()]);
@@ -51,68 +103,47 @@ export const PortalPromotionsView: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  const handleAddVoucher = (e: React.FormEvent) => {
+  // API 6.8: POST /api/v1/admin/vouchers
+  const handleAddVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code.trim()) return;
 
     const cleanCode = code.trim().toUpperCase();
-    const existing = vouchers.find(v => v.code === cleanCode);
-    if (existing) {
-      alert(`Mã Voucher "${cleanCode}" đã tồn tại trên hệ thống! Vui lòng chọn mã khác.`);
-      return;
-    }
-
-    const newV: PortalVoucher = {
-      voucherId: Date.now(),
+    const res = await promotionService.createVoucher({
       code: cleanCode,
       discountType: 'FIXED',
       discountValue: discountValue,
       minOrderValue: minOrderValue,
       usageLimit: usageLimit,
-      usedCount: 0,
-      startAt: new Date().toISOString().split('T')[0],
-      expiredAt: '2026-12-31',
-      isActive: true
-    };
-
-    const updated = [newV,...vouchers];
-    localStorage.setItem('np_vouchers_v2', JSON.stringify(updated));
-    setVouchers(updated);
-    setCode('');
-    setShowAddVoucherModal(false);
-
-    sharedStore.addAuditLog({
-      performedBy: 'Nguyễn Thế Minh (Admin)',
-      action: 'CREATE_VOUCHER',
-      entityName: 'Vouchers',
-      entityId: cleanCode,
-      oldValue: 'None',
-      newValue: `Giảm ${formatVND(discountValue)} cho đơn từ ${formatVND(minOrderValue)} (Hạn mức: ${usageLimit} lượt)`
+      startAt: new Date().toISOString(),
+      expiredAt: '2026-12-31T23:59:59Z',
+      isActive: true,
     });
 
+    if (!res.success) {
+      alert(res.message);
+      return;
+    }
+
+    setCode('');
+    setShowAddVoucherModal(false);
+    loadVouchers();
     alert(`Đã khởi tạo mã Voucher ${cleanCode} thành công! Khách hàng có thể áp dụng ngay tại giỏ hàng.`);
   };
 
-  const handleToggleVoucher = (id: number) => {
-    const updated = vouchers.map(v => v.voucherId === id? {...v, isActive:!v.isActive }: v);
-    localStorage.setItem('np_vouchers_v2', JSON.stringify(updated));
-    setVouchers(updated);
-
-    const target = vouchers.find(v => v.voucherId === id);
-    if (target) {
-      sharedStore.addAuditLog({
-        performedBy: 'Nguyễn Thế Minh (Admin)',
-        action: 'TOGGLE_VOUCHER_STATUS',
-        entityName: 'Vouchers',
-        entityId: target.code,
-        oldValue: target.isActive? 'ACTIVE': 'INACTIVE',
-        newValue:!target.isActive? 'ACTIVE': 'INACTIVE'
-      });
-    }
+  // API 6.9: PATCH /api/v1/admin/vouchers/{id}/toggle
+  const handleToggleVoucher = async (id: number) => {
+    await promotionService.toggleVoucherStatus(id);
+    loadVouchers();
   };
 
-  const handleTogglePromotion = (id: number) => {
-    sharedStore.togglePromotionStatus(id);
+  // API 6.4: PUT /api/v1/admin/promotions/{id}/status
+  const handleTogglePromotion = async (id: number) => {
+    const target = promotions.find(p => p.promotionId === id);
+    if (!target) return;
+    const nextStatus = target.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    await promotionService.updatePromotionStatus(id, nextStatus);
+    loadPromotions();
   };
 
   const handleDeletePromotion = (id: number, name: string) => {
@@ -398,7 +429,10 @@ export const PortalPromotionsView: React.FC = () => {
       <PromotionCampaignModal
         isOpen={showAddPromoModal}
         onClose={() => setShowAddPromoModal(false)}
-        onSuccess={() => setPromotions([...sharedStore.getPromotions()])}
+        onSuccess={() => {
+          setPromotions([...sharedStore.getPromotions()]);
+          loadPromotions();
+        }}
       />
 
       {/* Modal 2: Thêm Voucher mới */}

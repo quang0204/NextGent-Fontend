@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { sharedStore, cleanLogNote } from '../../services/sharedStore';
+import { inventoryService } from '../../services/inventoryService';
+import { orderService } from '../../services/orderService';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../../types/order';
 import { PortalShipment, PortalReturnRequest } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
@@ -189,6 +191,27 @@ export const PortalOrdersView: React.FC = () => {
 
 
 
+  // API 8.5: Tải danh sách đơn hàng quản trị & Pipeline Funnel
+  const loadAdminOrders = useCallback(async () => {
+    try {
+      const res = await orderService.getAdminOrders({
+        page: currentPage,
+        size: pageSize,
+        status: selectedStatus,
+        paymentStatus: selectedPaymentStatus,
+      });
+      if (res?.content && res.content.length > 0) {
+        setOrders(res.content);
+      }
+    } catch (err) {
+      console.warn('[PortalOrdersView] loadAdminOrders error', err);
+    }
+  }, [currentPage, pageSize, selectedStatus, selectedPaymentStatus]);
+
+  useEffect(() => {
+    loadAdminOrders();
+  }, [loadAdminOrders]);
+
   // Subscribe changes from shared store
   useEffect(() => {
     const unsubscribe = sharedStore.subscribe(() => {
@@ -337,7 +360,15 @@ export const PortalOrdersView: React.FC = () => {
   };
 
   // Chuyển đổi trạng thái đơn lẻ
-  const handleTransition = (orderId: number, nextStatus: OrderStatus) => {
+  const handleTransition = async (orderId: number, nextStatus: OrderStatus) => {
+    // API 8.6: POST /api/v1/admin/orders/{id}/confirm
+    if (nextStatus === 'CONFIRMED') {
+      await orderService.confirmOrder(orderId, { carrier: 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+    }
+    // API 8.7: POST /api/v1/admin/orders/{id}/pack-export
+    if (nextStatus === 'SHIPPING') {
+      await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+    }
     const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
       performedBy: 'Nguyễn Thanh Hùng (Staff)'
     });
@@ -346,18 +377,21 @@ export const PortalOrdersView: React.FC = () => {
     } else {
       setBulkActionFeedback(`✓ Đã chuyển trạng thái đơn hàng sang ${nextStatus}!`);
       setTimeout(() => setBulkActionFeedback(null), 3000);
+      loadAdminOrders();
     }
   };
 
-  // Xác nhận hủy đơn hàng an toàn
-  const handleConfirmCancelOrder = () => {
+  // Xác nhận hủy đơn hàng an toàn (API 8.4: POST /api/v1/orders/{orderCode}/cancel)
+  const handleConfirmCancelOrder = async () => {
     if (!cancelModal) return;
     const finalReason = customCancelReason.trim()? customCancelReason.trim(): cancelReason;
 
+    await orderService.cancelOrder(cancelModal.orderCode, finalReason, 'Quản trị viên (Admin)');
     const ok = sharedStore.cancelOrder(cancelModal.orderId, finalReason, 'Quản trị viên (Admin)');
     if (ok) {
       setBulkActionFeedback(`✓ Đã hủy đơn hàng #${cancelModal.orderCode} và giải phóng tồn kho thành công!`);
       setTimeout(() => setBulkActionFeedback(null), 3500);
+      loadAdminOrders();
     } else {
       alert('Không thể hủy đơn hàng này do trạng thái hiện tại không hợp lệ (Chỉ cho phép hủy khi đang Chờ thanh toán hoặc Chờ xác nhận).');
     }
@@ -393,6 +427,12 @@ export const PortalOrdersView: React.FC = () => {
       const order = orders.find(o => o.orderId === orderId);
       if (!order) return;
 
+      if (targetStatus === 'CONFIRMED' && (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT')) {
+        orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+      } else if (targetStatus === 'SHIPPING' && (order.status === 'PREPARING' || order.status === 'PICKED_UP')) {
+        orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+      }
+
       const res = sharedStore.transitionOrderStatus(orderId, targetStatus, {
         performedBy: 'Nguyễn Thanh Hùng (Staff)'
       });
@@ -408,6 +448,7 @@ export const PortalOrdersView: React.FC = () => {
       setBulkActionFeedback(`✓ Đã ${actionName} thành công cho ${successCount} đơn hàng!${failCount > 0? ` (${failCount} đơn không đủ điều kiện chuyển bước)`: ''}`);
       setTimeout(() => setBulkActionFeedback(null), 4000);
       setSelectedOrderIds([]);
+      loadAdminOrders();
     } else {
       alert(`Không thể thực hiện cho các đơn đã chọn vì không phù hợp với quy trình tuần tự nghiêm ngặt.`);
     }
@@ -429,6 +470,11 @@ export const PortalOrdersView: React.FC = () => {
       else if (order.status === 'SHIPPING') nextStatus = 'COMPLETED';
 
       if (nextStatus) {
+        if (nextStatus === 'CONFIRMED') {
+          orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+        } else if (nextStatus === 'SHIPPING') {
+          orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+        }
         const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
           performedBy: 'Nguyễn Thanh Hùng (Staff)'
         });

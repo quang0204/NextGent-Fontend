@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { productService } from '../services/productService';
+import { promotionService } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
 import { 
@@ -33,9 +34,11 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
+      // API 6.1: GET /api/v1/promotions/active song song với danh mục & sản phẩm
       const [allProducts, allBrands] = await Promise.all([
         productService.getProducts(),
-        productService.getBrands()
+        productService.getBrands(),
+        promotionService.getActivePromotions().catch(() => [])
       ]);
       setProducts(allProducts);
       setBrands(allBrands);

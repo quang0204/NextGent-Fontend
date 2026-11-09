@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { inventoryService } from '../../services/inventoryService';
 import { 
   PortalInventoryItem, 
   StockAdjustmentRecord, 
@@ -39,6 +40,45 @@ export const PortalInventoryView: React.FC = () => {
   // Modal xem phiếu kiểm kê
   const [viewMb05Record, setViewMb05Record] = useState<StockAdjustmentRecord | null>(null);
 
+  // API 5.1 & 5.5: Tải danh sách tồn kho biến thể từ Backend
+  const loadInventories = useCallback(async () => {
+    try {
+      const res = await inventoryService.getInventories({
+        page: 1,
+        size: 100,
+        keyword: searchTerm,
+        lowStockOnly: filterLowStockOnly,
+      });
+      if (res?.content && res.content.length > 0) {
+        setInventories(res.content);
+      }
+    } catch (err) {
+      console.warn('[PortalInventoryView] loadInventories error', err);
+    }
+  }, [searchTerm, filterLowStockOnly]);
+
+  // API 5.4: Tải sổ cái biến động kho từ Backend
+  const loadTransactions = useCallback(async () => {
+    try {
+      const res = await inventoryService.getTransactions({ page: 1, size: 100 });
+      if (res?.content && res.content.length > 0) {
+        setMovements(res.content);
+      }
+    } catch (err) {
+      console.warn('[PortalInventoryView] loadTransactions error', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadInventories();
+  }, [loadInventories]);
+
+  useEffect(() => {
+    if (activeTab === 'movements') {
+      loadTransactions();
+    }
+  }, [activeTab, loadTransactions]);
+
   useEffect(() => {
     const unsubscribe = sharedStore.subscribe(() => {
       setInventories([...sharedStore.getInventories()]);
@@ -47,6 +87,13 @@ export const PortalInventoryView: React.FC = () => {
     });
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (inventories.length > 0 && (!selectedSkuForAdj || !inventories.some(i => i.sku === selectedSkuForAdj))) {
+      setSelectedSkuForAdj(inventories[0].sku);
+      setActualCount(inventories[0].onHandQty);
+    }
+  }, [inventories, selectedSkuForAdj]);
 
   const currentInventoryItem = inventories.find(i => i.sku === selectedSkuForAdj) || inventories[0];
   const calculatedDiff = currentInventoryItem? actualCount - currentInventoryItem.onHandQty: 0;
@@ -83,18 +130,17 @@ export const PortalInventoryView: React.FC = () => {
     setStockPage(1);
   }, [searchTerm, filterLowStockOnly]);
 
-  // Xử lý tạo Phiếu điều chỉnh tồn kho kiểm kê
-  const handleCreateAdjustment = (e: React.FormEvent) => {
+  // Xử lý tạo Phiếu điều chỉnh tồn kho kiểm kê (API 5.3: POST /api/v1/admin/inventories/adjustments)
+  const handleCreateAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentInventoryItem) return;
 
     const fullReason = `${adjReason}${adjDetailedReason? `: ${adjDetailedReason}`: ''}`;
-    const res = sharedStore.createStockAdjustment(
-      currentInventoryItem.sku,
+    const res = await inventoryService.createStockAdjustment({
+      variantId: currentInventoryItem.variantId,
       actualCount,
-      fullReason,
-      'Nguyễn Thanh Hùng (Thủ kho)'
-    );
+      reason: fullReason,
+    });
 
     if (!res.success) {
       alert(res.message);
@@ -102,6 +148,9 @@ export const PortalInventoryView: React.FC = () => {
       alert(res.message);
       setAdjDetailedReason('');
       setActiveTab('adjustment');
+      setAdjustments([...sharedStore.getAdjustments()]);
+      loadInventories();
+      loadTransactions();
     }
   };
 
