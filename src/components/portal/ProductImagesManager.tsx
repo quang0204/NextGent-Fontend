@@ -1,24 +1,20 @@
 import React, { useState } from 'react';
-import { Image, Plus, Trash2, ArrowUp, ArrowDown, Star, Upload, Loader2 } from 'lucide-react';
-import { storageService, StorageFileResponse } from '../../services/storageService';
+import { Image, Plus, Trash2, ArrowUp, ArrowDown, CheckCircle, Star, Upload } from 'lucide-react';
 
 interface ProductImagesManagerProps {
   gallery: string[];
   thumbnail: string;
   onChangeGallery: (updatedGallery: string[]) => void;
   onChangeThumbnail: (primaryUrl: string) => void;
-  onImageUploaded?: (uploaded: StorageFileResponse) => void;
 }
 
 export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
   gallery,
   thumbnail,
   onChangeGallery,
-  onChangeThumbnail,
-  onImageUploaded
+  onChangeThumbnail
 }) => {
   const [newImageUrl, setNewImageUrl] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
 
   const handleAddImage = () => {
     if (!newImageUrl.trim()) return;
@@ -35,33 +31,28 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
     setNewImageUrl('');
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = '';
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, GIF)!');
+      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, JPEG)!');
       return;
     }
 
-    setIsUploading(true);
-    try {
-      const uploaded = await storageService.uploadImageToMinio(file);
-      onImageUploaded?.(uploaded);
-      const updated = gallery.includes(uploaded.imageUrl)
-        ? gallery
-        : [...gallery, uploaded.imageUrl];
-      onChangeGallery(updated);
-      if (!thumbnail) {
-        onChangeThumbnail(uploaded.imageUrl);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      if (base64Url) {
+        const updated = [...gallery, base64Url];
+        onChangeGallery(updated);
+        if (!thumbnail) {
+          onChangeThumbnail(base64Url);
+        }
       }
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Không thể tải ảnh lên MinIO.';
-      alert(`Lỗi tải ảnh: ${msg}`);
-    } finally {
-      setIsUploading(false);
-    }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleRemoveImage = (index: number) => {
@@ -122,22 +113,13 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
             <span>Thêm URL</span>
           </button>
 
-          <label
-            className={`px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 transition shadow-xs ${
-              isUploading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-            }`}
-          >
-            {isUploading ? (
-              <Loader2 size={14} className="text-primary animate-spin" />
-            ) : (
-              <Upload size={14} className="text-primary" />
-            )}
-            <span>{isUploading ? 'Đang tải...' : 'Tải từ máy'}</span>
+          <label className="px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs">
+            <Upload size={14} className="text-primary" />
+            <span>Tải từ máy</span>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept="image/*"
               onChange={handleFileUpload}
-              disabled={isUploading}
               className="hidden"
             />
           </label>

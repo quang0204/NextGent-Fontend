@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { sharedStore } from '../../services/sharedStore';
 import { productService } from '../../services/productService';
-import { storageService, StorageFileResponse } from '../../services/storageService';
 import { categoryService } from '../../services/categoryService';
 import { inventoryService } from '../../services/inventoryService';
 import { Product, Brand, ProductVariant, ProductSpecGroup, VariantSchemaField } from '../../types/product';
@@ -51,7 +50,6 @@ interface DraftVariant {
   salePrice: number;
   initialStock: number;
   isActive: boolean;
-  imageUrl?: string;
 }
 
 export const PortalProductsView: React.FC = () => {
@@ -165,22 +163,6 @@ export const PortalProductsView: React.FC = () => {
   const [isLoadingProductDetail, setIsLoadingProductDetail] = useState(false);
   const [savingVariantId, setSavingVariantId] = useState<number | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
-  const [isCreatingProduct, setIsCreatingProduct] = useState(false);
-  const [isUploadingThumb, setIsUploadingThumb] = useState(false);
-  const [isUploadingVariantImage, setIsUploadingVariantImage] = useState(false);
-  const [isUploadingNewVariantImage, setIsUploadingNewVariantImage] = useState(false);
-  const [uploadingDraftVariantIdx, setUploadingDraftVariantIdx] = useState<number | null>(null);
-  const [uploadedImageMeta, setUploadedImageMeta] = useState<Record<string, { uploadId?: string; imageId?: number }>>({});
-
-  const recordUploadedImage = (uploaded: StorageFileResponse) => {
-    setUploadedImageMeta(prev => ({
-      ...prev,
-      [uploaded.imageUrl]: {
-        uploadId: uploaded.uploadId,
-        imageId: uploaded.imageId ?? prev[uploaded.imageUrl]?.imageId
-      }
-    }));
-  };
 
   // Thêm biến thể mới trong Modal sửa sản phẩm
   const [showAddVariantInEdit, setShowAddVariantInEdit] = useState(false);
@@ -293,9 +275,8 @@ export const PortalProductsView: React.FC = () => {
   };
 
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
-  const handleCreateProduct = async (e: React.FormEvent) => {
+  const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
-    if (isCreatingProduct) return;
     if (!newProdName.trim()) {
       alert('Vui lòng nhập tên sản phẩm!');
       return;
@@ -311,145 +292,121 @@ export const PortalProductsView: React.FC = () => {
       return;
     }
 
+    const newProdId = Date.now();
+
+    const createdVariants: ProductVariant[] = draftVariants.map((dv, idx) => {
+      const varName = variantSchemaService.buildVariantName(newProdName.trim(), dv, variantSchema);
+      return {
+        variantId: newProdId + idx + 1,
+        productId: newProdId,
+        sku: dv.sku.trim().toUpperCase(),
+        variantName: varName,
+        color: dv.color,
+        colorHex: dv.colorHex || '#000000',
+        ramGb: dv.ramGb,
+        romGb: dv.romGb,
+        connectionType: dv.connectionType,
+        attributes: dv.attributes,
+        listPrice: dv.listPrice,
+        salePrice: dv.salePrice,
+        onHandQty: dv.initialStock,
+        reservedQty: 0,
+        availableQty: dv.initialStock,
+        imageUrl: newThumbnail,
+        isActive: dv.isActive
+      };
+    });
+
+    const newProd: Product = {
+      productId: newProdId,
+      name: newProdName.trim(),
+      brandName: newBrand,
+      categoryName: newCategory,
+      isInstallment0: true,
+      warrantyPolicy: newWarranty,
+      thumbnail: newThumbnail,
+      gallery: newGallery.length > 0? newGallery: [newThumbnail],
+      variants: createdVariants,
+      rating: 5.0,
+      reviewCount: 0,
+      soldCount: 0,
+      specGroups: newSpecGroups,
+      highlights: ['Thiết kế sang trọng, hiệu năng vượt trội', 'Bảo hành chính hãng 12 tháng']
+    };
+
+    // Thêm bản ghi tồn kho cho từng biến thể
+    const currentInventories = sharedStore.getInventories();
+    const newInventoryRecords = createdVariants.map(v => ({
+      variantId: v.variantId,
+      productId: newProdId,
+      productName: newProdName.trim(),
+      sku: v.sku,
+      color: v.color,
+      romGb: v.romGb,
+      onHandQty: v.onHandQty,
+      reservedQty: 0,
+      availableQty: v.availableQty,
+      minThreshold: 5,
+      status: 'IN_STOCK' as const
+    }));
+    const updatedInv = [...newInventoryRecords, ...currentInventories];
+    localStorage.setItem('np_inventory_v2', JSON.stringify(updatedInv));
+
+    sharedStore.addProduct(newProd);
+
     const matchedCategory = categories.find(c => c.name.toLowerCase() === newCategory.toLowerCase());
     const matchedBrand = brands.find(b => b.name.toLowerCase() === newBrand.toLowerCase());
 
-    const rawGallery = (newGallery.length > 0 ? newGallery : [newThumbnail])
-      .map(u => u.trim())
-      .filter(Boolean);
-    const primaryUrl =
-      newThumbnail.trim() && rawGallery.includes(newThumbnail.trim())
-        ? newThumbnail.trim()
-        : rawGallery[0] || '';
-
-    setIsCreatingProduct(true);
-    try {
-      // API 4.5: Khai báo sản phẩm mới (Master-Detail)
-      await productService.createAdminProduct({
-        categoryId: matchedCategory ? matchedCategory.id : 1,
-        brandId: matchedBrand ? matchedBrand.brandId : 1,
-        name: newProdName.trim(),
-        description: newWarranty,
-        warrantyPolicy: newWarranty,
-        status: 'ACTIVE',
-        images: rawGallery.map((img, idx) => {
-          const meta = uploadedImageMeta[img];
-          return {
-            ...(meta?.uploadId ? { uploadId: meta.uploadId } : {}),
-            imageUrl: img,
-            isPrimary: img === primaryUrl,
-            sortOrder: idx + 1,
-          };
-        }),
-        specs: newSpecGroups.flatMap(g => g.items.map((it, idx) => ({
-          groupName: g.groupName,
-          specName: it.name,
-          specValue: it.value,
-          sortOrder: idx + 1,
-        }))),
-        variants: draftVariants.map(v => ({
-          sku: v.sku.trim().toUpperCase(),
-          color: v.color,
-          ramGb: v.ramGb,
-          romGb: v.romGb,
-          connectionType: v.connectionType,
-          attributes: v.attributes,
-          listPrice: v.listPrice,
-          salePrice: v.salePrice || v.listPrice,
-          imageUrl: v.imageUrl?.trim() || undefined,
-          initialOnHandQty: v.initialStock,
-          minThreshold: 5,
-        })),
-      });
-
-      const newProdId = Date.now();
-      const createdVariants: ProductVariant[] = draftVariants.map((dv, idx) => {
-        const varName = variantSchemaService.buildVariantName(newProdName.trim(), dv, variantSchema);
-        return {
-          variantId: newProdId + idx + 1,
-          productId: newProdId,
-          sku: dv.sku.trim().toUpperCase(),
-          variantName: varName,
-          color: dv.color,
-          colorHex: dv.colorHex || '#000000',
-          ramGb: dv.ramGb,
-          romGb: dv.romGb,
-          connectionType: dv.connectionType,
-          attributes: dv.attributes,
-          listPrice: dv.listPrice,
-          salePrice: dv.salePrice,
-          onHandQty: dv.initialStock,
-          reservedQty: 0,
-          availableQty: dv.initialStock,
-          imageUrl: dv.imageUrl?.trim() || primaryUrl,
-          isActive: dv.isActive
-        };
-      });
-
-      const newProd: Product = {
-        productId: newProdId,
-        name: newProdName.trim(),
-        brandName: newBrand,
-        categoryName: newCategory,
-        isInstallment0: true,
-        warrantyPolicy: newWarranty,
-        thumbnail: primaryUrl,
-        gallery: rawGallery,
-        variants: createdVariants,
-        rating: 5.0,
-        reviewCount: 0,
-        soldCount: 0,
-        specGroups: newSpecGroups,
-        highlights: ['Thiết kế sang trọng, hiệu năng vượt trội', 'Bảo hành chính hãng 12 tháng']
-      };
-
-      const currentInventories = sharedStore.getInventories();
-      const newInventoryRecords = createdVariants.map(v => ({
-        variantId: v.variantId,
-        productId: newProdId,
-        productName: newProdName.trim(),
-        sku: v.sku,
+    // API 4.5: Khai báo sản phẩm mới (Master-Detail)
+    productService.createAdminProduct({
+      categoryId: matchedCategory ? matchedCategory.id : 1,
+      brandId: matchedBrand ? matchedBrand.brandId : 1,
+      name: newProdName.trim(),
+      description: newWarranty,
+      warrantyPolicy: newWarranty,
+      status: 'ACTIVE',
+      images: (newGallery.length > 0 ? newGallery : [newThumbnail]).map((img, idx) => ({
+        imageUrl: img,
+        isPrimary: idx === 0,
+        sortOrder: idx + 1,
+      })),
+      specs: newSpecGroups.flatMap(g => g.items.map((it, idx) => ({
+        groupName: g.groupName,
+        specName: it.name,
+        specValue: it.value,
+        sortOrder: idx + 1,
+      }))),
+      variants: draftVariants.map(v => ({
+        sku: v.sku.trim().toUpperCase(),
         color: v.color,
+        ramGb: v.ramGb,
         romGb: v.romGb,
-        onHandQty: v.onHandQty,
-        reservedQty: 0,
-        availableQty: v.availableQty,
+        connectionType: v.connectionType,
+        attributes: v.attributes,
+        listPrice: v.listPrice,
+        salePrice: v.salePrice || v.listPrice,
+        initialOnHandQty: v.initialStock,
         minThreshold: 5,
-        status: 'IN_STOCK' as const
-      }));
-      localStorage.setItem('np_inventory_v2', JSON.stringify([...newInventoryRecords, ...currentInventories]));
-      sharedStore.addProduct(newProd);
+      })),
+    }).then(() => {
+      productService.getProducts().then(prods => {
+        if (prods && prods.length > 0) setProducts(prods);
+      }).catch(() => {});
+    }).catch(err => console.warn('[PortalProductsView] createAdminProduct error', err));
 
-      try {
-        const prods = await productService.getProducts();
-        if (prods && prods.length > 0) {
-          setProducts(prods);
-        } else {
-          setProducts([...sharedStore.getProducts()]);
-        }
-      } catch {
-        setProducts([...sharedStore.getProducts()]);
-      }
+    sharedStore.addAuditLog({
+      performedBy: 'Nguyễn Thế Minh (Admin)',
+      action: 'CREATE_PRODUCT',
+      entityName: 'Products',
+      entityId: String(newProdId),
+      oldValue: 'None',
+      newValue: `Thêm sản phẩm "${newProdName}" với ${createdVariants.length} biến thể SKU (Tổng tồn: ${createdVariants.reduce((s, v) => s + v.onHandQty, 0)} máy)`
+    });
 
-      sharedStore.addAuditLog({
-        performedBy: 'Nguyễn Thế Minh (Admin)',
-        action: 'CREATE_PRODUCT',
-        entityName: 'Products',
-        entityId: String(newProdId),
-        oldValue: 'None',
-        newValue: `Thêm sản phẩm "${newProdName}" với ${createdVariants.length} biến thể SKU (Tổng tồn: ${createdVariants.reduce((s, v) => s + v.onHandQty, 0)} máy)`
-      });
-
-      setShowAddModal(false);
-      setNewProdName('');
-      alert(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Lỗi khi khai báo sản phẩm mới';
-      console.warn('[PortalProductsView] createAdminProduct error', err);
-      alert(`LỖI TẠO SẢN PHẨM: ${msg}`);
-    } finally {
-      setIsCreatingProduct(false);
-    }
+    setProducts([...sharedStore.getProducts()]);
+    setShowAddModal(false);
+    setNewProdName('');
+    alert(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`);
   };
 
   const handleDeleteProduct = (p: Product) => {
@@ -510,18 +467,6 @@ export const PortalProductsView: React.FC = () => {
         setEditProdThumbnail(primaryImg);
         if (detail.images && detail.images.length > 0) {
           setEditProdGallery(detail.images.map(img => img.imageUrl));
-          setUploadedImageMeta(prev => {
-            const next = { ...prev };
-            detail.images.forEach(img => {
-              if (img.imageUrl) {
-                next[img.imageUrl] = {
-                  ...next[img.imageUrl],
-                  imageId: img.imageId,
-                };
-              }
-            });
-            return next;
-          });
         }
         setEditProdDescription(detail.warrantyPolicy || detail.description || p.warrantyPolicy || '');
         setEditProdStatus((detail.status as any) || p.status || 'ACTIVE');
@@ -563,28 +508,27 @@ export const PortalProductsView: React.FC = () => {
     }
   };
 
-  const handleProductThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProductThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = '';
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, GIF)!');
+      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP)!');
       return;
     }
 
-    setIsUploadingThumb(true);
-    try {
-      const uploaded = await storageService.uploadImageToMinio(file);
-      recordUploadedImage(uploaded);
-      setEditProdThumbnail(uploaded.imageUrl);
-      setEditProdGallery(prev => (prev.includes(uploaded.imageUrl) ? prev : [uploaded.imageUrl, ...prev]));
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Không thể tải ảnh đại diện lên MinIO.';
-      alert(`Lỗi tải ảnh: ${msg}`);
-    } finally {
-      setIsUploadingThumb(false);
-    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      if (base64Url) {
+        setEditProdThumbnail(base64Url);
+        if (!editProdGallery.includes(base64Url)) {
+          setEditProdGallery(prev => [base64Url, ...prev]);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleUpdateEditVariant = (varIdx: number, updates: Record<string, any>) => {
@@ -627,7 +571,7 @@ export const PortalProductsView: React.FC = () => {
         romGb: v.romGb,
         connectionType: v.connectionType,
         attributes: v.attributes,
-        imageUrl: v.imageUrl || undefined
+        imageUrl: v.imageUrl || editProdThumbnail
       };
 
       await productService.updateAdminVariant(v.variantId, payload);
@@ -706,56 +650,9 @@ export const PortalProductsView: React.FC = () => {
       listPrice: 10000000,
       salePrice: 10000000,
       initialStock: 10,
-      isActive: true,
-      imageUrl: editProdThumbnail || editProdGallery[0] || ''
+      isActive: true
     });
     setShowAddVariantInEdit(true);
-  };
-
-  const handleNewVariantInEditFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, GIF)!');
-      return;
-    }
-
-    setIsUploadingNewVariantImage(true);
-    try {
-      const uploaded = await storageService.uploadImageToMinio(file);
-      recordUploadedImage(uploaded);
-      setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: uploaded.imageUrl }));
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Không thể tải ảnh biến thể lên MinIO.';
-      alert(`Lỗi tải ảnh: ${msg}`);
-    } finally {
-      setIsUploadingNewVariantImage(false);
-    }
-  };
-
-  const handleDraftVariantFileUpload = async (vIdx: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, GIF)!');
-      return;
-    }
-
-    setUploadingDraftVariantIdx(vIdx);
-    try {
-      const uploaded = await storageService.uploadImageToMinio(file);
-      recordUploadedImage(uploaded);
-      handleUpdateDraftVariant(vIdx, 'imageUrl', uploaded.imageUrl);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Không thể tải ảnh biến thể lên MinIO.';
-      alert(`Lỗi tải ảnh: ${msg}`);
-    } finally {
-      setUploadingDraftVariantIdx(null);
-    }
   };
 
   const handleSaveNewVariantInEdit = async () => {
@@ -790,22 +687,15 @@ export const PortalProductsView: React.FC = () => {
         attributes: newVarDraftInEdit.attributes,
         listPrice: newVarDraftInEdit.listPrice,
         salePrice: finalSalePrice,
-        imageUrl: newVarDraftInEdit.imageUrl?.trim() || undefined,
         initialOnHandQty: newVarDraftInEdit.initialStock,
         minThreshold: 5
       });
 
-      // Reload authoritative product detail & product list
+      // Reload authoritative product detail
       const detail = await productService.getAdminProductDetail(editingProduct.productId);
       if (detail && detail.variants) {
         setEditProdVariants(detail.variants);
       }
-      try {
-        const prods = await productService.getProducts();
-        if (prods && prods.length > 0) {
-          setProducts(prods);
-        }
-      } catch {}
       setShowAddVariantInEdit(false);
       alert(`Đã thêm biến thể mới SKU [${sku}] thành công!`);
     } catch (err: any) {
@@ -886,13 +776,7 @@ export const PortalProductsView: React.FC = () => {
 
     setIsSavingProduct(true);
     try {
-      const finalGallery = (editProdGallery.length > 0 ? editProdGallery : [editProdThumbnail.trim()])
-        .map(u => u.trim())
-        .filter(Boolean);
-      const primaryUrl =
-        editProdThumbnail.trim() && finalGallery.includes(editProdThumbnail.trim())
-          ? editProdThumbnail.trim()
-          : finalGallery[0] || '';
+      const finalGallery = editProdGallery.length > 0 ? editProdGallery : [editProdThumbnail.trim()];
       const matchedEditCat = categories.find(c => c.name.toLowerCase() === editProdCategory.toLowerCase());
       const matchedEditBrand = brands.find(b => b.name.toLowerCase() === editProdBrand.toLowerCase());
 
@@ -910,16 +794,11 @@ export const PortalProductsView: React.FC = () => {
         brandId: matchedEditBrand?.brandId,
         description: editProdDescription,
         warrantyPolicy: editProdDescription,
-        images: finalGallery.map((img, idx) => {
-          const meta = uploadedImageMeta[img];
-          return {
-            ...(meta?.imageId ? { imageId: meta.imageId } : {}),
-            ...(meta?.uploadId ? { uploadId: meta.uploadId } : {}),
-            imageUrl: img,
-            isPrimary: img === primaryUrl,
-            sortOrder: idx + 1
-          };
-        }),
+        images: finalGallery.map((img, idx) => ({
+          imageUrl: img,
+          isPrimary: idx === 0,
+          sortOrder: idx + 1
+        })),
         specs: specsPayload
       });
 
@@ -949,7 +828,7 @@ export const PortalProductsView: React.FC = () => {
               romGb: v.romGb,
               connectionType: v.connectionType,
               attributes: v.attributes,
-              imageUrl: v.imageUrl || undefined
+              imageUrl: v.imageUrl || editProdThumbnail
             });
             sharedStore.updateVariant(editingProduct.productId, v.variantId, {
               sku: (v.sku || '').trim().toUpperCase(),
@@ -960,7 +839,6 @@ export const PortalProductsView: React.FC = () => {
               romGb: v.romGb,
               connectionType: v.connectionType,
               attributes: v.attributes,
-              imageUrl: v.imageUrl || editProdThumbnail,
               isActive: v.isActive !== false
             });
           } catch (varErr) {
@@ -989,16 +867,7 @@ export const PortalProductsView: React.FC = () => {
         newValue: `Cập nhật thông tin chung, ${finalGallery.length} ảnh và ${specsPayload.length} thông số kỹ thuật cho "${editProdName}"`
       });
 
-      try {
-        const prods = await productService.getProducts();
-        if (prods && prods.length > 0) {
-          setProducts(prods);
-        } else {
-          setProducts([...sharedStore.getProducts()]);
-        }
-      } catch {
-        setProducts([...sharedStore.getProducts()]);
-      }
+      setProducts([...sharedStore.getProducts()]);
       alert(`Đã cập nhật thông tin sản phẩm và thông số kỹ thuật thành công!`);
       setEditingProduct(null);
     } catch (err: any) {
@@ -1034,27 +903,24 @@ export const PortalProductsView: React.FC = () => {
     });
   };
 
-  const handleVariantFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVariantFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    e.target.value = '';
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, GIF)!');
+      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP)!');
       return;
     }
 
-    setIsUploadingVariantImage(true);
-    try {
-      const uploaded = await storageService.uploadImageToMinio(file);
-      recordUploadedImage(uploaded);
-      setEditVariantImage(uploaded.imageUrl);
-    } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || 'Không thể tải ảnh biến thể lên MinIO.';
-      alert(`Lỗi tải ảnh: ${msg}`);
-    } finally {
-      setIsUploadingVariantImage(false);
-    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Url = event.target?.result as string;
+      if (base64Url) {
+        setEditVariantImage(base64Url);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSaveVariantEdit = async () => {
@@ -1127,7 +993,7 @@ export const PortalProductsView: React.FC = () => {
         newValue: `Cập nhật thông số & giá bán biến thể SKU ${editingVariant.variant.sku}: ${formatVND(editSalePrice)}`
       });
 
-      // Cập nhật ngay danh sách sản phẩm trong view & đồng bộ nếu đang mở modal sửa sản phẩm
+      // Cập nhật ngay danh sách sản phẩm trong view
       setProducts(prev => prev.map(p => {
         if (p.productId !== editingVariant.prodId) return p;
         const nextVariants = (p.variants || []).map(v => {
@@ -1136,19 +1002,6 @@ export const PortalProductsView: React.FC = () => {
         });
         return { ...p, variants: nextVariants };
       }));
-
-      if (editingProduct && editingProduct.productId === editingVariant.prodId) {
-        setEditProdVariants(prev =>
-          prev.map(v => (v.variantId === editingVariant.variant.variantId ? { ...v, ...partialVariant } : v))
-        );
-      }
-
-      try {
-        const prods = await productService.getProducts();
-        if (prods && prods.length > 0) {
-          setProducts(prods);
-        }
-      } catch {}
 
       alert(`Đã cập nhật thông số và giá cho biến thể SKU ${editingVariant.variant.sku} thành công!`);
       setEditingVariant(null);
@@ -1651,7 +1504,6 @@ export const PortalProductsView: React.FC = () => {
                 thumbnail={newThumbnail}
                 onChangeGallery={setNewGallery}
                 onChangeThumbnail={setNewThumbnail}
-                onImageUploaded={recordUploadedImage}
               />
 
               {/* 3. QUẢN LÝ ĐA BIẾN THỂ SKU (Bảng Product_Variants) */}
@@ -1757,71 +1609,6 @@ export const PortalProductsView: React.FC = () => {
                           />
                         </div>
                       </div>
-
-                      {/* Ảnh riêng của biến thể (tùy chọn) */}
-                      <div className="pt-2 border-t border-hairline-soft/60 space-y-2">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-11 h-11 rounded-lg border border-hairline-soft bg-surface-soft p-0.5 overflow-hidden flex items-center justify-center flex-shrink-0">
-                            {v.imageUrl || newThumbnail ? (
-                              <img
-                                src={v.imageUrl || newThumbnail}
-                                alt=""
-                                className="w-full h-full object-contain"
-                                onError={(e) => {
-                                  (e.target as HTMLImageElement).src = 'https://placehold.co/80x80/f8fafc/64748b?text=Img';
-                                }}
-                              />
-                            ) : (
-                              <ImageIcon size={16} className="text-steel" />
-                            )}
-                          </div>
-                          <div className="flex-1 flex flex-col sm:flex-row gap-1.5">
-                            <input
-                              type="url"
-                              placeholder="URL ảnh biến thể (bỏ trống sẽ dùng ảnh đại diện SP)..."
-                              value={v.imageUrl || ''}
-                              onChange={(e) => handleUpdateDraftVariant(vIdx, 'imageUrl', e.target.value)}
-                              className="flex-1 h-8 px-2 bg-surface-soft border border-hairline-soft rounded text-[11px] font-mono"
-                            />
-                            <label
-                              className={`px-2.5 h-8 bg-canvas hover:bg-surface-soft border border-hairline rounded text-ink font-semibold text-[11px] flex items-center gap-1 flex-shrink-0 ${
-                                uploadingDraftVariantIdx === vIdx ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                              }`}
-                            >
-                              {uploadingDraftVariantIdx === vIdx ? (
-                                <Loader2 size={12} className="text-primary animate-spin" />
-                              ) : (
-                                <Upload size={12} className="text-primary" />
-                              )}
-                              <span>{uploadingDraftVariantIdx === vIdx ? 'Đang tải...' : 'Tải từ máy'}</span>
-                              <input
-                                type="file"
-                                accept="image/jpeg,image/png,image/webp,image/gif"
-                                onChange={(e) => handleDraftVariantFileUpload(vIdx, e)}
-                                disabled={uploadingDraftVariantIdx === vIdx}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                        {newGallery.length > 0 && (
-                          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                            <span className="text-[10px] text-steel flex-shrink-0">Chọn nhanh:</span>
-                            {newGallery.map((gUrl, gIdx) => (
-                              <button
-                                key={gIdx}
-                                type="button"
-                                onClick={() => handleUpdateDraftVariant(vIdx, 'imageUrl', gUrl)}
-                                className={`w-8 h-8 rounded border p-0.5 bg-canvas flex-shrink-0 overflow-hidden ${
-                                  v.imageUrl === gUrl ? 'border-primary ring-1 ring-primary' : 'border-hairline-soft'
-                                }`}
-                              >
-                                <img src={gUrl} alt="" className="w-full h-full object-contain" />
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     </div>
                   ))}
                 </div>
@@ -1844,11 +1631,9 @@ export const PortalProductsView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isCreatingProduct}
-                  className="btn-marketing px-6 py-2.5 font-bold rounded-full shadow-xs text-xs disabled:opacity-60 flex items-center gap-1.5"
+                  className="btn-marketing px-6 py-2.5 font-bold rounded-full shadow-xs text-xs"
                 >
-                  {isCreatingProduct && <Loader2 size={14} className="animate-spin" />}
-                  <span>{isCreatingProduct ? 'Đang lưu sản phẩm...' : 'Lưu sản phẩm & Đưa vào kinh doanh'}</span>
+                  Lưu sản phẩm & Đưa vào kinh doanh
                 </button>
               </div>
             </form>
@@ -1969,20 +1754,6 @@ export const PortalProductsView: React.FC = () => {
                     </select>
                   </div>
 
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Trạng thái kinh doanh sản phẩm:</label>
-                    <select
-                      value={editProdStatus}
-                      onChange={(e) => setEditProdStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
-                      className={`w-full h-9 px-2.5 bg-white border rounded-lg text-xs font-bold focus:outline-none focus:border-blue-600 ${
-                        editProdStatus === 'INACTIVE' ? 'border-rose-300 text-rose-700 bg-rose-50/40' : 'border-emerald-300 text-emerald-700 bg-emerald-50/40'
-                      }`}
-                    >
-                      <option value="ACTIVE">ĐANG KINH DOANH (Mở bán)</option>
-                      <option value="INACTIVE">NGỪNG KINH DOANH (Dừng toàn bộ SKU)</option>
-                    </select>
-                  </div>
-
                   {editProdVariants.length > 0 && (
                     <div className="sm:col-span-3 text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-2">
                       <AlertCircle size={15} className="shrink-0 text-amber-600" />
@@ -2003,648 +1774,6 @@ export const PortalProductsView: React.FC = () => {
                     />
                   </div>
                 </div>
-              </div>
-
-              {/* ================= 2. QUẢN LÝ THƯ VIỆN ẢNH SẢN PHẨM ================= */}
-              <div className="space-y-3">
-                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
-                  2. Thư viện ảnh sản phẩm (Product_Images)
-                </span>
-
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                  <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 bg-white p-1 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-xs">
-                      {editProdThumbnail ? (
-                        <img 
-                          src={editProdThumbnail} 
-                          alt="Thumbnail preview" 
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).src = 'https://placehold.co/100x100/f8fafc/64748b?text=Lỗi+ảnh';
-                          }}
-                        />
-                      ) : (
-                        <ImageIcon size={24} className="text-slate-400" />
-                      )}
-                    </div>
-
-                    <div className="flex-1 w-full space-y-2">
-                      <label className="text-[11px] font-bold text-slate-700 block">Đường dẫn ảnh đại diện (Thumbnail):</label>
-                      <input
-                        type="url"
-                        placeholder="Dán URL ảnh đại diện (https://...)..."
-                        value={editProdThumbnail}
-                        onChange={(e) => setEditProdThumbnail(e.target.value)}
-                        className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600 font-mono"
-                      />
-
-                      <div className="flex items-center gap-2 pt-1">
-                        <label
-                          className={`px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-xs flex items-center gap-1.5 shadow-xs transition ${
-                            isUploadingThumb ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                          }`}
-                        >
-                          {isUploadingThumb ? (
-                            <Loader2 size={13} className="text-blue-600 animate-spin" />
-                          ) : (
-                            <Upload size={13} className="text-blue-600" />
-                          )}
-                          <span>{isUploadingThumb ? 'Đang tải...' : 'Tải ảnh từ máy'}</span>
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,image/gif"
-                            onChange={handleProductThumbnailUpload}
-                            disabled={isUploadingThumb}
-                            className="hidden"
-                          />
-                        </label>
-                        <span className="text-[10px] text-slate-400 italic">Hỗ trợ PNG, JPG, WEBP, GIF (tối đa 5MB)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <ProductImagesManager
-                  gallery={editProdGallery}
-                  thumbnail={editProdThumbnail}
-                  onChangeGallery={setEditProdGallery}
-                  onChangeThumbnail={setEditProdThumbnail}
-                  onImageUploaded={recordUploadedImage}
-                />
-              </div>
-
-              {/* ================= 3. MA TRẬN BIẾN THỂ SKU & TỒN KHO ================= */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
-                      3. Ma trận biến thể SKU & Quản lý tồn kho
-                    </span>
-                    <p className="text-[11px] text-slate-500">
-                      Mỗi biến thể có mã SKU định danh, giá niêm yết, định mức tồn kho và các thuộc tính động theo ngành hàng: <strong>{editProdCategory || 'Ngành hàng'}</strong>
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleOpenAddVariantInEdit}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
-                  >
-                    <Plus size={14} />
-                    <span>Thêm biến thể mới</span>
-                  </button>
-                </div>
-
-                {editProdVariants.length === 0 ? (
-                  <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl space-y-2">
-                    <p className="text-xs text-slate-500">Sản phẩm này hiện chưa có biến thể SKU nào.</p>
-                    <button
-                      type="button"
-                      onClick={handleOpenAddVariantInEdit}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1.5"
-                    >
-                      <Plus size={14} /> Thêm biến thể đầu tiên
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {editProdVariants.map((v, varIdx) => {
-                      const isLocked = Boolean(v.hasTransactions);
-                      const isSaving = savingVariantId === v.variantId;
-
-                      return (
-                        <div
-                          key={v.variantId || varIdx}
-                          className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-3 hover:border-blue-200 transition"
-                        >
-                          {/* Variant Card Header */}
-                          <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200/80">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900 text-xs">
-                                #{varIdx + 1}. {v.variantName || v.sku || `Biến thể #${v.variantId}`}
-                              </span>
-
-                              {/* SKU Permanent Lock Badge */}
-                              <span
-                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200/90 text-slate-700 border border-slate-300 flex items-center gap-1"
-                                title="Mã SKU biến thể là mã định danh cố định trong hệ thống kho, không được phép chỉnh sửa sau khi tạo"
-                              >
-                                <Lock size={11} className="text-slate-600" />
-                                <span>Mã SKU cố định</span>
-                              </span>
-
-                              {/* Status Badge */}
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                v.isActive !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                              }`}>
-                                {v.isActive !== false ? 'Đang bán' : 'Tạm dừng'}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditVariant(editingProduct.productId, v)}
-                                className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-2xs transition"
-                                title="Đổi ảnh đại diện & giá biến thể này"
-                              >
-                                <ImageIcon size={12} />
-                                <span>Đổi ảnh</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleSaveSingleVariant(varIdx)}
-                                disabled={isSaving}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-2xs transition"
-                              >
-                              {isSaving ? (
-                                <>
-                                  <Loader2 size={12} className="animate-spin" />
-                                  <span>Đang lưu...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Check size={12} />
-                                  <span>Lưu biến thể này</span>
-                                </>
-                              )}
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Variant Primary Fields */}
-                          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <label className="text-[10px] font-bold text-slate-700">Mã SKU (Cố định):</label>
-                                <span className="text-[9px] text-slate-500 font-medium">Không thể sửa</span>
-                              </div>
-                              <input
-                                type="text"
-                                value={v.sku || ''}
-                                readOnly={true}
-                                title="Mã SKU biến thể là mã định danh duy nhất cố định, không được phép chỉnh sửa sau khi tạo."
-                                className="w-full h-8 px-2.5 rounded text-xs font-mono font-bold bg-slate-100 border border-slate-300 text-slate-600 cursor-not-allowed select-all focus:outline-none"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
-                              <input
-                                type="number"
-                                min={0}
-                                step={10000}
-                                value={v.listPrice !== undefined && v.listPrice !== null ? v.listPrice : ''}
-                                onChange={(e) => handleUpdateEditVariant(varIdx, { listPrice: e.target.value === '' ? '' : Number(e.target.value) })}
-                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-700 focus:outline-none focus:border-blue-600"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
-                              <input
-                                type="number"
-                                min={0}
-                                step={10000}
-                                value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : (v.listPrice ?? '')}
-                                onChange={(e) => handleUpdateEditVariant(varIdx, { salePrice: e.target.value === '' ? '' : Number(e.target.value) })}
-                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-blue-600"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Định mức tồn tối thiểu:</label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={v.inventory?.minThreshold ?? v.minThreshold ?? 5}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  handleUpdateEditVariant(varIdx, {
-                                    minThreshold: val,
-                                    inventory: {
-                                      ...(v.inventory || {}),
-                                      minThreshold: val
-                                    }
-                                  });
-                                }}
-                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-blue-600"
-                              />
-                            </div>
-
-                            <div>
-                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Trạng thái SKU:</label>
-                              <select
-                                value={v.isActive !== false ? 'ACTIVE' : 'INACTIVE'}
-                                onChange={(e) => handleUpdateEditVariant(varIdx, { isActive: e.target.value === 'ACTIVE' })}
-                                className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-600"
-                              >
-                                <option value="ACTIVE">Đang kinh doanh</option>
-                                <option value="INACTIVE">Tạm dừng bán</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          {/* Dynamic Variant Attributes */}
-                          <div className="bg-white p-3 rounded-lg border border-slate-200">
-                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-2">
-                              Thuộc tính kỹ thuật biến thể ({editProdCategory || 'Ngành hàng'}):
-                            </span>
-                            <DynamicVariantInputs
-                              schema={editVariantSchema}
-                              variant={v}
-                              onChange={(updated) => handleUpdateEditVariant(varIdx, updated)}
-                            />
-                          </div>
-
-                          {/* Inventory Block (Read-only on-hand, reserved, available + Stock adjustment button) */}
-                          <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex flex-wrap items-center gap-4 text-xs">
-                              <div className="flex items-center gap-1.5 font-bold text-slate-800">
-                                <Boxes size={15} className="text-blue-600" />
-                                <span>Khối Tồn Kho:</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-500 text-[11px]">Tồn thực tế:</span>
-                                <strong className="font-mono text-slate-900 font-bold">
-                                  {v.inventory?.onHandQty ?? v.onHandQty ?? 0}
-                                </strong>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-500 text-[11px]">Đang giữ đơn:</span>
-                                <strong className="font-mono text-amber-700 font-bold">
-                                  {v.inventory?.reservedQty ?? v.reservedQty ?? 0}
-                                </strong>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-500 text-[11px]">Khả dụng bán:</span>
-                                <strong className="font-mono text-emerald-700 font-bold">
-                                  {v.inventory?.availableQty ?? v.availableQty ?? 0}
-                                </strong>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleOpenStockAdjust(v)}
-                              className="px-3 py-1.5 bg-white hover:bg-slate-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg text-xs flex items-center gap-1.5 shadow-2xs transition"
-                            >
-                              <Package size={13} />
-                              <span>Điều chỉnh tồn kho</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              {/* ================= 4. QUẢN LÝ THÔNG SỐ KỸ THUẬT (PRODUCT_SPECS) ================= */}
-              <div className="space-y-2">
-                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
-                  4. Thông số kỹ thuật sản phẩm (Product_Specs)
-                </span>
-                <ProductSpecsEditor
-                  groups={editProdSpecGroups}
-                  onChange={setEditProdSpecGroups}
-                />
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-              <span className="text-[11px] text-slate-500">
-                Lưu ý: Thay đổi mã SKU hoặc thuộc tính biến thể sẽ cập nhật tên biến thể tự động
-              </span>
-              <div className="flex gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setEditingProduct(null)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-                >
-                  Đóng / Hủy
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveProductEdit}
-                  disabled={isSavingProduct}
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
-                >
-                  {isSavingProduct ? (
-                    <>
-                      <Loader2 size={13} className="animate-spin" />
-                      <span>Đang lưu thông tin sản phẩm...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check size={14} />
-                      <span>Lưu thông tin sản phẩm & Thông số</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================= MODAL ĐIỀU CHỈNH TỒN KHO CHO BIẾN THỂ ================= */}
-      {adjustingVariant && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                  <Package size={16} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
-                    Điều chỉnh tồn kho SKU
-                  </h3>
-                  <span className="text-[11px] font-mono text-indigo-600 font-bold">
-                    {adjustingVariant.sku}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAdjustingVariant(null)}
-                className="text-slate-400 hover:text-slate-700 p-1"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-[11px] text-slate-500 block">Biến thể:</span>
-                <strong className="text-slate-800 text-xs block">
-                  {adjustingVariant.variantName || adjustingVariant.sku}
-                </strong>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Tồn kho hiện tại:</span>
-                  <strong className="text-base font-mono text-slate-900">
-                    {adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Chênh lệch:</span>
-                  {(() => {
-                    const cur = adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0;
-                    const diff = adjustActualCount - cur;
-                    return (
-                      <strong className={`text-base font-mono ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
-                        {diff > 0 ? `+${diff}` : diff}
-                      </strong>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                  Số lượng tồn thực tế sau kiểm kê *:
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={adjustActualCount}
-                  onChange={(e) => setAdjustActualCount(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                  Lý do điều chỉnh *:
-                </label>
-                <select
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-medium focus:outline-none focus:border-blue-600 mb-2"
-                >
-                  <option value="Kiểm kê định kỳ cân đối số lượng">Kiểm kê định kỳ cân đối số lượng</option>
-                  <option value="Hàng hỏng vỡ/lỗi linh kiện">Hàng hỏng vỡ/lỗi linh kiện</option>
-                  <option value="Sai lệch trong quá trình nhập kho">Sai lệch trong quá trình nhập kho</option>
-                  <option value="Trả hàng đối tác/nhà cung cấp">Trả hàng đối tác/nhà cung cấp</option>
-                  <option value="Lý do khác">Lý do khác...</option>
-                </select>
-                {adjustReason === 'Lý do khác' && (
-                  <input
-                    type="text"
-                    placeholder="Nhập lý do cụ thể..."
-                    onChange={(e) => setAdjustReason(e.target.value)}
-                    className="w-full h-8 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setAdjustingVariant(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitStockAdjust}
-                disabled={isSubmittingAdjust}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
-              >
-                {isSubmittingAdjust ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" />
-                    <span>Đang cập nhật...</span>
-                  </>
-                ) : (
-                  <span>Xác nhận điều chỉnh</span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ================= MODAL THÊM BIẾN THỂ MỚI TRONG SỬA SẢN PHẨM ================= */}
-      {showAddVariantInEdit && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                  <Plus size={16} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
-                    Thêm biến thể SKU mới
-                  </h3>
-                  <span className="text-[11px] text-slate-400">
-                    Sản phẩm: {editProdName}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAddVariantInEdit(false)}
-                className="text-slate-400 hover:text-slate-700 p-1"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-[11px] font-bold text-slate-700 block mb-1">Mã SKU *:</label>
-                <input
-                  type="text"
-                  placeholder="VD: IP15PM-WHT-512"
-                  value={newVarDraftInEdit.sku}
-                  onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, sku: e.target.value.toUpperCase() })}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              {/* Dynamic Inputs according to category schema */}
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">
-                  Thuộc tính kỹ thuật ({editProdCategory || 'Ngành hàng'}):
-                </span>
-                <DynamicVariantInputs
-                  schema={editVariantSchema}
-                  variant={newVarDraftInEdit}
-                  onChange={(updated) => setNewVarDraftInEdit(prev => ({ ...prev, ...updated }))}
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10000}
-                    value={newVarDraftInEdit.listPrice}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10000}
-                    value={newVarDraftInEdit.salePrice ?? newVarDraftInEdit.listPrice}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Tồn kho ban đầu:</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={newVarDraftInEdit.initialStock}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
-                  />
-                </div>
-              </div>
-
-              {/* Ảnh đại diện biến thể */}
-              <div className="bg-indigo-50/50 border border-indigo-200/70 rounded-xl p-3 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-indigo-900 text-[11px] uppercase tracking-wider">
-                    Ảnh đại diện biến thể
-                  </span>
-                  <span className="text-[10px] text-slate-500">Bỏ trống sẽ dùng ảnh đại diện sản phẩm</span>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-16 h-16 rounded-xl border border-slate-300 bg-white p-1 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-xs">
-                    {newVarDraftInEdit.imageUrl || editProdThumbnail ? (
-                      <img
-                        src={newVarDraftInEdit.imageUrl || editProdThumbnail}
-                        alt="Variant preview"
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://placehold.co/100x100/f8fafc/64748b?text=Lỗi+ảnh';
-                        }}
-                      />
-                    ) : (
-                      <ImageIcon size={18} className="text-slate-400" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 space-y-2">
-                    <input
-                      type="url"
-                      placeholder="Dán URL ảnh biến thể (https://...)..."
-                      value={newVarDraftInEdit.imageUrl || ''}
-                      onChange={(e) => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: e.target.value }))}
-                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600 font-mono"
-                    />
-                    <div className="flex items-center gap-2">
-                      <label
-                        className={`px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-[11px] flex items-center gap-1 shadow-xs transition ${
-                          isUploadingNewVariantImage ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                        }`}
-                      >
-                        {isUploadingNewVariantImage ? (
-                          <Loader2 size={12} className="text-indigo-600 animate-spin" />
-                        ) : (
-                          <Upload size={12} className="text-indigo-600" />
-                        )}
-                        <span>{isUploadingNewVariantImage ? 'Đang tải...' : 'Tải từ máy'}</span>
-                        <input
-                          type="file"
-                          accept="image/jpeg,image/png,image/webp,image/gif"
-                          onChange={handleNewVariantInEditFileUpload}
-                          disabled={isUploadingNewVariantImage}
-                          className="hidden"
-                        />
-                      </label>
-                      {editProdThumbnail && (
-                        <button
-                          type="button"
-                          onClick={() => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: editProdThumbnail }))}
-                          className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-600 text-[11px] font-medium transition"
-                        >
-                          Dùng ảnh SP chính
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {editProdGallery.length > 0 && (
-                  <div className="pt-2 border-t border-slate-200">
-                    <span className="text-[10px] font-bold text-slate-500 block mb-1.5 uppercase">
-                      Chọn nhanh từ Thư viện ảnh sản phẩm:
-                    </span>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                      {editProdGallery.map((imgUrl, i) => (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: imgUrl }))}
-                          className={`w-11 h-11 rounded-lg border-2 p-0.5 overflow-hidden flex-shrink-0 bg-white transition ${
-                            newVarDraftInEdit.imageUrl === imgUrl ? 'border-indigo-600 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-slate-400'
-                          }`}
-                        >
-                          <img src={imgUrl} alt="" className="w-full h-full object-contain" />
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
               {/* ================= 2. QUẢN LÝ THƯ VIỆN ẢNH SẢN PHẨM ================= */}
@@ -3067,6 +2196,121 @@ export const PortalProductsView: React.FC = () => {
             <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-200">
               <button
                 type="button"
+                onClick={() => setAdjustingVariant(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitStockAdjust}
+                disabled={isSubmittingAdjust}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
+              >
+                {isSubmittingAdjust ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" />
+                    <span>Đang cập nhật...</span>
+                  </>
+                ) : (
+                  <span>Xác nhận điều chỉnh</span>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL THÊM BIẾN THỂ MỚI TRONG SỬA SẢN PHẨM ================= */}
+      {showAddVariantInEdit && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Plus size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
+                    Thêm biến thể SKU mới
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    Sản phẩm: {editProdName}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddVariantInEdit(false)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">Mã SKU *:</label>
+                <input
+                  type="text"
+                  placeholder="VD: IP15PM-WHT-512"
+                  value={newVarDraftInEdit.sku}
+                  onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, sku: e.target.value.toUpperCase() })}
+                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              {/* Dynamic Inputs according to category schema */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
+                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block">
+                  Thuộc tính kỹ thuật ({editProdCategory || 'Ngành hàng'}):
+                </span>
+                <DynamicVariantInputs
+                  schema={editVariantSchema}
+                  variant={newVarDraftInEdit}
+                  onChange={(updated) => setNewVarDraftInEdit(prev => ({ ...prev, ...updated }))}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10000}
+                    value={newVarDraftInEdit.listPrice}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10000}
+                    value={newVarDraftInEdit.salePrice ?? newVarDraftInEdit.listPrice}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Tồn kho ban đầu:</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={newVarDraftInEdit.initialStock}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-200">
+              <button
+                type="button"
                 onClick={() => setShowAddVariantInEdit(false)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
               >
@@ -3097,7 +2341,7 @@ export const PortalProductsView: React.FC = () => {
         const currentProd = products.find(p => p.productId === editingVariant.prodId);
 
         return (
-          <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <div className="flex items-center gap-2">
@@ -3179,22 +2423,13 @@ export const PortalProductsView: React.FC = () => {
                     />
 
                     <div className="flex items-center gap-2">
-                      <label
-                        className={`px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-[11px] flex items-center gap-1 shadow-xs transition ${
-                          isUploadingVariantImage ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'
-                        }`}
-                      >
-                        {isUploadingVariantImage ? (
-                          <Loader2 size={12} className="text-indigo-600 animate-spin" />
-                        ) : (
-                          <Upload size={12} className="text-indigo-600" />
-                        )}
-                        <span>{isUploadingVariantImage ? 'Đang tải...' : 'Tải từ máy'}</span>
+                      <label className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs transition">
+                        <Upload size={12} className="text-indigo-600" />
+                        <span>Tải từ máy</span>
                         <input
                           type="file"
-                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          accept="image/*"
                           onChange={handleVariantFileUpload}
-                          disabled={isUploadingVariantImage}
                           className="hidden"
                         />
                       </label>

@@ -428,7 +428,7 @@ export const ProductDetailPage: React.FC = () => {
               selectedVariant={selectedVariant}
               onSelectVariant={(v) => {
                 setSelectedVariant(v);
-                setActiveImage(v.imageUrl || product.thumbnail);
+                setActiveImage(v.imageUrl);
               }}
             />
           </div>
