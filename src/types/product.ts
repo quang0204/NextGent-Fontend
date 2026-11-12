@@ -128,6 +128,7 @@ export interface AdminProductDetailResponse {
     salePrice?: number;
     compareAtPrice?: number;
     price?: number;
+    imageUrl?: string;
     isActive: boolean;
     hasTransactions?: boolean;
     inventory?: {
