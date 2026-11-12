@@ -31,9 +31,33 @@ import {
   X
 } from 'lucide-react';
 
-export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => {
+export const resolveOrderReturnState = (ord: OrderDetail, returnRequests?: any[]) => {
   const reqs = returnRequests || sharedStore.getReturnRequests();
-  const hasReturnReq = reqs.some((r: any) => r.orderId === ord.orderId || r.orderCode === ord.orderCode);
+  const matchedReq = reqs.find((r: any) => r.orderId === ord.orderId || r.orderCode === ord.orderCode);
+
+  const historyRejectNote = ord.statusHistory?.find((h: { note?: string }) => {
+    const lower = (h.note || '').toLowerCase();
+    return lower.includes('đổi trả') && lower.includes('bị từ chối');
+  })?.note;
+
+  const returnStatus =
+    ord.returnStatus ||
+    matchedReq?.status ||
+    (ord.paymentStatus === 'REFUNDED' ? 'APPROVED' : historyRejectNote ? 'REJECTED' : undefined);
+
+  return {
+    returnId: ord.returnId || matchedReq?.returnId,
+    returnStatus,
+    rejectReason: ord.returnRejectReason || matchedReq?.rejectReason || historyRejectNote,
+    inspectionResult: ord.returnInspectionResult || matchedReq?.inspectionResult,
+    refundAmount: ord.returnRefundAmount ?? matchedReq?.refundAmount,
+  };
+};
+
+export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => {
+  if (ord.paymentStatus === 'REFUNDED') return true;
+  const retInfo = resolveOrderReturnState(ord, returnRequests);
+  if (retInfo.returnStatus) return true;
   const isFailedDelivery = 
     ord.cancelReason?.includes('Giao thất bại') || 
     ord.cancelReason?.includes('RETURN') || 
@@ -45,11 +69,33 @@ export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => 
     const note = h.note?.toLowerCase() || '';
     return note.includes('đổi trả') || note.includes('hoàn kho') || note.includes('hoàn hàng') || note.includes('thất bại');
   });
-  return hasReturnReq || Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
+  return Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
 };
 
 export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
   if (order && checkIsReturnOrder(order)) {
+    const ret = resolveOrderReturnState(order);
+    if (ret.returnStatus === 'REJECTED') {
+      return {
+        label: 'Hoàn trả thất bại (Đã từ chối)',
+        bg: 'bg-rose-50 text-rose-700 border-rose-200',
+        dot: 'bg-rose-500'
+      };
+    }
+    if (ret.returnStatus === 'APPROVED' || order.paymentStatus === 'REFUNDED') {
+      return {
+        label: 'Đã hoàn hàng / Hoàn tiền',
+        bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        dot: 'bg-emerald-500'
+      };
+    }
+    if (ret.returnStatus === 'PENDING' || ret.returnStatus === 'INSPECTING') {
+      return {
+        label: 'Đang xử lý đổi trả',
+        bg: 'bg-purple-50 text-purple-700 border-purple-200',
+        dot: 'bg-purple-500'
+      };
+    }
     return {
       label: 'Hoàn hàng / Trả hàng',
       bg: 'bg-purple-50 text-purple-700 border-purple-200',
@@ -149,6 +195,9 @@ export const OrderTrackingPage: React.FC = () => {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [returnReason, setReturnReason] = useState('Lỗi phần cứng từ nhà sản xuất (yêu cầu đổi 1-1)');
   const [returnNote, setReturnNote] = useState('');
+  const [returnBankName, setReturnBankName] = useState('');
+  const [returnAccountNumber, setReturnAccountNumber] = useState('');
+  const [returnAccountHolder, setReturnAccountHolder] = useState('');
 
   // Modal xem biểu mẫu số hóa
   const [viewFormModal, setViewFormModal] = useState<'ORDER' | 'CONFIRM' | 'EXPORT' | 'RETURN' | null>(null);
@@ -272,6 +321,9 @@ export const OrderTrackingPage: React.FC = () => {
     setSearchCode(ord.orderCode);
     setViewMode('detail');
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    orderService.getOrderByCode(ord.orderCode).then(full => {
+      if (full) setOrder(full);
+    }).catch(() => {});
   };
 
   const handleBackToList = () => {
@@ -321,11 +373,29 @@ export const OrderTrackingPage: React.FC = () => {
 
   const handleConfirmReturn = async () => {
     if (!order) return;
+    const isCodOrder = (order.paymentMethod || 'COD').toUpperCase() === 'COD';
+    const bankInfo = (returnBankName.trim() || returnAccountNumber.trim() || returnAccountHolder.trim())
+      ? {
+          bankName: returnBankName.trim(),
+          accountNumber: returnAccountNumber.trim(),
+          accountHolder: returnAccountHolder.trim(),
+        }
+      : undefined;
+
+    if (isCodOrder && (!bankInfo?.bankName || !bankInfo?.accountNumber || !bankInfo?.accountHolder)) {
+      showToast('Vui lòng cung cấp đầy đủ thông tin tài khoản ngân hàng nhận tiền hoàn đối với đơn thanh toán COD!', 'warning');
+      return;
+    }
+
     const reasonText = `${returnReason}${returnNote? `: ${returnNote}`: ''}`;
-    const res = await orderService.requestReturn(order.orderId, reasonText);
+    const res = await orderService.requestReturn(order.orderId, reasonText, bankInfo);
     if (res.success) {
       showToast(res.message, 'success');
       setShowReturnModal(false);
+      setReturnNote('');
+      setReturnBankName('');
+      setReturnAccountNumber('');
+      setReturnAccountHolder('');
       fetchOrder(order.orderCode);
     } else {
       showToast(res.message, 'warning');
@@ -349,7 +419,9 @@ export const OrderTrackingPage: React.FC = () => {
 
   const currentStepIdx = order? getStepIndex(order.status): 0;
   const isCancellable = order && (order.status === 'PENDING_PAYMENT' || order.status === 'WAITING_CONFIRMATION');
-  const isReturnEligible = order && order.status === 'COMPLETED';
+  const currentReturnState = order ? resolveOrderReturnState(order) : undefined;
+  const hasBlockingReturn = currentReturnState?.returnStatus && currentReturnState.returnStatus !== 'REJECTED';
+  const isReturnEligible = order && order.status === 'COMPLETED' && order.paymentStatus !== 'REFUNDED' && !hasBlockingReturn;
 
   const returnRequests = sharedStore.getReturnRequests();
   const isReturnOrder = (ord: OrderDetail) => checkIsReturnOrder(ord, returnRequests);
@@ -679,6 +751,36 @@ export const OrderTrackingPage: React.FC = () => {
               </div>
             )}
 
+            {/* Kết quả xử lý Đổi trả / Hoàn tiền nếu có */}
+            {currentReturnState?.returnStatus && (
+              <div className={`p-4 rounded-xl border text-xs flex items-start gap-3 ${
+                currentReturnState.returnStatus === 'REJECTED'
+                  ? 'bg-rose-50 border-rose-200 text-rose-800'
+                  : currentReturnState.returnStatus === 'APPROVED' || order.paymentStatus === 'REFUNDED'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-purple-50 border-purple-200 text-purple-800'
+              }`}>
+                <RotateCcw size={18} className="flex-shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold">
+                    {currentReturnState.returnStatus === 'REJECTED'
+                      ? `Yêu cầu đổi trả thất bại / Đã bị từ chối${currentReturnState.returnId ? ` (RMA-#${currentReturnState.returnId})` : ''}`
+                      : currentReturnState.returnStatus === 'APPROVED' || order.paymentStatus === 'REFUNDED'
+                        ? `Yêu cầu đổi trả đã được chấp thuận & hoàn tiền${currentReturnState.refundAmount ? ` (${formatVND(currentReturnState.refundAmount)})` : ''}`
+                        : currentReturnState.returnStatus === 'INSPECTING'
+                          ? 'Kỹ thuật viên đang thẩm định yêu cầu đổi trả của bạn'
+                          : 'Yêu cầu đổi trả đang chờ tiếp nhận xử lý'}
+                  </div>
+                  {currentReturnState.returnStatus === 'REJECTED' && currentReturnState.rejectReason && (
+                    <div><strong>Lý do từ chối:</strong> {currentReturnState.rejectReason}</div>
+                  )}
+                  {currentReturnState.inspectionResult && (
+                    <div><strong>Kết quả kiểm tra:</strong> {currentReturnState.inspectionResult}</div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Thông tin người nhận & vận chuyển */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs pt-4 border-t border-hairline-soft">
               <div className="space-y-1">
@@ -708,7 +810,7 @@ export const OrderTrackingPage: React.FC = () => {
                       <div>
                         <h5 className="font-bold text-ink-deep">{item.productNameSnapshot}</h5>
                         <div className="text-[11px] text-steel">
-                          {item.colorSnapshot} - {item.romSnapshot} | SKU: <span className="font-mono">{item.skuSnapshot}</span>
+                          {item.colorSnapshot}{item.romSnapshot ? ` - ${item.romSnapshot}` : ''} | SKU: <span className="font-mono">{item.skuSnapshot}</span>
                         </div>
                         <div className="text-[11px] text-steel">Số lượng: x{item.quantity}</div>
                       </div>
@@ -943,7 +1045,7 @@ export const OrderTrackingPage: React.FC = () => {
                             <div className="flex-1 min-w-0">
                               <strong className="text-ink-deep block text-xs font-bold line-clamp-1">{it.productNameSnapshot}</strong>
                               <div className="text-[11px] text-steel">
-                                Màu: <span>{it.colorSnapshot}</span> • Dung lượng: <span>{it.romSnapshot}</span> • SL: <strong>x{it.quantity}</strong>
+                                Màu: <span>{it.colorSnapshot}</span>{it.romSnapshot ? <> • Dung lượng: <span>{it.romSnapshot}</span></> : null} • SL: <strong>x{it.quantity}</strong>
                               </div>
                             </div>
                           </div>
@@ -976,6 +1078,40 @@ export const OrderTrackingPage: React.FC = () => {
                         </div>
                       ))}
                     </div>
+
+                    {/* Kết quả Đổi trả trên thẻ đơn hàng */}
+                    {(() => {
+                      const cardRet = resolveOrderReturnState(ord, returnRequests);
+                      if (!cardRet.returnStatus) return null;
+                      if (cardRet.returnStatus === 'REJECTED') {
+                        return (
+                          <div className="text-xs bg-rose-50 border border-rose-200 rounded-xl p-2.5 text-rose-700 flex items-start gap-2">
+                            <XCircle size={14} className="flex-shrink-0 mt-0.5" />
+                            <div>
+                              <strong>Hoàn trả thất bại (Đã từ chối): </strong>
+                              <span>{cardRet.rejectReason || 'Sản phẩm không đủ điều kiện đổi trả theo chính sách.'}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (cardRet.returnStatus === 'APPROVED' || ord.paymentStatus === 'REFUNDED') {
+                        return (
+                          <div className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-emerald-700 flex items-start gap-2">
+                            <CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
+                            <div>
+                              <strong>Đã chấp thuận đổi trả &amp; hoàn tiền</strong>
+                              {cardRet.refundAmount ? ` (${formatVND(cardRet.refundAmount)})` : ''}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div className="text-xs bg-purple-50 border border-purple-200 rounded-xl p-2.5 text-purple-700 flex items-center gap-2">
+                          <RotateCcw size={14} className="flex-shrink-0" />
+                          <span><strong>Đang xử lý đổi trả</strong> ({cardRet.returnStatus === 'INSPECTING' ? 'Đang giám định' : 'Chờ tiếp nhận'})</span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Mini Progress Status Note */}
                     {ord.statusHistory && ord.statusHistory.length > 0 && (
@@ -1130,6 +1266,46 @@ export const OrderTrackingPage: React.FC = () => {
                   className="w-full p-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
                 />
               </div>
+
+              {(order?.paymentMethod || 'COD').toUpperCase() === 'COD' && (
+                <div className="space-y-2.5 pt-2 border-t border-hairline-soft">
+                  <label className="block font-semibold text-ink-deep">
+                    Tài khoản ngân hàng nhận tiền hoàn (bắt buộc cho đơn COD):
+                  </label>
+                  <div>
+                    <label className="block font-medium text-charcoal mb-1">Tên ngân hàng:</label>
+                    <input
+                      type="text"
+                      placeholder="VD: Vietcombank, MBBank, Techcombank..."
+                      value={returnBankName}
+                      onChange={(e) => setReturnBankName(e.target.value)}
+                      className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block font-medium text-charcoal mb-1">Số tài khoản:</label>
+                      <input
+                        type="text"
+                        placeholder="Nhập số tài khoản..."
+                        value={returnAccountNumber}
+                        onChange={(e) => setReturnAccountNumber(e.target.value)}
+                        className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink font-mono text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-charcoal mb-1">Chủ tài khoản:</label>
+                      <input
+                        type="text"
+                        placeholder="VD: NGUYEN THE MINH"
+                        value={returnAccountHolder}
+                        onChange={(e) => setReturnAccountHolder(e.target.value)}
+                        className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex gap-2.5 justify-end pt-3 border-t border-hairline-soft">

@@ -85,7 +85,7 @@ export const PortalPagination: React.FC<PortalPaginationProps> = ({
       </div>
 
       {/* Điều khiển chuyển trang */}
-      {totalPages > 1 && (
+      {totalPages >= 1 && (
         <div className="flex items-center gap-1">
           {/* Về trang đầu */}
           <button

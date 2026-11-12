@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { sharedStore } from '../../services/sharedStore';
 import { promotionService } from '../../services/promotionService';
+import { productService } from '../../services/productService';
+import { Product } from '../../types/product';
 import { PortalPromotion, PortalPromotionVariant, PromotionStatus } from '../../types/portal';
 import { formatVND } from '../common/PriceDisplay';
 import { 
@@ -42,21 +44,37 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Lấy danh sách toàn bộ biến thể SKU hiện có
-  const products = sharedStore.getProducts();
-  const allVariants = products.flatMap(p => 
-    p.variants.map(v => ({
-      variantId: v.variantId,
-      productId: p.productId,
-      productName: p.name,
-      sku: v.sku,
-      color: v.color,
-      romGb: v.romGb,
-      listPrice: v.listPrice || (v.salePrice? Math.round(v.salePrice * 1.15): 30000000),
-      salePrice: v.salePrice,
-      imageUrl: v.imageUrl || p.thumbnail
-    }))
-  );
+  // Danh sách sản phẩm thực tế từ Database / sharedStore
+  const [productsList, setProductsList] = useState<Product[]>(() => sharedStore.getProducts());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    productService.getProducts().then(prods => {
+      if (prods && prods.length > 0) {
+        setProductsList(prods);
+      }
+    }).catch(() => {});
+  }, [isOpen]);
+
+  // Lấy danh sách toàn bộ biến thể SKU thực tế với ID và giá niêm yết chuẩn
+  const allVariants = useMemo(() => {
+    return productsList.flatMap(p => 
+      (p.variants || []).map(v => {
+        const basePrice = v.listPrice || v.salePrice || 0;
+        return {
+          variantId: Number(v.variantId),
+          productId: p.productId,
+          productName: p.name,
+          sku: v.sku || `SKU-${v.variantId}`,
+          color: v.color || 'Mặc định',
+          romGb: v.romGb || 0,
+          listPrice: basePrice,
+          salePrice: v.salePrice || basePrice,
+          imageUrl: v.imageUrl || p.thumbnail
+        };
+      })
+    );
+  }, [productsList]);
 
   // Quản lý các biến thể đã chọn kèm promo_price
   const [selectedVariantsMap, setSelectedVariantsMap] = useState<Record<number, number>>({});
@@ -74,28 +92,45 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
     );
   });
 
-  const toggleSelectVariant = (variantId: number, defaultListPrice: number) => {
+  const toggleSelectVariant = (variantId: number, basePrice: number) => {
     setSelectedVariantsMap(prev => {
-      const copy = {...prev };
-      if (copy[variantId]!== undefined) {
+      const copy = { ...prev };
+      if (copy[variantId] !== undefined) {
         delete copy[variantId];
       } else {
         // Mặc định giảm 10%
-        copy[variantId] = Math.round(defaultListPrice * 0.9);
+        const rawDiscount = (basePrice * 10) / 100;
+        let promoPrice = Math.round((basePrice - rawDiscount) / 10000) * 10000;
+        if (promoPrice >= basePrice) {
+          promoPrice = Math.max(10000, basePrice - 10000);
+        }
+        copy[variantId] = promoPrice;
       }
       return copy;
     });
   };
 
-  const setDiscountPercent = (variantId: number, listPrice: number, percent: number) => {
-    const calculated = Math.round(listPrice * (1 - percent / 100));
-    setSelectedVariantsMap(prev => ({...prev,
-      [variantId]: calculated
+  const setDiscountPercent = (variantId: number, basePrice: number, percent: number) => {
+    // Giá sau khi giảm: basePrice * (1 - percent / 100)
+    // Làm tròn đến 10.000đ gần nhất (chuẩn tiền tệ VNĐ)
+    const rawDiscount = (basePrice * percent) / 100;
+    let promoPrice = Math.round((basePrice - rawDiscount) / 10000) * 10000;
+    // Ràng buộc nghiệp vụ bắt buộc: promoPrice luôn phải nhỏ hơn listPrice ít nhất 10.000đ
+    if (promoPrice >= basePrice) {
+      promoPrice = Math.max(10000, basePrice - 10000);
+    }
+    if (promoPrice <= 0) {
+      promoPrice = 10000;
+    }
+    setSelectedVariantsMap(prev => ({
+      ...prev,
+      [variantId]: promoPrice
     }));
   };
 
   const handlePriceChange = (variantId: number, val: number) => {
-    setSelectedVariantsMap(prev => ({...prev,
+    setSelectedVariantsMap(prev => ({
+      ...prev,
       [variantId]: val
     }));
   };
@@ -121,7 +156,6 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
     }
 
     // Kiểm tra tính hợp lệ của từng mức giá promo
-    const promotionVariants: PortalPromotionVariant[] = [];
     for (const vId of selectedIds) {
       const variantInfo = allVariants.find(v => v.variantId === vId);
       if (!variantInfo) continue;
@@ -135,26 +169,30 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
         setErrorMsg(`Giá khuyến mãi (${formatVND(promoPrice)}) cho SKU ${variantInfo.sku} phải thấp hơn giá niêm yết (${formatVND(variantInfo.listPrice)}).`);
         return;
       }
-
-      promotionVariants.push({
-        promoVariantId: Date.now() + Math.floor(Math.random() * 1000),
-        promotionId: 0,
-        variantId: vId,
-        productId: variantInfo.productId,
-        productName: variantInfo.productName,
-        sku: variantInfo.sku,
-        color: variantInfo.color,
-        romGb: variantInfo.romGb,
-        listPrice: variantInfo.listPrice,
-        promoPrice: promoPrice
-      });
     }
 
     // Gọi API 6.3: POST /api/v1/admin/promotions
     const apiVariants = selectedIds.map(vId => ({
-      variantId: vId,
-      promoPrice: selectedVariantsMap[vId]
+      variantId: Number(vId),
+      promoPrice: Number(selectedVariantsMap[vId])
     }));
+
+    const variantDetails: PortalPromotionVariant[] = selectedIds.map((vId, idx) => {
+      const v = allVariants.find(av => av.variantId === vId);
+      const promoPrice = Number(selectedVariantsMap[vId]);
+      return {
+        promoVariantId: Date.now() + idx,
+        promotionId: 0,
+        variantId: vId,
+        productId: v?.productId || 0,
+        productName: v?.productName || '',
+        sku: v?.sku || '',
+        color: v?.color || '',
+        romGb: v?.romGb || 0,
+        listPrice: v?.listPrice || 0,
+        promoPrice: promoPrice
+      };
+    });
 
     promotionService.createPromotion({
       name: name.trim(),
@@ -163,6 +201,7 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
       endAt: new Date(endAt).toISOString(),
       status,
       variants: apiVariants,
+      variantDetails,
     }).then(res => {
       if (!res.success) {
         setErrorMsg(res.message);
@@ -297,15 +336,15 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
             {/* Danh sách cuộn các biến thể */}
             <div className="max-h-60 overflow-y-auto border border-hairline-soft rounded-xl divide-y divide-hairline-soft bg-canvas">
               {filteredVariants.map(v => {
-                const isSelected = selectedVariantsMap[v.variantId]!== undefined;
+                const isSelected = selectedVariantsMap[v.variantId] !== undefined;
                 const currentPromoPrice = selectedVariantsMap[v.variantId] || 0;
-                const discountPct = isSelected && v.listPrice > 0? Math.round(((v.listPrice - currentPromoPrice) / v.listPrice) * 100): 0;
+                const discountPct = isSelected && v.listPrice > 0 ? Math.round(((v.listPrice - currentPromoPrice) / v.listPrice) * 100) : 0;
 
                 return (
                   <div
                     key={v.variantId}
                     className={`p-3 transition-colors ${
-                      isSelected? 'bg-primary/5': 'hover:bg-surface-soft'
+                      isSelected ? 'bg-primary/5' : 'hover:bg-surface-soft'
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -347,7 +386,9 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
                                 type="button"
                                 onClick={() => setDiscountPercent(v.variantId, v.listPrice, pct)}
                                 className={`px-1.5 py-0.5 rounded border transition ${
-                                  discountPct === pct? 'bg-primary text-canvas border-primary font-black': 'bg-surface-soft border-hairline-soft text-charcoal hover:border-primary'
+                                  discountPct === pct 
+                                    ? 'bg-primary text-canvas border-primary font-black shadow-xs' 
+                                    : 'bg-surface-soft border-hairline-soft text-charcoal hover:border-primary'
                                 }`}
                               >
                                 -{pct}%
@@ -359,9 +400,9 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
                           <div className="relative w-36">
                             <input
                               type="number"
-                              step={50000}
+                              step={10000}
                               min={10000}
-                              max={v.listPrice - 10000}
+                              max={Math.max(10000, v.listPrice - 10000)}
                               value={currentPromoPrice}
                               onChange={(e) => handlePriceChange(v.variantId, parseInt(e.target.value, 10) || 0)}
                               className="w-full h-8 px-2 text-right font-bold font-mono text-primary bg-canvas border border-hairline rounded-lg text-xs focus:border-2 focus:border-fb-blue focus:outline-none"

@@ -5,7 +5,7 @@ export interface PortalInventoryItem {
   productName: string;
   sku: string;
   color: string;
-  romGb: number;
+  romGb?: number;
   onHandQty: number;      // Tồn thực tế vật lý (Q)
   reservedQty: number;    // Tồn đang giữ chỗ (R)
   availableQty: number;   // Tồn khả dụng (A = Q - R)
@@ -141,9 +141,17 @@ export interface PortalReturnRequest {
   inspectedBy?: string;
   inspectedAt?: string;
   refundAmount?: number;
+  orderTotalAmount?: number;
   rejectReason?: string;
   createdAt: string;
+  evidenceImages?: string[];
+  bankInfo?: {
+    bankName?: string;
+    accountNumber?: string;
+    accountHolder?: string;
+  };
   items: {
+    variantId?: number;
     productName: string;
     sku: string;
     quantity: number;
@@ -210,7 +218,7 @@ export interface PortalPromotionVariant {
   productName: string;
   sku: string;
   color: string;
-  romGb: number;
+  romGb?: number;
   listPrice: number;
   promoPrice: number;
 }

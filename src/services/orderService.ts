@@ -8,6 +8,67 @@ import {
   OrderPipelineSummary 
 } from '../types/order';
 import { sharedStore } from './sharedStore';
+import { returnService } from './returnService';
+
+
+const formatOrderRom = (it: any): string => {
+  if (it?.romSnapshot && it.romSnapshot !== 'undefinedGB' && it.romSnapshot !== '0GB') {
+    return String(it.romSnapshot);
+  }
+  const romVal = Number(it?.romGb || 0);
+  return romVal > 0 ? `${romVal}GB` : '';
+};
+
+const mapBackendOrderToFrontend = (o: any, existing?: OrderDetail): OrderDetail => ({
+  orderId: o.orderId,
+  orderCode: o.orderCode,
+  status: (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION',
+  recipientName: o.recipientName || existing?.recipientName || 'Khách hàng',
+  recipientPhone: o.recipientPhone || existing?.recipientPhone || '',
+  shippingAddress: o.shippingAddress || existing?.shippingAddress || '',
+  paymentMethod: o.paymentMethod || existing?.paymentMethod || 'COD',
+  paymentStatus: o.paymentStatus || existing?.paymentStatus || 'UNPAID',
+  shippingFee: o.shippingFee ?? existing?.shippingFee ?? 0,
+  subtotal: o.subtotal ?? existing?.subtotal ?? o.totalAmount ?? 0,
+  voucherDiscount: o.voucherDiscount ?? existing?.voucherDiscount ?? 0,
+  totalAmount: o.totalAmount ?? existing?.totalAmount ?? 0,
+  carrier: o.carrier || existing?.carrier,
+  trackingCode: o.trackingCode || existing?.trackingCode,
+  cancelReason: o.cancelReason || existing?.cancelReason,
+  returnId: o.returnId ?? existing?.returnId,
+  returnStatus: o.returnStatus || existing?.returnStatus,
+  returnReason: o.returnReason || existing?.returnReason,
+  returnRejectReason: o.returnRejectReason || existing?.returnRejectReason,
+  returnInspectionResult: o.returnInspectionResult || existing?.returnInspectionResult,
+  returnRefundAmount: o.returnRefundAmount !== undefined && o.returnRefundAmount !== null ? Number(o.returnRefundAmount) : existing?.returnRefundAmount,
+  createdAt: o.createdAt || existing?.createdAt || new Date().toISOString(),
+  updatedAt: o.updatedAt || existing?.updatedAt || o.createdAt || new Date().toISOString(),
+  completedAt: o.completedAt || existing?.completedAt,
+  items: (Array.isArray(o.items) && o.items.length > 0)
+    ? o.items.map((it: any, idx: number) => ({
+        orderItemId: it.orderItemId || idx + 1,
+        variantId: it.variantId || idx + 1,
+        productId: it.productId || idx + 1,
+        productNameSnapshot: it.productNameSnapshot || it.productName || 'Sản phẩm',
+        skuSnapshot: it.skuSnapshot || it.sku || '',
+        colorSnapshot: it.colorSnapshot || it.color || '',
+        romSnapshot: formatOrderRom(it),
+        unitPrice: Number(it.unitPrice || 0),
+        quantity: Number(it.quantity || 1),
+        lineTotal: Number(it.lineTotal ?? ((it.unitPrice || 0) * (it.quantity || 1))),
+        imageUrl: it.imageUrl || '/assets/products/iphone-16-pro-max.png',
+      }))
+    : (existing?.items || []),
+  statusHistory: (Array.isArray(o.statusHistory) && o.statusHistory.length > 0)
+    ? o.statusHistory.map((h: any) => ({
+        status: (h.status as OrderStatus) || 'WAITING_CONFIRMATION',
+        time: (h.time || h.changedAt)
+          ? new Date(h.time || h.changedAt).toLocaleString('vi-VN')
+          : new Date().toLocaleString('vi-VN'),
+        note: h.note || h.description || '',
+      }))
+    : (existing?.statusHistory || []),
+});
 
 export const orderService = {
   /**
@@ -16,11 +77,7 @@ export const orderService = {
    */
   async createOrder(payload: CreateOrderPayload, userRole = 'CUSTOMER', userName = 'Khách hàng'): Promise<OrderResponse> {
     try {
-      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload, {
-        headers: {
-          'Idempotency-Key': crypto.randomUUID(),
-        }
-      });
+      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload);
       if (response.data?.data) {
         const d = response.data.data;
         const mappedRes: OrderResponse = {
@@ -32,12 +89,8 @@ export const orderService = {
           createdAt: d.createdAt || new Date().toISOString(),
         };
 
-        // Đồng bộ đơn hàng mới vào sharedStore để các view khác đọc được
-        try {
-          sharedStore.createOrder(payload, userRole, userName);
-        } catch {
-          // Bỏ qua nếu sharedStore đã có
-        }
+        void userRole;
+        void userName;
 
         return mappedRes;
       }
@@ -73,49 +126,38 @@ export const orderService = {
       });
 
       if (res.data?.data?.content) {
-        return res.data.data.content.map((o: any) => ({
-          orderId: o.orderId,
-          orderCode: o.orderCode,
-          status: (o.status as OrderStatus) || 'WAITING_CONFIRMATION',
-          recipientName: o.recipientName || 'Khách hàng',
-          recipientPhone: o.recipientPhone || '',
-          shippingAddress: o.shippingAddress || '',
-          paymentMethod: o.paymentMethod || 'COD',
-          paymentStatus: o.paymentStatus || 'UNPAID',
-          shippingFee: o.shippingFee || 0,
-          subtotal: o.subtotal || o.totalAmount || 0,
-          voucherDiscount: o.voucherDiscount || 0,
-          totalAmount: o.totalAmount,
-          carrier: o.carrier,
-          trackingCode: o.trackingCode,
-          cancelReason: o.cancelReason,
-          createdAt: o.createdAt,
-          updatedAt: o.updatedAt || o.createdAt,
-          items: (o.items || []).map((it: any, idx: number) => ({
-            orderItemId: it.orderItemId || idx + 1,
-            variantId: it.variantId || idx + 1,
-            productId: it.productId || idx + 1,
-            productNameSnapshot: it.productNameSnapshot || it.productName || 'Sản phẩm',
-            skuSnapshot: it.skuSnapshot || it.sku || '',
-            colorSnapshot: it.colorSnapshot || it.color || '',
-            romSnapshot: it.romSnapshot || it.romGb ? `${it.romGb}GB` : '',
-            unitPrice: it.unitPrice || 0,
-            quantity: it.quantity || 1,
-            lineTotal: it.lineTotal || (it.unitPrice * it.quantity) || 0,
-            imageUrl: it.imageUrl || '/assets/products/iphone-16-pro-max.png',
-          })),
-          statusHistory: (o.statusHistory || []).map((h: any) => ({
-            status: (h.status as OrderStatus) || 'WAITING_CONFIRMATION',
-            time: h.time || h.changedAt ? new Date(h.time || h.changedAt).toLocaleString('vi-VN') : new Date().toLocaleString('vi-VN'),
-            note: h.note || h.description || '',
-          }))
-        }));
+        return Promise.all(
+          res.data.data.content.map(async (o: any) => {
+            const existing = sharedStore.getOrderByCode(o.orderCode) || sharedStore.getOrderById(o.orderId);
+            const mapped = mapBackendOrderToFrontend(o, existing);
+            // Nếu backend phiên bản cũ chưa trả recipientPhone / statusHistory / items đủ -> nạp bổ sung qua API 8.3
+            if ((!o.recipientPhone || !o.statusHistory?.length || !mapped.items.length) && o.orderCode) {
+              const detail = await this.getOrderByCode(o.orderCode);
+              if (detail) return detail;
+            }
+            return mapped;
+          })
+        );
       }
     } catch (err) {
       console.warn('[orderService.getMyOrders] Backend offline or failed, fallback to sharedStore', err);
     }
 
-    return sharedStore.getOrders();
+    const rawUser = typeof window !== 'undefined' ? localStorage.getItem('nextpick_user_v2') : null;
+    if (!rawUser) {
+      return [];
+    }
+
+    try {
+      const u = JSON.parse(rawUser);
+      const orders = sharedStore.getOrders();
+      return orders.filter(o => 
+        (u.phone && o.recipientPhone === u.phone) || 
+        (u.fullName && o.recipientName === u.fullName)
+      );
+    } catch {
+      return [];
+    }
   },
 
   /**
@@ -128,45 +170,7 @@ export const orderService = {
     try {
       const res = await apiClient.get<{ success: boolean; data: any }>(`/orders/${encodeURIComponent(clean)}`);
       if (res.data?.data) {
-        const d = res.data.data;
-        return {
-          orderId: d.orderId,
-          orderCode: d.orderCode,
-          status: (d.status as OrderStatus) || 'WAITING_CONFIRMATION',
-          recipientName: d.recipientName,
-          recipientPhone: d.recipientPhone,
-          shippingAddress: d.shippingAddress,
-          paymentMethod: d.paymentMethod,
-          paymentStatus: d.paymentStatus,
-          subtotal: d.subtotal,
-          voucherDiscount: d.voucherDiscount || 0,
-          shippingFee: d.shippingFee || 0,
-          totalAmount: d.totalAmount,
-          carrier: d.carrier,
-          trackingCode: d.trackingCode,
-          cancelReason: d.cancelReason,
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-          completedAt: d.completedAt,
-          items: (d.items || []).map((it: any, idx: number) => ({
-            orderItemId: it.orderItemId || idx + 1,
-            variantId: it.variantId || idx + 1,
-            productId: it.productId || idx + 1,
-            productNameSnapshot: it.productNameSnapshot || it.productName || 'Sản phẩm',
-            skuSnapshot: it.skuSnapshot || it.sku || '',
-            colorSnapshot: it.colorSnapshot || it.color || '',
-            romSnapshot: it.romSnapshot || '',
-            unitPrice: it.unitPrice || 0,
-            quantity: it.quantity || 1,
-            lineTotal: it.lineTotal || (it.unitPrice * it.quantity) || 0,
-            imageUrl: it.imageUrl || '/assets/products/iphone-16-pro-max.png',
-          })),
-          statusHistory: (d.statusHistory || []).map((h: any) => ({
-            status: (h.status as OrderStatus) || 'WAITING_CONFIRMATION',
-            time: h.time || h.changedAt ? new Date(h.time || h.changedAt).toLocaleString('vi-VN') : new Date().toLocaleString('vi-VN'),
-            note: h.note || '',
-          }))
-        };
+        return mapBackendOrderToFrontend(res.data.data);
       }
     } catch {
       // Fallback
@@ -239,37 +243,39 @@ export const orderService = {
 
       if (res.data?.data?.content) {
         const d = res.data.data;
-        const mappedContent: OrderDetail[] = d.content.map((o: any) => {
-          const existing = sharedStore.getOrderByCode(o.orderCode) || sharedStore.getOrderById(o.orderId);
-          return {
-            orderId: o.orderId,
-            orderCode: o.orderCode,
-            status: (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION',
-            recipientName: o.recipientName || existing?.recipientName || 'Khách hàng',
-            recipientPhone: o.recipientPhone || existing?.recipientPhone || '',
-            shippingAddress: o.shippingAddress || existing?.shippingAddress || '',
-            paymentMethod: o.paymentMethod || existing?.paymentMethod || 'COD',
-            paymentStatus: o.paymentStatus || existing?.paymentStatus || 'UNPAID',
-            shippingFee: o.shippingFee ?? existing?.shippingFee ?? 0,
-            subtotal: o.subtotal ?? existing?.subtotal ?? o.totalAmount,
-            voucherDiscount: o.voucherDiscount ?? existing?.voucherDiscount ?? 0,
-            totalAmount: o.totalAmount ?? existing?.totalAmount ?? 0,
-            carrier: o.carrier || existing?.carrier,
-            trackingCode: o.trackingCode || existing?.trackingCode,
-            cancelReason: o.cancelReason || existing?.cancelReason,
-            createdAt: o.createdAt || existing?.createdAt || new Date().toISOString(),
-            updatedAt: o.updatedAt || existing?.updatedAt || new Date().toISOString(),
-            completedAt: o.completedAt || existing?.completedAt,
-            items: existing?.items || [],
-            statusHistory: existing?.statusHistory || [
-              {
-                status: (o.status as OrderStatus) || 'WAITING_CONFIRMATION',
+        const mappedContent: OrderDetail[] = await Promise.all(
+          d.content.map(async (o: any) => {
+            const existing = sharedStore.getOrderByCode(o.orderCode) || sharedStore.getOrderById(o.orderId);
+            const relatedShipment = sharedStore.getShipments().find(s =>
+              (s.orderCode && s.orderCode === o.orderCode) ||
+              (s.orderId && Number(s.orderId) === Number(o.orderId)) ||
+              (o.trackingCode && s.trackingCode === o.trackingCode)
+            );
+            let effectiveStatus: OrderStatus = (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION';
+            if (relatedShipment?.status === 'PICKED_UP' || (existing?.status === 'PICKED_UP' && relatedShipment?.status !== 'IN_TRANSIT' && relatedShipment?.status !== 'DELIVERED')) {
+              effectiveStatus = 'PICKED_UP';
+            } else if (effectiveStatus === 'CONFIRMED' && existing && (existing.status === 'PREPARING' || existing.status === 'PICKED_UP')) {
+              effectiveStatus = existing.status;
+            }
+            let mapped = mapBackendOrderToFrontend(o, existing);
+            // Nếu backend chưa trả items array thì nạp chi tiết đơn hàng qua API 8.3
+            if ((!o.items || o.items.length === 0) && o.orderCode) {
+              const detail = await this.getOrderByCode(o.orderCode);
+              if (detail && detail.items.length > 0) {
+                mapped = detail;
+              }
+            }
+            return {
+              ...mapped,
+              status: effectiveStatus,
+              statusHistory: mapped.statusHistory.length > 0 ? mapped.statusHistory : [{
+                status: effectiveStatus,
                 time: new Date(o.createdAt || Date.now()).toLocaleString('vi-VN'),
                 note: o.itemsSummary || 'Khởi tạo đơn hàng thành công'
-              }
-            ]
-          };
-        });
+              }]
+            };
+          })
+        );
 
         return {
           content: mappedContent,
@@ -423,6 +429,16 @@ export const orderService = {
           CANCELLED: 'CANCELLED',
         };
 
+        // Nếu user đang đăng nhập, ưu tiên ghép đủ dữ liệu đơn hàng thật (giá tiền + returnStatus) từ API 8.3
+        const fullOrder = await this.getOrderByCode(d.orderCode || clean);
+        if (fullOrder) {
+          return {
+            ...fullOrder,
+            trackingCode: d.trackingCode || fullOrder.trackingCode,
+            carrier: d.carrier || fullOrder.carrier,
+          };
+        }
+
         const existingOrder = sharedStore.getOrderByCode(d.orderCode);
 
         const mappedOrder: OrderDetail = {
@@ -437,9 +453,9 @@ export const orderService = {
           paymentMethod: existingOrder?.paymentMethod || 'COD',
           paymentStatus: d.status === 'DELIVERED' ? 'PAID' : (existingOrder?.paymentStatus || 'UNPAID'),
           shippingFee: existingOrder?.shippingFee || 0,
-          subtotal: existingOrder?.subtotal || 34490000,
+          subtotal: existingOrder?.subtotal || 0,
           voucherDiscount: existingOrder?.voucherDiscount || 0,
-          totalAmount: existingOrder?.totalAmount || 34490000,
+          totalAmount: existingOrder?.totalAmount || 0,
           cancelReason: d.status === 'FAILED_DELIVERY' ? 'Giao hàng thất bại' : existingOrder?.cancelReason,
           createdAt: existingOrder?.createdAt || d.timeline?.[0]?.time || new Date().toISOString(),
           updatedAt: existingOrder?.updatedAt || new Date().toISOString(),
@@ -451,10 +467,10 @@ export const orderService = {
             skuSnapshot: it.color || 'Tiêu chuẩn',
             colorSnapshot: it.color || '',
             romSnapshot: '',
-            unitPrice: existingOrder?.items?.[idx]?.unitPrice || 34490000,
+            unitPrice: existingOrder?.items?.[idx]?.unitPrice || 0,
             quantity: it.quantity || 1,
-            lineTotal: existingOrder?.items?.[idx]?.lineTotal || 34490000,
-            imageUrl: existingOrder?.items?.[idx]?.imageUrl || '/assets/products/iphone-16-pro-max.png',
+            lineTotal: existingOrder?.items?.[idx]?.lineTotal || 0,
+            imageUrl: existingOrder?.items?.[idx]?.imageUrl || '',
           })) || existingOrder?.items || [],
           statusHistory: d.timeline?.map((t: any) => ({
             time: new Date(t.time).toLocaleString('vi-VN', {
@@ -491,42 +507,11 @@ export const orderService = {
     return this.getMyOrders();
   },
 
-  async requestReturn(orderId: number, reason: string): Promise<{ success: boolean; message: string }> {
-    try {
-      await apiClient.post(`/customer/orders/${orderId}/return-requests`, { reason });
-      return { success: true, message: 'Đã gửi yêu cầu đổi trả thành công!' };
-    } catch {
-      const order = sharedStore.getOrderById(orderId);
-      if (!order) return { success: false, message: 'Không tìm thấy đơn hàng' };
-      if (order.status !== 'COMPLETED') {
-        return { success: false, message: 'Chỉ có thể yêu cầu đổi trả với đơn hàng đã Hoàn tất.' };
-      }
-
-      order.statusHistory.unshift({
-        status: 'COMPLETED',
-        time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }),
-        note: `Khách hàng gửi yêu cầu Đổi trả / Hoàn tiền: ${reason}. Bộ phận CSKH đang xử lý.`
-      });
-
-      sharedStore.createReturnRequest({
-        orderId: order.orderId,
-        orderCode: order.orderCode,
-        userId: 101,
-        requestedBy: order.recipientName,
-        phone: order.recipientPhone,
-        reason: reason,
-        items: order.items.map(it => ({
-          productName: it.productNameSnapshot,
-          sku: it.skuSnapshot,
-          quantity: it.quantity,
-          unitPrice: it.unitPrice
-        }))
-      });
-
-      return {
-        success: true,
-        message: 'Yêu cầu đổi trả của bạn đã được ghi nhận. Nhân viên CSKH sẽ liên hệ trong vòng 24h để hướng dẫn gửi máy về kho kiểm tra!'
-      };
-    }
+  async requestReturn(
+    orderId: number,
+    reason: string,
+    bankInfo?: { bankName?: string; accountNumber?: string; accountHolder?: string }
+  ): Promise<{ success: boolean; message: string }> {
+    return returnService.createReturnRequest({ orderId, reason, bankInfo });
   }
 };

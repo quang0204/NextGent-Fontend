@@ -135,7 +135,12 @@ export const PortalInventoryView: React.FC = () => {
     e.preventDefault();
     if (!currentInventoryItem) return;
 
-    const fullReason = `${adjReason}${adjDetailedReason? `: ${adjDetailedReason}`: ''}`;
+    if (actualCount < currentInventoryItem.reservedQty) {
+      alert(`Số lượng tồn thực tế (${actualCount}) không được nhỏ hơn số lượng đang giữ chỗ cho khách (${currentInventoryItem.reservedQty})!`);
+      return;
+    }
+
+    const fullReason = `${adjReason}${adjDetailedReason ? `: ${adjDetailedReason}` : ''}`;
     const res = await inventoryService.createStockAdjustment({
       variantId: currentInventoryItem.variantId,
       actualCount,
@@ -297,7 +302,7 @@ export const PortalInventoryView: React.FC = () => {
                           </td>
                           <td className="p-3.5">
                             <strong className="text-slate-900 block text-xs">{item.productName}</strong>
-                            <span className="text-[11px] text-slate-500">{item.color} • {item.romGb >= 1024? '1TB': `${item.romGb}GB`}</span>
+                            <span className="text-[11px] text-slate-500">{item.color} {item.romGb ? `• ${item.romGb >= 1024 ? '1TB' : `${item.romGb}GB`}` : ''}</span>
                           </td>
                           <td className="p-3.5 text-center font-bold text-slate-700 tabular-nums text-xs">
                             {item.onHandQty}

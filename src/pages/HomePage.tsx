@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { productService } from '../services/productService';
-import { promotionService } from '../services/promotionService';
+import { productService, applyActivePromotionsToProducts } from '../services/productService';
+import { promotionService, getCountdownParts } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
 import { 
@@ -30,17 +30,39 @@ export const HomePage: React.FC = () => {
   const flashSaleSliderRef = useRef<HTMLDivElement>(null);
   const [isFlashSalePaused, setIsFlashSalePaused] = useState(false);
   const [isFlashSaleInView, setIsFlashSaleInView] = useState(false);
+  const [flashSaleEndAt, setFlashSaleEndAt] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
-      // API 6.1: GET /api/v1/promotions/active song song với danh mục & sản phẩm
-      const [allProducts, allBrands] = await Promise.all([
+      // API 4.2 & API 6.1: Nạp sản phẩm, thương hiệu, Flash Sale và chiến dịch khuyến mãi đang diễn ra
+      const [allProducts, allBrands, featuredFlashSale, activePromos] = await Promise.all([
         productService.getProducts(),
         productService.getBrands(),
-        promotionService.getActivePromotions().catch(() => [])
+        productService.getFeaturedProducts('FLASH_SALE', 8).catch(() => []),
+        promotionService.getActivePromotions().catch(() => []),
       ]);
-      setProducts(allProducts);
+      let mergedProducts = [...allProducts];
+      if (featuredFlashSale && featuredFlashSale.length > 0) {
+        featuredFlashSale.forEach(fp => {
+          const idx = mergedProducts.findIndex(p => p.productId === fp.productId);
+          if (idx !== -1) {
+            mergedProducts[idx] = { ...mergedProducts[idx], isFlashSale: true };
+          } else {
+            mergedProducts.unshift({ ...fp, isFlashSale: true });
+          }
+        });
+      }
+      if (activePromos && activePromos.length > 0) {
+        const soonestEnd = activePromos
+          .map(p => p.endAt)
+          .filter(d => Boolean(d) && new Date(d).getTime() > Date.now())
+          .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())[0];
+        if (soonestEnd) setFlashSaleEndAt(soonestEnd);
+        mergedProducts = await applyActivePromotionsToProducts(mergedProducts, activePromos);
+      }
+      setProducts(mergedProducts);
       setBrands(allBrands);
       setIsLoading(false);
     };
@@ -48,6 +70,13 @@ export const HomePage: React.FC = () => {
   }, []);
 
   const flashSaleProducts = products.filter(p => p.isFlashSale);
+  const flashCountdown = getCountdownParts(flashSaleEndAt, nowMs);
+
+  useEffect(() => {
+    if (flashSaleProducts.length === 0) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [flashSaleProducts.length]);
   const filteredProducts = selectedBrand === 'all'
     ? products
     : products.filter(p => p.brandName.toLowerCase() === selectedBrand.toLowerCase());
@@ -338,11 +367,11 @@ export const HomePage: React.FC = () => {
                 <div className="flex items-center gap-2.5 text-xs bg-canvas/10 border border-canvas/20 px-3.5 py-1.5 rounded-full">
                   <span className="text-canvas/80 font-medium">Kết thúc trong:</span>
                   <div className="flex items-center gap-1 font-mono font-bold text-warning text-sm">
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">03</span>
+                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.hours}</span>
                     <span>:</span>
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">24</span>
+                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.minutes}</span>
                     <span>:</span>
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">58</span>
+                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.seconds}</span>
                   </div>
                 </div>
               </div>

@@ -196,18 +196,19 @@ export const PortalOrdersView: React.FC = () => {
   const loadAdminOrders = useCallback(async () => {
     try {
       const res = await orderService.getAdminOrders({
-        page: currentPage,
-        size: pageSize,
-        status: selectedStatus,
-        paymentStatus: selectedPaymentStatus,
+        page: 1,
+        size: 100,
+        status: 'ALL',
+        paymentStatus: 'ALL',
       });
       if (res?.content && res.content.length > 0) {
         setOrders(res.content);
+        sharedStore.syncExternalOrders(res.content);
       }
     } catch (err) {
       console.warn('[PortalOrdersView] loadAdminOrders error', err);
     }
-  }, [currentPage, pageSize, selectedStatus, selectedPaymentStatus]);
+  }, []);
 
   useEffect(() => {
     loadAdminOrders();
@@ -235,7 +236,26 @@ export const PortalOrdersView: React.FC = () => {
 
   // Helper tìm thông tin vận chuyển tương ứng cho đơn
   const getShipmentForOrder = (order: OrderDetail): PortalShipment | undefined => {
-    return shipments.find(s => s.orderId === order.orderId || s.orderCode === order.orderCode);
+    return shipments.find(s => 
+      s.orderCode === order.orderCode || 
+      Number(s.orderId) === Number(order.orderId) ||
+      (order.trackingCode && s.trackingCode === order.trackingCode)
+    );
+  };
+
+  // Helper tính trạng thái đơn hàng hiệu lực (kết hợp đồng bộ tiến trình vận đơn)
+  const getEffectiveOrderStatus = (order: OrderDetail): OrderStatus => {
+    const sh = getShipmentForOrder(order);
+    if (sh?.status === 'PICKED_UP' && order.status !== 'SHIPPING' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
+      return 'PICKED_UP';
+    }
+    if (sh?.status === 'IN_TRANSIT' && (order.status === 'PREPARING' || order.status === 'PICKED_UP' || order.status === 'CONFIRMED')) {
+      return 'SHIPPING';
+    }
+    if (sh?.status === 'DELIVERED' && order.status !== 'CANCELLED') {
+      return 'COMPLETED';
+    }
+    return order.status;
   };
 
   // Helper tìm yêu cầu đổi trả tương ứng cho đơn
@@ -266,11 +286,14 @@ export const PortalOrdersView: React.FC = () => {
   // KPI Metrics tính toán động từ dữ liệu thực tế (Không hardcode)
   const metrics = useMemo(() => {
     const totalCount = orders.length;
-    const waitingConfirmation = orders.filter(o => o.status === 'WAITING_CONFIRMATION').length;
-    const inProcess = orders.filter(o => o.status === 'PREPARING' || o.status === 'SHIPPING').length;
-    const completed = orders.filter(o => o.status === 'COMPLETED').length;
-    const cancelled = orders.filter(o => o.status === 'CANCELLED').length;
-    const totalRevenue = orders.filter(o => o.status === 'COMPLETED').reduce((sum, o) => sum + o.totalAmount, 0);
+    const waitingConfirmation = orders.filter(o => getEffectiveOrderStatus(o) === 'WAITING_CONFIRMATION').length;
+    const inProcess = orders.filter(o => {
+      const s = getEffectiveOrderStatus(o);
+      return s === 'PREPARING' || s === 'PICKED_UP' || s === 'SHIPPING';
+    }).length;
+    const completed = orders.filter(o => getEffectiveOrderStatus(o) === 'COMPLETED').length;
+    const cancelled = orders.filter(o => getEffectiveOrderStatus(o) === 'CANCELLED').length;
+    const totalRevenue = orders.filter(o => getEffectiveOrderStatus(o) === 'COMPLETED').reduce((sum, o) => sum + o.totalAmount, 0);
 
     return {
       totalCount,
@@ -295,7 +318,8 @@ export const PortalOrdersView: React.FC = () => {
       }
 
       // 2. Lọc trạng thái đơn hàng
-      if (selectedStatus!== 'ALL' && order.status!== selectedStatus) {
+      const effectiveStatus = getEffectiveOrderStatus(order);
+      if (selectedStatus !== 'ALL' && effectiveStatus !== selectedStatus) {
         return false;
       }
 
@@ -362,23 +386,38 @@ export const PortalOrdersView: React.FC = () => {
 
   // Chuyển đổi trạng thái đơn lẻ
   const handleTransition = async (orderId: number, nextStatus: OrderStatus) => {
-    // API 8.6: POST /api/v1/admin/orders/{id}/confirm
-    if (nextStatus === 'CONFIRMED') {
-      await orderService.confirmOrder(orderId, { carrier: 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
-    }
-    // API 8.7: POST /api/v1/admin/orders/{id}/pack-export
-    if (nextStatus === 'SHIPPING') {
-      await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
-    }
-    const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
-      performedBy: 'Nguyễn Thanh Hùng (Staff)'
-    });
-    if (!res.success) {
-      alert(res.message);
-    } else {
-      setBulkActionFeedback(`✓ Đã chuyển trạng thái đơn hàng sang ${nextStatus}!`);
-      setTimeout(() => setBulkActionFeedback(null), 3000);
-      loadAdminOrders();
+    try {
+      let apiSuccess = false;
+      let apiMsg = '';
+
+      // API 8.6: POST /api/v1/admin/orders/{id}/confirm
+      if (nextStatus === 'CONFIRMED') {
+        const res = await orderService.confirmOrder(orderId, { carrier: 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+        apiSuccess = res.success;
+        apiMsg = res.message;
+      }
+      // API 8.7: POST /api/v1/admin/orders/{id}/pack-export
+      else if (nextStatus === 'SHIPPING') {
+        const res = await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+        apiSuccess = res?.success ?? true;
+      }
+
+      const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
+        performedBy: 'Nguyễn Thanh Hùng (Staff)'
+      });
+
+      if (res.success || apiSuccess) {
+        setBulkActionFeedback(`✓ ${apiMsg || `Đã chuyển đơn hàng sang trạng thái ${nextStatus}!`}`);
+        setTimeout(() => setBulkActionFeedback(null), 4000);
+        setOrders([...sharedStore.getOrders()]);
+        setShipments([...sharedStore.getShipments()]);
+        await loadAdminOrders();
+      } else {
+        alert(res.message);
+      }
+    } catch (err: any) {
+      console.error('[handleTransition] error', err);
+      alert(err.message || 'Lỗi khi cập nhật trạng thái đơn hàng.');
     }
   };
 
@@ -769,7 +808,8 @@ export const PortalOrdersView: React.FC = () => {
                 </tr>
               ): (
                 paginatedOrders.map(order => {
-                  const statusObj = STATUS_PIPELINE.find(s => s.key === order.status) || STATUS_PIPELINE[0];
+                  const effectiveStatus = getEffectiveOrderStatus(order);
+                  const statusObj = STATUS_PIPELINE.find(s => s.key === effectiveStatus) || STATUS_PIPELINE[0];
                   const paymentObj = PAYMENT_STATUS_MAP[order.paymentStatus] || PAYMENT_STATUS_MAP.UNPAID;
                   const shipmentStatus = resolveShipmentStatus(order);
                   const shipmentObj = SHIPMENT_STATUS_MAP[shipmentStatus] || SHIPMENT_STATUS_MAP.PENDING;
@@ -860,7 +900,7 @@ export const PortalOrdersView: React.FC = () => {
                                 {primaryItem.productNameSnapshot}
                               </p>
                               <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-mono">
-                                <span>{primaryItem.colorSnapshot} - {primaryItem.romSnapshot}</span>
+                                <span>{primaryItem.colorSnapshot}{primaryItem.romSnapshot ? ` - ${primaryItem.romSnapshot}` : ''}</span>
                                 <span>•</span>
                                 <span className="font-bold text-slate-700">SL: {primaryItem.quantity}</span>
                               </div>
@@ -916,6 +956,21 @@ export const PortalOrdersView: React.FC = () => {
                         {order.cancelReason && (
                           <span className="block text-[10px] text-rose-500 truncate max-w-[120px] mt-0.5" title={order.cancelReason}>
                             {order.cancelReason}
+                          </span>
+                        )}
+                        {order.returnStatus === 'REJECTED' && (
+                          <span className="block text-[10px] text-rose-600 font-semibold mt-0.5" title={order.returnRejectReason}>
+                            Hoàn trả thất bại
+                          </span>
+                        )}
+                        {order.returnStatus === 'APPROVED' && (
+                          <span className="block text-[10px] text-emerald-600 font-semibold mt-0.5">
+                            Đã duyệt đổi trả
+                          </span>
+                        )}
+                        {(order.returnStatus === 'PENDING' || order.returnStatus === 'INSPECTING') && (
+                          <span className="block text-[10px] text-purple-600 font-semibold mt-0.5">
+                            Đang xử lý đổi trả
                           </span>
                         )}
                       </td>
@@ -980,13 +1035,7 @@ export const PortalOrdersView: React.FC = () => {
                           {order.status === 'WAITING_CONFIRMATION' && (
                             <>
                               <button
-                                onClick={() => {
-                                  const res = sharedStore.transitionOrderStatus(order.orderId, 'CONFIRMED');
-                                  if (res.success) {
-                                    setBulkActionFeedback(`Đã xác nhận đơn #${order.orderCode}! Đơn chuyển sang Đã xác nhận.`);
-                                    setTimeout(() => setBulkActionFeedback(null), 4000);
-                                  }
-                                }}
+                                onClick={() => handleTransition(order.orderId, 'CONFIRMED')}
                                 className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition"
                                 title="Xác nhận đơn hàng, chuyển sang Đã xác nhận"
                               >
@@ -1010,13 +1059,7 @@ export const PortalOrdersView: React.FC = () => {
                           {order.status === 'CONFIRMED' && (
                             <>
                               <button
-                                onClick={() => {
-                                  const res = sharedStore.transitionOrderStatus(order.orderId, 'PREPARING');
-                                  if (res.success) {
-                                    setBulkActionFeedback(`Đơn #${order.orderCode} đã chuyển sang Đang chuẩn bị hàng và được đẩy sang Bảng Vận đơn!`);
-                                    setTimeout(() => setBulkActionFeedback(null), 4000);
-                                  }
-                                }}
+                                onClick={() => handleTransition(order.orderId, 'PREPARING')}
                                 className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition"
                                 title="Chuẩn bị hàng và tự động đẩy sang Bảng Vận đơn"
                               >
@@ -1037,7 +1080,7 @@ export const PortalOrdersView: React.FC = () => {
                           )}
 
                           {/* 4. PREPARING: Đang chuẩn bị hàng -> Đã đẩy sang bảng vận đơn */}
-                          {order.status === 'PREPARING' && (
+                          {effectiveStatus === 'PREPARING' && (
                             <span 
                               className="px-2 py-0.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-md text-[10px] font-bold inline-flex items-center gap-1 shadow-2xs"
                               title={`Đang chuẩn bị hàng. Đã đẩy sang Bảng Vận đơn (${order.trackingCode || shipmentRecord?.trackingCode || 'Đã cấp VĐ'}).`}
@@ -1048,7 +1091,7 @@ export const PortalOrdersView: React.FC = () => {
                           )}
 
                           {/* 4.5. PICKED_UP: Đã lấy hàng -> Cập nhật từ Bảng Vận đơn */}
-                          {order.status === 'PICKED_UP' && (
+                          {effectiveStatus === 'PICKED_UP' && (
                             <span 
                               className="px-2 py-0.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-md text-[10px] font-bold inline-flex items-center gap-1 shadow-2xs"
                               title="Bưu tá đã lấy hàng từ kho, tiến trình do Quản lý Vận đơn xử lý"
@@ -1301,13 +1344,7 @@ export const PortalOrdersView: React.FC = () => {
                         {order.status === 'WAITING_CONFIRMATION' && (
                           <>
                             <button
-                              onClick={() => {
-                                const res = sharedStore.transitionOrderStatus(order.orderId, 'CONFIRMED');
-                                if (res.success) {
-                                  setBulkActionFeedback(`Đã xác nhận đơn #${order.orderCode}! Chuyển sang Đã xác nhận.`);
-                                  setTimeout(() => setBulkActionFeedback(null), 4000);
-                                }
-                              }}
+                              onClick={() => handleTransition(order.orderId, 'CONFIRMED')}
                               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs transition"
                             >
                               <Check size={14} />
@@ -1328,13 +1365,7 @@ export const PortalOrdersView: React.FC = () => {
                         {order.status === 'CONFIRMED' && (
                           <>
                             <button
-                              onClick={() => {
-                                const res = sharedStore.transitionOrderStatus(order.orderId, 'PREPARING');
-                                if (res.success) {
-                                  setBulkActionFeedback(`Đơn #${order.orderCode} đã chuyển sang Đang chuẩn bị hàng và được đẩy sang Bảng Vận đơn!`);
-                                  setTimeout(() => setBulkActionFeedback(null), 4000);
-                                }
-                              }}
+                              onClick={() => handleTransition(order.orderId, 'PREPARING')}
                               className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs transition"
                             >
                               <Boxes size={14} />
@@ -1611,13 +1642,7 @@ export const PortalOrdersView: React.FC = () => {
                           <div className="pt-2">
                             <button
                               type="button"
-                              onClick={() => {
-                                const res = sharedStore.transitionOrderStatus(order.orderId, 'PREPARING');
-                                if (res.success) {
-                                  setBulkActionFeedback(`Đơn #${order.orderCode} đã chuyển sang Đang chuẩn bị hàng và được đẩy sang Bảng Vận đơn!`);
-                                  setTimeout(() => setBulkActionFeedback(null), 4000);
-                                }
-                              }}
+                              onClick={() => handleTransition(order.orderId, 'PREPARING')}
                               className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-xs transition inline-flex items-center gap-1.5 text-xs"
                             >
                               <Boxes size={14} />

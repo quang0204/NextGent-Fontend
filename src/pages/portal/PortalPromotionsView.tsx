@@ -207,6 +207,9 @@ export const PortalPromotionsView: React.FC = () => {
             {promotions.map(promo => {
               const isExpanded = expandedPromoId === promo.promotionId;
               const isActive = promo.status === 'ACTIVE';
+              const promoVariants = (promo.variants && promo.variants.length > 0)
+                ? promo.variants
+                : (sharedStore.getPromotions().find(sp => sp.promotionId === promo.promotionId || sp.name === promo.name)?.variants || []);
 
               return (
                 <div
@@ -228,7 +231,7 @@ export const PortalPromotionsView: React.FC = () => {
                           {isActive? 'ĐANG KÍCH HOẠT': 'TẠM TẮT'}
                         </span>
                         <span className="text-[10px] font-mono text-steel bg-canvas px-2 py-0.5 rounded border border-hairline-soft">
-                          {promo.variants.length} SKU áp dụng
+                          {promoVariants.length} SKU áp dụng
                         </span>
                       </div>
                       
@@ -282,7 +285,7 @@ export const PortalPromotionsView: React.FC = () => {
                     <div className="border-t border-hairline-soft p-4 bg-canvas space-y-2 text-xs">
                       <div className="font-bold text-charcoal flex items-center gap-1.5 mb-2">
                         <Layers size={14} className="text-primary" />
-                        <span>Danh sách biến thể áp dụng giá Flash Sale ({promo.variants.length} biến thể):</span>
+                        <span>Danh sách biến thể áp dụng giá Flash Sale ({promoVariants.length} biến thể):</span>
                       </div>
 
                       <div className="overflow-x-auto border border-hairline-soft rounded-xl">
@@ -298,7 +301,7 @@ export const PortalPromotionsView: React.FC = () => {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-hairline-soft">
-                            {promo.variants.map((pv, idx) => {
+                            {promoVariants.map((pv, idx) => {
                               const discountPct = pv.listPrice > 0? Math.round(((pv.listPrice - pv.promoPrice) / pv.listPrice) * 100): 0;
                               return (
                                 <tr key={idx} className="hover:bg-surface-soft/40 transition">
@@ -309,7 +312,7 @@ export const PortalPromotionsView: React.FC = () => {
                                     {pv.productName}
                                   </td>
                                   <td className="py-2.5 px-3 text-steel">
-                                    {pv.color} {pv.romGb > 0 && `• ${pv.romGb}GB`}
+                                    {pv.color} {Boolean(pv.romGb && pv.romGb > 0) && `• ${pv.romGb}GB`}
                                   </td>
                                   <td className="py-2.5 px-3 text-right line-through text-steel font-mono">
                                     {formatVND(pv.listPrice)}

@@ -128,9 +128,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         <div>
           {/* Storage pills if multiple versions (chỉ hiện ngoài flash sale) */}
           {!compact && (
-            product.variants.length > 1? (
+            product.variants.some(v => (v.romGb || 0) > 0) ? (
               <div className="flex gap-1 mb-1 overflow-x-auto no-scrollbar text-[10px] min-h-[22px] items-center">
-                {Array.from(new Set(product.variants.map(v => v.romGb))).map(rom => (
+                {Array.from(new Set(product.variants.map(v => v.romGb).filter((r): r is number => typeof r === 'number' && r > 0))).map(rom => (
                   <span 
                     key={rom}
                     className={`px-2 py-0.5 rounded-full font-bold border ${
@@ -179,13 +179,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         {/* Pricing & Gift */}
         <div className={compact? 'pt-0.5': 'pt-1'}>
           <div className={`${compact? 'min-h-[28px]': 'min-h-[36px]'} flex flex-col justify-center`}>
-            {isMultiPrice? (
+            {isMultiPrice ? (
               <div className="space-y-0.5">
-                <div className="flex items-baseline gap-1.5">
+                <div className="flex items-baseline gap-1.5 flex-wrap">
                   <span className="text-[10px] font-semibold text-steel">Từ</span>
-                  <span className={`${compact? 'text-sm': 'text-sm sm:text-base'} font-bold text-ink-deep tabular-nums`}>
+                  <span className={`${compact ? 'text-sm' : 'text-sm sm:text-base'} font-bold text-ink-deep tabular-nums`}>
                     {formatVND(minPrice)}
                   </span>
+                  {listPrice > minPrice && (
+                    <span className="text-[11px] text-steel line-through">
+                      {formatVND(listPrice)}
+                    </span>
+                  )}
                 </div>
                 {!compact && (
                   <div className="text-[10px] text-steel">
@@ -193,8 +198,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
                   </div>
                 )}
               </div>
-            ): (
-              <PriceDisplay salePrice={salePrice} listPrice={listPrice} size="sm" />
+            ) : (
+              <PriceDisplay salePrice={salePrice} listPrice={listPrice > salePrice ? listPrice : undefined} size="sm" />
             )}
           </div>
 
@@ -220,7 +225,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
             compact? 'mt-1 pt-1 min-h-[20px]': 'mt-2 pt-1.5 min-h-[24px]'
           }`}>
             <RatingStars rating={product.rating} reviewCount={compact? 0: product.reviewCount} size={compact? 10: 11} />
-            <span className="text-steel font-mono text-[10px]">Đã bán {product.soldCount || 100}+</span>
+            <span className="text-steel font-mono text-[10px]">Đã bán {product.soldCount ?? 0}</span>
           </div>
         </div>
 

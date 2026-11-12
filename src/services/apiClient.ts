@@ -41,9 +41,12 @@ apiClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // In log chi tiết để dễ dàng kiểm tra trên F12 Console
-    const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
-    console.log(`[API REQUEST] 🚀 ${config.method?.toUpperCase()} ${fullUrl}`, config.data || '');
+    // In log chi tiết trong môi trường phát triển (DEV) và ẩn dữ liệu nhạy cảm
+    if (import.meta.env.DEV) {
+      const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
+      const isAuth = config.url?.includes('/auth/');
+      console.log(`[API REQUEST] 🚀 ${config.method?.toUpperCase()} ${fullUrl}`, isAuth ? '[REDACTED_AUTH_DATA]' : (config.data || ''));
+    }
 
     return config;
   },
@@ -55,8 +58,11 @@ apiClient.interceptors.request.use(
 // Response Interceptor: Xử lý 401 Silent Refresh Token & In log phản hồi
 apiClient.interceptors.response.use(
   (response) => {
-    const fullUrl = `${response.config.baseURL || ''}${response.config.url || ''}`;
-    console.log(`[API RESPONSE] ✅ ${response.status} ${fullUrl}`, response.data);
+    if (import.meta.env.DEV) {
+      const fullUrl = `${response.config.baseURL || ''}${response.config.url || ''}`;
+      const isAuth = response.config.url?.includes('/auth/');
+      console.log(`[API RESPONSE] ✅ ${response.status} ${fullUrl}`, isAuth ? '[REDACTED_AUTH_DATA]' : response.data);
+    }
     return response;
   },
   async (error: AxiosError) => {

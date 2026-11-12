@@ -30,11 +30,35 @@ export const NotificationsPage: React.FC = () => {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'UNREAD' | NotificationType>('ALL');
   const navigate = useNavigate();
 
+  const effectiveUserId = user?.userId ?? (isAuthenticated ? 1 : null);
+
   useEffect(() => {
-    if (isAuthenticated && user?.userId) {
-      loadNotifications(user.userId);
+    if (isAuthenticated && effectiveUserId) {
+      loadNotifications(effectiveUserId);
     }
-  }, [isAuthenticated, user?.userId]);
+  }, [isAuthenticated, effectiveUserId]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (isAuthenticated && effectiveUserId) {
+        loadNotifications(effectiveUserId);
+      }
+    };
+    window.addEventListener('notification:updated', handleUpdate);
+    return () => {
+      window.removeEventListener('notification:updated', handleUpdate);
+    };
+  }, [isAuthenticated, effectiveUserId]);
+
+  const formatNotifDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + d.toLocaleDateString('vi-VN');
+    } catch {
+      return dateStr;
+    }
+  };
 
   if (!isAuthenticated || !user) {
     return (
@@ -216,8 +240,7 @@ export const NotificationsPage: React.FC = () => {
 
                   <div className="flex items-center gap-3 text-[11px] text-steel/80 pt-1">
                     <span>
-                      {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })},{' '}
-                      {new Date(item.createdAt).toLocaleDateString('vi-VN')}
+                      {formatNotifDate(item.createdAt)}
                     </span>
 
                     {item.orderCode && (

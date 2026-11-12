@@ -192,27 +192,29 @@ export const paymentService = {
       (o) =>
         o.trackingCode?.includes(payload.transactionRef) ||
         o.orderCode.includes(payload.transactionRef.replace('PAY', ''))
-    ) || allOrders.find((o) => o.status === 'PENDING_PAYMENT') || allOrders[0];
+    );
 
-    if (order) {
-      order.paymentStatus = 'PAID';
-      if (order.status === 'PENDING_PAYMENT') {
-        sharedStore.transitionOrderStatus(order.orderId, 'WAITING_CONFIRMATION', {
-          performedBy: 'Hệ thống thanh toán tự động (Mô phỏng)',
-          reason: payload.note || 'Xác nhận chuyển khoản thành công',
-        });
-      }
+    if (!order) {
+      throw new Error(`Không tìm thấy đơn hàng tương ứng với mã giao dịch ${payload.transactionRef}`);
+    }
+
+    order.paymentStatus = payload.success ? 'PAID' : 'UNPAID';
+    if (payload.success && order.status === 'PENDING_PAYMENT') {
+      sharedStore.transitionOrderStatus(order.orderId, 'WAITING_CONFIRMATION', {
+        performedBy: 'Hệ thống thanh toán tự động (Mô phỏng)',
+        reason: payload.note || 'Xác nhận chuyển khoản thành công',
+      });
     }
 
     return {
       paymentId: Date.now(),
       transactionRef: payload.transactionRef,
       status: payload.success ? 'SUCCESS' : 'FAILED',
-      orderId: order?.orderId || 450,
-      orderCode: order?.orderCode || 'DH-20261109-728192',
-      orderPaymentStatus: 'PAID',
-      paidAt: new Date().toISOString(),
-      message: 'Xác nhận thanh toán thành công.',
+      orderId: order.orderId,
+      orderCode: order.orderCode,
+      orderPaymentStatus: payload.success ? 'PAID' : 'UNPAID',
+      paidAt: payload.success ? new Date().toISOString() : undefined,
+      message: payload.success ? 'Xác nhận thanh toán thành công.' : 'Giao dịch không thành công.',
     };
   },
 

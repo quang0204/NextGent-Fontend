@@ -63,13 +63,11 @@ interface AuthStore {
   setDefaultAddress: (addressId: number) => void;
   deleteAddress: (addressId: number) => void;
   changePassword: (currentPass: string, newPass: string, confirmNewPass?: string) => Promise<{ success: boolean; message: string }>;
-  requestPasswordReset: (identity: string) => { success: boolean; otp?: string; message: string };
 }
 
 const STORAGE_USER_KEY = 'nextpick_user_v2';
 const STORAGE_ACCESS_TOKEN_KEY = 'access_token';
 const STORAGE_REFRESH_TOKEN_KEY = 'refresh_token';
-const PASSWORD_STORAGE_PREFIX = 'nextpick_pwd_';
 
 export const SAMPLE_USERS: Record<'CUSTOMER' | 'STAFF' | 'ADMIN', UserProfile> = {
   CUSTOMER: {
@@ -147,27 +145,13 @@ const getStoredUser = (): UserProfile | null => {
   }
 };
 
-const getStoredPassword = (userId: number): string => {
-  try {
-    const p = localStorage.getItem(`${PASSWORD_STORAGE_PREFIX}${userId}`);
-    return p || 'Password123@';
-  } catch {
-    return 'Password123@';
-  }
-};
-
-const setStoredPassword = (userId: number, pwd: string): void => {
-  try {
-    localStorage.setItem(`${PASSWORD_STORAGE_PREFIX}${userId}`, pwd);
-  } catch (e) {
-    console.error('Failed to save password', e);
-  }
-};
-
 export const useAuthStore = create<AuthStore>((set, get) => {
   // Lắng nghe phiên làm việc hết hạn từ interceptor
   if (typeof window !== 'undefined') {
     window.addEventListener('auth:session-expired', () => {
+      localStorage.removeItem(STORAGE_USER_KEY);
+      localStorage.removeItem(STORAGE_ACCESS_TOKEN_KEY);
+      localStorage.removeItem(STORAGE_REFRESH_TOKEN_KEY);
       set({ user: null, token: null, refreshToken: null, isAuthenticated: false });
       useCartStore.getState().switchUser(null);
       useWishlistStore.getState().switchUser(null);
@@ -631,14 +615,9 @@ export const useAuthStore = create<AuthStore>((set, get) => {
       } catch (err: any) {
         // Fallback mô phỏng nếu Backend chưa bật
         if (err.statusCode === 500 && (err.message?.includes('Network Error') || err.message?.includes('kết nối'))) {
-          const currentStored = getStoredPassword(u.userId);
-          if (currentPass.trim() !== currentStored && currentPass.trim() !== 'Password@123' && currentPass.trim() !== 'Password123@') {
-            return { success: false, message: 'Mật khẩu hiện tại không chính xác.' };
-          }
           if (newPass.trim() === currentPass.trim()) {
             return { success: false, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.' };
           }
-          setStoredPassword(u.userId, newPass.trim());
           return { success: true, message: 'Đổi mật khẩu thành công. Vui lòng ghi nhớ mật khẩu mới của bạn.' };
         }
         return {
@@ -646,18 +625,6 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           message: err.message || 'Đổi mật khẩu thất bại. Vui lòng kiểm tra lại.',
         };
       }
-    },
-
-    requestPasswordReset: (identity: string) => {
-      const clean = identity.trim();
-      if (!clean) {
-        return { success: false, message: 'Vui lòng nhập số điện thoại hoặc email đã đăng ký.' };
-      }
-      return {
-        success: true,
-        otp: '849201',
-        message: `Mã OTP xác thực đặt lại mật khẩu đã gửi tới ${clean}: 849201`,
-      };
     },
   };
 });
