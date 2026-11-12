@@ -59,24 +59,34 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
     }
   };
 
+  const isInactive = product.status === 'INACTIVE' || product.status === 'DISCONTINUED' || (product as any).isActive === false;
+
   return (
     <div className={`group bg-canvas border border-hairline-soft rounded-2xl flex flex-col justify-between hover:border-hairline transition-all duration-200 relative h-full w-full shadow-xs hover:shadow-subtle ${
       compact? 'p-2.5 sm:p-3': 'p-3.5 sm:p-4'
-    }`}>
+    } ${isInactive ? 'opacity-90' : ''}`}>
       
       {/* Top Badges & Quick Action Floating */}
       <div className={`flex items-center justify-between gap-1 mb-1 z-10 ${compact? 'min-h-[22px]': 'min-h-[26px]'}`}>
         <div className="flex flex-wrap gap-1">
-          {product.isFlashSale && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning text-ink-deep flex items-center gap-1 uppercase tracking-wider">
-              <Zap size={10} className="fill-ink-deep text-ink-deep" />
-              <span>Flash Sale</span>
+          {isInactive ? (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+              Ngừng kinh doanh
             </span>
-          )}
-          {product.isInstallment0 &&!compact && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-soft text-ink border border-hairline-soft">
-              Trả góp 0%
-            </span>
+          ) : (
+            <>
+              {product.isFlashSale && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning text-ink-deep flex items-center gap-1 uppercase tracking-wider">
+                  <Zap size={10} className="fill-ink-deep text-ink-deep" />
+                  <span>Flash Sale</span>
+                </span>
+              )}
+              {product.isInstallment0 &&!compact && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-soft text-ink border border-hairline-soft">
+                  Trả góp 0%
+                </span>
+              )}
+            </>
           )}
         </div>
 

@@ -21,7 +21,29 @@ export interface CategoryPayload {
   slug?: string;
   description?: string;
   iconUrl?: string;
+  iconUploadId?: string;
   isVisible?: boolean;
+}
+
+export interface PresignedUploadItem {
+  uploadId: string;
+  objectKey: string;
+  uploadUrl: string;
+  expiresAt: string;
+  expiresAtEpochMs?: number;
+  expiresInSeconds?: number;
+  requiredHeaders?: Record<string, string>;
+}
+
+export interface StorageFileResponse {
+  uploadId: string;
+  objectKey: string;
+  canonicalUrl?: string;
+  accessUrl?: string;
+  imageUrl?: string;
+  brandId?: number;
+  categoryId?: number;
+  status: string;
 }
 
 export interface ApiResponse<T> {
@@ -63,6 +85,42 @@ export const categoryService = {
   // API 3.5: Xóa danh mục (duy nhất ADMIN)
   async deleteCategory(id: number): Promise<ApiResponse<null>> {
     const res = await apiClient.delete<ApiResponse<null>>(`/admin/categories/${id}`);
+    return res.data;
+  },
+
+  // API Xóa riêng icon danh mục (STAFF / ADMIN)
+  async deleteCategoryIcon(id: number): Promise<ApiResponse<null>> {
+    const res = await apiClient.delete<ApiResponse<null>>(`/admin/categories/${id}/icon`);
+    return res.data;
+  },
+
+  // Storage API 1: Tạo liên kết Presigned URL tải ảnh trực tiếp lên MinIO
+  async createPresignedUrls(payload: {
+    storageType: 'CATEGORIES';
+    categoryId?: number;
+    files: Array<{ fileName: string; contentType: string; fileSize: number }>;
+  }): Promise<ApiResponse<PresignedUploadItem[]>> {
+    const res = await apiClient.post<ApiResponse<PresignedUploadItem[]>>('/storage/presigned-urls', payload);
+    return res.data;
+  },
+
+  // Storage API 2: Tải dữ liệu nhị phân trực tiếp lên MinIO bằng HTTP PUT
+  async uploadBinaryToMinio(uploadUrl: string, file: File): Promise<void> {
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!response.ok) {
+      throw new Error(`Tải lên MinIO thất bại (HTTP ${response.status})`);
+    }
+  },
+
+  // Storage API 3: Xác nhận tải lên hoàn tất và kiểm tra magic bytes
+  async confirmUpload(payload: { uploadId: string; objectKey: string }): Promise<ApiResponse<StorageFileResponse>> {
+    const res = await apiClient.post<ApiResponse<StorageFileResponse>>('/storage/confirm', payload);
     return res.data;
   },
 };

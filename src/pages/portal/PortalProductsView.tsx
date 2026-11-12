@@ -35,7 +35,8 @@ import {
   SlidersHorizontal,
   FileText,
   Package,
-  RefreshCw
+  RefreshCw,
+  UploadCloud
 } from 'lucide-react';
 
 interface DraftVariant {
@@ -50,6 +51,7 @@ interface DraftVariant {
   salePrice: number;
   initialStock: number;
   isActive: boolean;
+  imageUrl?: string;
 }
 
 export const PortalProductsView: React.FC = () => {
@@ -508,7 +510,39 @@ export const PortalProductsView: React.FC = () => {
     }
   };
 
-  const handleProductThumbnailUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Tải file ảnh trực tiếp lên MinIO thông qua Presigned URL
+  const uploadProductImageToMinio = async (file: File, prodId?: number): Promise<string> => {
+    const ext = file.name.split('.').pop() || 'png';
+    const contentType = file.type || 'image/png';
+    const fileName = file.name.includes('.') ? file.name : `prod-${Date.now()}.${ext}`;
+
+    const presignedRes = await productService.createPresignedUrls({
+      storageType: 'PRODUCTS',
+      productId: prodId,
+      files: [{ fileName, contentType, fileSize: file.size }],
+    });
+
+    const item = presignedRes.data?.[0];
+    if (!item || !item.uploadUrl) {
+      throw new Error('Không nhận được liên kết tải lên từ máy chủ MinIO!');
+    }
+
+    await productService.uploadBinaryToMinio(item.uploadUrl, file);
+
+    const confirmRes = await productService.confirmUpload({
+      uploadId: item.uploadId,
+      objectKey: item.objectKey,
+    });
+
+    const finalUrl = confirmRes.data?.accessUrl || confirmRes.data?.imageUrl || confirmRes.data?.canonicalUrl;
+    if (!finalUrl) {
+      throw new Error('Máy chủ không trả về URL ảnh sau khi xác nhận!');
+    }
+    return finalUrl;
+  };
+
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
+  const handleProductThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -517,18 +551,19 @@ export const PortalProductsView: React.FC = () => {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Url = event.target?.result as string;
-      if (base64Url) {
-        setEditProdThumbnail(base64Url);
-        if (!editProdGallery.includes(base64Url)) {
-          setEditProdGallery(prev => [base64Url, ...prev]);
-        }
+    setIsUploadingThumbnail(true);
+    try {
+      const minioUrl = await uploadProductImageToMinio(file, editingProduct?.productId);
+      setEditProdThumbnail(minioUrl);
+      if (!editProdGallery.includes(minioUrl)) {
+        setEditProdGallery(prev => [minioUrl, ...prev]);
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch (err: any) {
+      alert(`Lỗi tải ảnh đại diện lên MinIO: ${err.message}`);
+    } finally {
+      setIsUploadingThumbnail(false);
+      e.target.value = '';
+    }
   };
 
   const handleUpdateEditVariant = (varIdx: number, updates: Record<string, any>) => {
@@ -635,6 +670,8 @@ export const PortalProductsView: React.FC = () => {
     }
   };
 
+  const [isUploadingNewVarImg, setIsUploadingNewVarImg] = useState(false);
+
   const handleOpenAddVariantInEdit = () => {
     const hasRam = editVariantSchema.some(f => f.key === 'ramGb');
     const hasRom = editVariantSchema.some(f => f.key === 'romGb');
@@ -650,7 +687,8 @@ export const PortalProductsView: React.FC = () => {
       listPrice: 10000000,
       salePrice: 10000000,
       initialStock: 10,
-      isActive: true
+      isActive: true,
+      imageUrl: editProdThumbnail || editProdGallery[0] || ''
     });
     setShowAddVariantInEdit(true);
   };
@@ -688,7 +726,8 @@ export const PortalProductsView: React.FC = () => {
         listPrice: newVarDraftInEdit.listPrice,
         salePrice: finalSalePrice,
         initialOnHandQty: newVarDraftInEdit.initialStock,
-        minThreshold: 5
+        minThreshold: 5,
+        imageUrl: newVarDraftInEdit.imageUrl ? newVarDraftInEdit.imageUrl.trim() : undefined
       });
 
       // Reload authoritative product detail
@@ -903,7 +942,8 @@ export const PortalProductsView: React.FC = () => {
     });
   };
 
-  const handleVariantFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [isUploadingVariantImage, setIsUploadingVariantImage] = useState(false);
+  const handleVariantFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -912,15 +952,16 @@ export const PortalProductsView: React.FC = () => {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Url = event.target?.result as string;
-      if (base64Url) {
-        setEditVariantImage(base64Url);
-      }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    setIsUploadingVariantImage(true);
+    try {
+      const minioUrl = await uploadProductImageToMinio(file, editingVariant?.prodId);
+      setEditVariantImage(minioUrl);
+    } catch (err: any) {
+      alert(`Lỗi tải ảnh biến thể lên MinIO: ${err.message}`);
+    } finally {
+      setIsUploadingVariantImage(false);
+      e.target.value = '';
+    }
   };
 
   const handleSaveVariantEdit = async () => {
@@ -2100,7 +2141,7 @@ export const PortalProductsView: React.FC = () => {
 
       {/* ================= MODAL ĐIỀU CHỈNH TỒN KHO CHO BIẾN THỂ ================= */}
       {adjustingVariant && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
@@ -2223,8 +2264,8 @@ export const PortalProductsView: React.FC = () => {
 
       {/* ================= MODAL THÊM BIẾN THỂ MỚI TRONG SỬA SẢN PHẨM ================= */}
       {showAddVariantInEdit && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
@@ -2270,6 +2311,115 @@ export const PortalProductsView: React.FC = () => {
                   variant={newVarDraftInEdit}
                   onChange={(updated) => setNewVarDraftInEdit(prev => ({ ...prev, ...updated }))}
                 />
+              </div>
+
+              {/* Chọn / Tải ảnh cho biến thể mới */}
+              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
+                    Ảnh riêng biến thể (Tùy chọn)
+                  </span>
+                  <span className="text-[10px] text-slate-500">Mặc định dùng ảnh sản phẩm</span>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-16 h-16 rounded-xl border border-slate-300 bg-white p-1 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-xs">
+                    {newVarDraftInEdit.imageUrl ? (
+                      <img 
+                        src={newVarDraftInEdit.imageUrl} 
+                        alt="Preview" 
+                        className="w-full h-full object-contain"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = 'https://placehold.co/100x100/f8fafc/64748b?text=Lỗi+ảnh';
+                        }}
+                      />
+                    ) : (
+                      <ImageIcon size={20} className="text-slate-400" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    <input
+                      type="url"
+                      placeholder="Dán liên kết ảnh URL cho biến thể này..."
+                      value={newVarDraftInEdit.imageUrl || ''}
+                      onChange={(e) => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: e.target.value }))}
+                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600"
+                    />
+
+                    <div className="flex items-center gap-2">
+                      <label className={`px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition shadow-2xs ${
+                        isUploadingNewVarImg ? 'opacity-50 pointer-events-none' : ''
+                      }`}>
+                        {isUploadingNewVarImg ? (
+                          <Loader2 size={12} className="animate-spin text-blue-600" />
+                        ) : (
+                          <UploadCloud size={12} className="text-blue-600" />
+                        )}
+                        <span>{isUploadingNewVarImg ? 'Đang tải lên MinIO...' : 'Tải ảnh từ máy'}</span>
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (!file.type.startsWith('image/')) {
+                              alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP)!');
+                              return;
+                            }
+                            setIsUploadingNewVarImg(true);
+                            try {
+                              const minioUrl = await uploadProductImageToMinio(file, editingProduct?.productId);
+                              setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: minioUrl }));
+                            } catch (err: any) {
+                              alert(`Lỗi tải ảnh biến thể lên MinIO: ${err.message}`);
+                            } finally {
+                              setIsUploadingNewVarImg(false);
+                              e.target.value = '';
+                            }
+                          }}
+                          disabled={isUploadingNewVarImg}
+                          className="hidden"
+                        />
+                      </label>
+
+                      {newVarDraftInEdit.imageUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: '' }))}
+                          className="px-2 py-1 text-[11px] text-rose-600 hover:bg-rose-50 rounded-lg font-medium transition"
+                        >
+                          Gỡ ảnh
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Chọn nhanh từ danh mục ảnh sản phẩm có sẵn */}
+                {editProdGallery.length > 0 && (
+                  <div>
+                    <span className="text-[10px] text-slate-500 block mb-1">
+                      Hoặc chọn nhanh từ thư viện ảnh sản phẩm:
+                    </span>
+                    <div className="flex gap-1.5 overflow-x-auto py-1">
+                      {editProdGallery.map((imgUrl, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: imgUrl }))}
+                          className={`w-10 h-10 rounded-lg border p-0.5 overflow-hidden flex-shrink-0 transition-all ${
+                            newVarDraftInEdit.imageUrl === imgUrl
+                              ? 'border-2 border-blue-600 ring-2 ring-blue-100'
+                              : 'border-slate-200 hover:border-slate-400 opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={imgUrl} alt={`gallery-${idx}`} className="w-full h-full object-contain" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -2341,7 +2491,7 @@ export const PortalProductsView: React.FC = () => {
         const currentProd = products.find(p => p.productId === editingVariant.prodId);
 
         return (
-          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs max-h-[92vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <div className="flex items-center gap-2">

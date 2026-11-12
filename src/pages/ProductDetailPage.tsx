@@ -31,7 +31,9 @@ import {
   Star,
   Send,
   UserCheck,
-  Zap
+  Zap,
+  AlertCircle,
+  Ban
 } from 'lucide-react';
 
 export const ProductDetailPage: React.FC = () => {
@@ -126,6 +128,9 @@ export const ProductDetailPage: React.FC = () => {
     );
   }
 
+  const isProductInactive = product.status === 'INACTIVE' || product.status === 'DISCONTINUED' || (product as any).isActive === false;
+  const isVariantInactive = selectedVariant.isActive === false || (selectedVariant as any).status === 'INACTIVE' || (selectedVariant as any).status === 'DISCONTINUED';
+
   const onHandDisplay = selectedVariant.onHandQty !== undefined 
     ? selectedVariant.onHandQty 
     : (selectedVariant.availableQty ?? 0);
@@ -133,13 +138,23 @@ export const ProductDetailPage: React.FC = () => {
     ? selectedVariant.reservedQty 
     : 0;
   const effectiveAvailableQty = Math.max(0, onHandDisplay - reservedDisplay);
-  const isOutOfStock = effectiveAvailableQty <= 0;
+  const isOutOfStock = effectiveAvailableQty <= 0 && !isProductInactive && !isVariantInactive;
+  const isActionDisabled = isProductInactive || isVariantInactive || effectiveAvailableQty <= 0;
+
   const flashCountdown = getCountdownParts(flashSaleEndAt, nowMs);
   const isFavorited = isInWishlist(product.productId);
   const isCompared = isInCompare(product.productId);
 
   const handleAddToCart = async () => {
-    if (isOutOfStock) {
+    if (isProductInactive) {
+      showToast('Sản phẩm này hiện đã ngừng kinh doanh!', 'error');
+      return;
+    }
+    if (isVariantInactive) {
+      showToast('Phiên bản này hiện đã ngừng bán! Vui lòng chọn phiên bản khác.', 'error');
+      return;
+    }
+    if (effectiveAvailableQty <= 0) {
       showToast('Phiên bản này hiện đang hết hàng!', 'error');
       return;
     }
@@ -174,7 +189,15 @@ export const ProductDetailPage: React.FC = () => {
   };
 
   const handleDirectBuy = (paymentMethod: 'COD' | 'SIMULATED_TRANSFER' = 'COD') => {
-    if (isOutOfStock) {
+    if (isProductInactive) {
+      showToast('Sản phẩm này hiện đã ngừng kinh doanh!', 'error');
+      return;
+    }
+    if (isVariantInactive) {
+      showToast('Phiên bản này hiện đã ngừng bán! Vui lòng chọn phiên bản khác.', 'error');
+      return;
+    }
+    if (effectiveAvailableQty <= 0) {
       showToast('Phiên bản này hiện đang hết hàng!', 'error');
       return;
     }
@@ -433,24 +456,53 @@ export const ProductDetailPage: React.FC = () => {
             />
           </div>
 
-          {/* Realtime Stock Alert Banner */}
-          <div className={`p-3.5 rounded-lg border flex items-center justify-between text-xs ${
-            isOutOfStock? 'bg-surface-soft border-critical/40 text-critical': 'bg-surface-soft border-hairline-soft text-charcoal'
-          }`}>
-            <div className="flex items-center gap-2.5">
-              <span className={`w-2 h-2 rounded-full ${isOutOfStock? 'bg-critical': 'bg-success animate-pulse'}`} />
-              <span>
-                {isOutOfStock? (
-                  <strong className="font-bold">Phiên bản này hiện đang Tạm hết hàng</strong>
-                ): (
-                  <>Tồn kho khả dụng: <strong className="text-ink-deep font-bold">{effectiveAvailableQty} máy</strong> (Đã trừ giữ chỗ)</>
-                )}
+          {/* Banner Trạng thái Ngừng kinh doanh (Sản phẩm hoặc Biến thể) */}
+          {isProductInactive ? (
+            <div className="p-4 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-3 text-rose-800 text-xs">
+              <Ban className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <strong className="block font-bold text-sm text-rose-900 uppercase">
+                  Sản phẩm tạm ngừng kinh doanh
+                </strong>
+                <span>
+                  Sản phẩm này hiện đã ngừng phân phối hoặc tạm ngừng kinh doanh trên toàn hệ thống.
+                </span>
+              </div>
+            </div>
+          ) : isVariantInactive ? (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 text-amber-800 text-xs">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+              <div>
+                <strong className="block font-bold text-xs text-amber-900 uppercase">
+                  Phiên bản này đã ngừng kinh doanh
+                </strong>
+                <span>
+                  Tùy chọn ({selectedVariant.color} {selectedVariant.romGb ? (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`) : ''}) này hiện đã ngừng bán. Quý khách vui lòng chọn màu sắc hoặc dung lượng khác.
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Realtime Stock Alert Banner (Chỉ hiện khi sản phẩm còn kinh doanh) */}
+          {!isProductInactive && !isVariantInactive && (
+            <div className={`p-3.5 rounded-lg border flex items-center justify-between text-xs ${
+              isOutOfStock? 'bg-surface-soft border-critical/40 text-critical': 'bg-surface-soft border-hairline-soft text-charcoal'
+            }`}>
+              <div className="flex items-center gap-2.5">
+                <span className={`w-2 h-2 rounded-full ${isOutOfStock? 'bg-critical': 'bg-success animate-pulse'}`} />
+                <span>
+                  {isOutOfStock? (
+                    <strong className="font-bold">Phiên bản này hiện đang Tạm hết hàng</strong>
+                  ): (
+                    <>Tồn kho khả dụng: <strong className="text-ink-deep font-bold">{effectiveAvailableQty} máy</strong> (Đã trừ giữ chỗ)</>
+                  )}
+                </span>
+              </div>
+              <span className="text-[11px] font-mono text-steel">
+                Kho: {onHandDisplay} | Giữ: {reservedDisplay}
               </span>
             </div>
-            <span className="text-[11px] font-mono text-steel">
-              Kho: {onHandDisplay} | Giữ: {reservedDisplay}
-            </span>
-          </div>
+          )}
 
           {/* Promotion / Gift Box */}
           {product.giftDescription && (
@@ -470,20 +522,34 @@ export const ProductDetailPage: React.FC = () => {
           {/* Action Buy Buttons: 2 nút MUA NGAY & THÊM VÀO GIỎ HÀNG */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <button
-              disabled={isOutOfStock}
+              disabled={isActionDisabled}
               onClick={handleAddToCart}
-              className="btn-secondary py-3.5 px-6 rounded-full font-bold text-sm disabled:opacity-40 transition-colors flex items-center justify-center gap-2"
+              className="btn-secondary py-3.5 px-6 rounded-full font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
               <ShoppingBag size={16} />
-              <span>THÊM VÀO GIỎ HÀNG</span>
+              <span>
+                {isProductInactive
+                  ? 'NGỪNG KINH DOANH'
+                  : isVariantInactive
+                  ? 'PHIÊN BẢN NGỪNG BÁN'
+                  : isOutOfStock
+                  ? 'TẠM HẾT HÀNG'
+                  : 'THÊM VÀO GIỎ HÀNG'}
+              </span>
             </button>
 
             <button
-              disabled={isOutOfStock}
+              disabled={isActionDisabled}
               onClick={() => handleDirectBuy('COD')}
               className="btn-buy py-3.5 px-6 rounded-full font-bold text-sm text-center shadow-sticky disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
-              MUA NGAY
+              {isProductInactive
+                ? 'NGỪNG KINH DOANH'
+                : isVariantInactive
+                ? 'PHIÊN BẢN NGỪNG BÁN'
+                : isOutOfStock
+                ? 'TẠM HẾT HÀNG'
+                : 'MUA NGAY'}
             </button>
           </div>
 

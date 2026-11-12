@@ -1,58 +1,145 @@
 import React, { useState } from 'react';
-import { Image, Plus, Trash2, ArrowUp, ArrowDown, CheckCircle, Star, Upload } from 'lucide-react';
+import { Image, Plus, Trash2, ArrowUp, ArrowDown, Star, Upload, Loader2, AlertCircle, UploadCloud } from 'lucide-react';
+import { productService } from '../../services/productService';
 
 interface ProductImagesManagerProps {
   gallery: string[];
   thumbnail: string;
   onChangeGallery: (updatedGallery: string[]) => void;
   onChangeThumbnail: (primaryUrl: string) => void;
+  productId?: number;
 }
 
 export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
   gallery,
   thumbnail,
   onChangeGallery,
-  onChangeThumbnail
+  onChangeThumbnail,
+  productId,
 }) => {
   const [newImageUrl, setNewImageUrl] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  const handleAddImage = () => {
-    if (!newImageUrl.trim()) return;
-    const url = newImageUrl.trim();
-    if (gallery.includes(url)) {
-      alert('Ảnh này đã có trong danh mục ảnh sản phẩm!');
-      return;
+  // Upload file (File hoặc Blob) trực tiếp lên MinIO thông qua Presigned URL
+  const uploadToMinio = async (file: File | Blob, rawFileName: string): Promise<string> => {
+    const ext = rawFileName.split('.').pop() || 'png';
+    const contentType = file.type || 'image/png';
+    const fileName = rawFileName.includes('.') ? rawFileName : `image-${Date.now()}.${ext}`;
+
+    const presignedRes = await productService.createPresignedUrls({
+      storageType: 'PRODUCTS',
+      productId: productId,
+      files: [{
+        fileName,
+        contentType,
+        fileSize: file.size,
+      }],
+    });
+
+    const item = presignedRes.data?.[0];
+    if (!item || !item.uploadUrl) {
+      throw new Error('Không nhận được liên kết tải lên từ máy chủ MinIO!');
     }
-    const updated = [...gallery, url];
-    onChangeGallery(updated);
-    if (!thumbnail) {
-      onChangeThumbnail(url);
+
+    // Tải binary trực tiếp lên MinIO
+    await productService.uploadBinaryToMinio(item.uploadUrl, file);
+
+    // Xác nhận hoàn tất upload & kiểm tra magic bytes
+    const confirmRes = await productService.confirmUpload({
+      uploadId: item.uploadId,
+      objectKey: item.objectKey,
+      isPrimary: gallery.length === 0,
+    });
+
+    const finalUrl = confirmRes.data?.accessUrl || confirmRes.data?.imageUrl || confirmRes.data?.canonicalUrl;
+    if (!finalUrl) {
+      throw new Error('Máy chủ không trả về đường dẫn ảnh sau khi xác nhận!');
     }
-    setNewImageUrl('');
+    return finalUrl;
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
-      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, JPEG)!');
+      alert('Vui lòng chọn file hình ảnh hợp lệ (PNG, JPG, WEBP, JPEG, SVG)!');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64Url = event.target?.result as string;
-      if (base64Url) {
-        const updated = [...gallery, base64Url];
-        onChangeGallery(updated);
-        if (!thumbnail) {
-          onChangeThumbnail(base64Url);
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Kích thước ảnh tối đa cho phép là 10MB!');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+    try {
+      const minioUrl = await uploadToMinio(file, file.name);
+      const updated = [...gallery, minioUrl];
+      onChangeGallery(updated);
+      if (!thumbnail) {
+        onChangeThumbnail(minioUrl);
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Tải ảnh lên MinIO thất bại!';
+      setUploadError(msg);
+      alert(`LỖI TẢI ẢNH: ${msg}`);
+    } finally {
+      setIsUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleAddImage = async () => {
+    const rawUrl = newImageUrl.trim();
+    if (!rawUrl) return;
+
+    if (rawUrl.toLowerCase().startsWith('data:')) {
+      alert('Hệ thống không chấp nhận chuỗi base64 (data URI). Vui lòng dùng nút "Tải từ máy" để tải file ảnh lên MinIO!');
+      return;
+    }
+
+    if (gallery.includes(rawUrl)) {
+      alert('Ảnh này đã có trong danh mục ảnh sản phẩm!');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    // Thử fetch ảnh từ URL để đẩy trực tiếp vào MinIO
+    try {
+      const response = await fetch(rawUrl, { mode: 'cors' });
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob.type.startsWith('image/')) {
+          const fileName = rawUrl.split('/').pop()?.split('?')[0] || `url-image-${Date.now()}.png`;
+          const minioUrl = await uploadToMinio(blob, fileName);
+          const updated = [...gallery, minioUrl];
+          onChangeGallery(updated);
+          if (!thumbnail) {
+            onChangeThumbnail(minioUrl);
+          }
+          setNewImageUrl('');
+          return;
         }
       }
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    } catch {
+      // Nếu bị giới hạn bởi CORS của domain nguồn, fallback giữ nguyên URL nhưng lưu ý
+      console.warn('Không thể fetch blob qua CORS từ domain nguồn, sử dụng URL gốc.');
+    } finally {
+      setIsUploading(false);
+    }
+
+    // Fallback: thêm trực tiếp URL nếu là liên kết ngoại lệ hợp lệ
+    const updated = [...gallery, rawUrl];
+    onChangeGallery(updated);
+    if (!thumbnail) {
+      onChangeThumbnail(rawUrl);
+    }
+    setNewImageUrl('');
   };
 
   const handleRemoveImage = (index: number) => {
@@ -88,7 +175,7 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
         <div className="flex items-center gap-2">
           <Image size={16} className="text-primary" />
           <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider">
-            Thư viện ảnh sản phẩm (Product_Images)
+            Thư viện ảnh sản phẩm (MinIO Object Storage)
           </h4>
         </div>
         <span className="text-[11px] text-steel">Tổng: {gallery.length} ảnh</span>
@@ -101,30 +188,50 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
           placeholder="Dán đường dẫn ảnh (URL) mới (VD: https://cdn...jpg)..."
           value={newImageUrl}
           onChange={(e) => setNewImageUrl(e.target.value)}
+          disabled={isUploading}
           className="flex-1 h-9 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
         />
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={handleAddImage}
-            className="btn-marketing px-3.5 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1"
+            disabled={isUploading || !newImageUrl.trim()}
+            className="btn-marketing px-3.5 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 disabled:opacity-50"
           >
-            <Plus size={14} />
+            {isUploading ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Plus size={14} />
+            )}
             <span>Thêm URL</span>
           </button>
 
-          <label className="px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs">
-            <Upload size={14} className="text-primary" />
-            <span>Tải từ máy</span>
+          <label className={`px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs ${
+            isUploading ? 'opacity-50 pointer-events-none' : ''
+          }`}>
+            {isUploading ? (
+              <Loader2 size={14} className="animate-spin text-primary" />
+            ) : (
+              <UploadCloud size={14} className="text-primary" />
+            )}
+            <span>{isUploading ? 'Đang tải MinIO...' : 'Tải từ máy lên MinIO'}</span>
             <input
               type="file"
-              accept="image/*"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
               onChange={handleFileUpload}
+              disabled={isUploading}
               className="hidden"
             />
           </label>
         </div>
       </div>
+
+      {uploadError && (
+        <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-lg flex items-center gap-2 text-xs">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          <span>{uploadError}</span>
+        </div>
+      )}
 
       {/* Images Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
@@ -144,7 +251,7 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
                   alt={`Sản phẩm ${idx + 1}`}
                   className="h-full w-full object-contain p-1"
                   onError={(e) => {
-                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=Error';
+                    (e.target as HTMLImageElement).src = 'https://placehold.co/150x150/f1f4f7/5d6c7b?text=Image';
                   }}
                 />
               </div>

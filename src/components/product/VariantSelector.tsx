@@ -109,7 +109,8 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           {colorsForCurrentRom.map((v) => {
             const isSelected = selectedVariant.variantId === v.variantId;
-            const isOutOfStock = v.availableQty <= 0;
+            const isDiscontinued = v.isActive === false || (v as any).status === 'INACTIVE' || (v as any).status === 'DISCONTINUED';
+            const isOutOfStock = v.availableQty <= 0 && !isDiscontinued;
             const currentSale = v.salePrice > 0 ? v.salePrice : (v.listPrice || 0);
             const hasDiscount = v.listPrice && v.listPrice > currentSale;
 
@@ -118,8 +119,12 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                 key={v.variantId}
                 disabled={isOutOfStock}
                 onClick={() => onSelectVariant(v)}
-                className={`p-3 rounded-lg text-left flex items-center gap-2.5 transition-all ${
-                  isOutOfStock
+                className={`p-3 rounded-lg text-left flex items-center gap-2.5 transition-all relative ${
+                  isDiscontinued
+                    ? isSelected
+                      ? 'border-2 border-rose-500 bg-rose-50/40 text-slate-800'
+                      : 'border border-rose-200 bg-slate-50 opacity-75 hover:opacity-100 text-slate-700'
+                    : isOutOfStock
                     ? 'border border-hairline bg-surface-soft opacity-40 cursor-not-allowed'
                     : isSelected
                     ? 'border-2 border-primary bg-canvas text-ink-deep'
@@ -135,14 +140,21 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                   />
                 )}
                 <div className="truncate flex-1">
-                  <div className="font-bold text-xs truncate" title={v.variantName || v.color}>
-                    {v.color || v.variantName || 'Mặc định'}
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span className="font-bold text-xs truncate" title={v.variantName || v.color}>
+                      {v.color || v.variantName || 'Mặc định'}
+                    </span>
+                    {isDiscontinued && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-100 text-rose-700 shrink-0">
+                        Ngừng bán
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-baseline gap-1.5 flex-wrap">
-                    <span className="text-[11px] font-bold text-ink-deep">
+                    <span className={`text-[11px] font-bold ${isDiscontinued ? 'text-slate-500 line-through' : 'text-ink-deep'}`}>
                       {formatVND(currentSale)}
                     </span>
-                    {hasDiscount && (
+                    {hasDiscount && !isDiscontinued && (
                       <span className="text-[10px] text-steel line-through">
                         {formatVND(v.listPrice)}
                       </span>

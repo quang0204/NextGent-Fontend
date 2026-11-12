@@ -94,6 +94,7 @@ export interface AddAdminVariantPayload {
   compareAtPrice?: number;
   initialOnHandQty: number;
   minThreshold?: number;
+  imageUrl?: string;
 }
 
 export interface UpdateAdminVariantPayload {
@@ -675,5 +676,40 @@ export const productService = {
   async getCompareProducts(ids: number[]): Promise<Product[]> {
     const prods = sharedStore.getProducts();
     return prods.filter(p => ids.includes(p.productId));
-  }
+  },
+
+  // =========================================================================
+  // Storage APIs cho Sản phẩm (MinIO Presigned URL)
+  // =========================================================================
+  async createPresignedUrls(payload: {
+    storageType: 'PRODUCTS';
+    productId?: number;
+    files: Array<{ fileName: string; contentType: string; fileSize: number }>;
+  }): Promise<{ success: boolean; data: any[]; message?: string }> {
+    const res = await apiClient.post<any>('/storage/presigned-urls', payload);
+    return res.data;
+  },
+
+  async uploadBinaryToMinio(uploadUrl: string, file: File | Blob): Promise<void> {
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+      },
+      body: file,
+    });
+    if (!response.ok) {
+      throw new Error(`Tải lên MinIO thất bại (HTTP ${response.status})`);
+    }
+  },
+
+  async confirmUpload(payload: {
+    uploadId: string;
+    objectKey: string;
+    isPrimary?: boolean;
+    sortOrder?: number;
+  }): Promise<{ success: boolean; data: any; message?: string }> {
+    const res = await apiClient.post<any>('/storage/confirm', payload);
+    return res.data;
+  },
 };
