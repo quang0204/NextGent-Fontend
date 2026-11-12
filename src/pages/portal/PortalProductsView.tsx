@@ -1969,6 +1969,20 @@ export const PortalProductsView: React.FC = () => {
                     </select>
                   </div>
 
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Trạng thái kinh doanh sản phẩm:</label>
+                    <select
+                      value={editProdStatus}
+                      onChange={(e) => setEditProdStatus(e.target.value as 'ACTIVE' | 'INACTIVE')}
+                      className={`w-full h-9 px-2.5 bg-white border rounded-lg text-xs font-bold focus:outline-none focus:border-blue-600 ${
+                        editProdStatus === 'INACTIVE' ? 'border-rose-300 text-rose-700 bg-rose-50/40' : 'border-emerald-300 text-emerald-700 bg-emerald-50/40'
+                      }`}
+                    >
+                      <option value="ACTIVE">ĐANG KINH DOANH (Mở bán)</option>
+                      <option value="INACTIVE">NGỪNG KINH DOANH (Dừng toàn bộ SKU)</option>
+                    </select>
+                  </div>
+
                   {editProdVariants.length > 0 && (
                     <div className="sm:col-span-3 text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-2">
                       <AlertCircle size={15} className="shrink-0 text-amber-600" />
@@ -2630,6 +2644,422 @@ export const PortalProductsView: React.FC = () => {
                       ))}
                     </div>
                   </div>
+                )}
+              </div>
+
+              {/* ================= 2. QUẢN LÝ THƯ VIỆN ẢNH SẢN PHẨM ================= */}
+              <div className="space-y-3">
+                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
+                  2. Thư viện ảnh sản phẩm (Product_Images)
+                </span>
+
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-300 bg-white p-1 overflow-hidden flex items-center justify-center flex-shrink-0 shadow-xs">
+                      {editProdThumbnail ? (
+                        <img 
+                          src={editProdThumbnail} 
+                          alt="Thumbnail preview" 
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = 'https://placehold.co/100x100/f8fafc/64748b?text=Lỗi+ảnh';
+                          }}
+                        />
+                      ) : (
+                        <ImageIcon size={24} className="text-slate-400" />
+                      )}
+                    </div>
+
+                    <div className="flex-1 w-full space-y-2">
+                      <label className="text-[11px] font-bold text-slate-700 block">Đường dẫn ảnh đại diện (Thumbnail):</label>
+                      <input
+                        type="url"
+                        placeholder="Dán URL ảnh đại diện (https://...)..."
+                        value={editProdThumbnail}
+                        onChange={(e) => setEditProdThumbnail(e.target.value)}
+                        className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600 font-mono"
+                      />
+
+                      <div className="flex items-center gap-2 pt-1">
+                        <label className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition">
+                          <Upload size={13} className="text-blue-600" />
+                          <span>Tải ảnh từ máy</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProductThumbnailUpload}
+                            className="hidden"
+                          />
+                        </label>
+                        <span className="text-[10px] text-slate-400 italic">Hỗ trợ PNG, JPG, WEBP</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <ProductImagesManager
+                  gallery={editProdGallery}
+                  thumbnail={editProdThumbnail}
+                  onChangeGallery={setEditProdGallery}
+                  onChangeThumbnail={setEditProdThumbnail}
+                />
+              </div>
+
+              {/* ================= 3. MA TRẬN BIẾN THỂ SKU & TỒN KHO ================= */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
+                      3. Ma trận biến thể SKU & Quản lý tồn kho
+                    </span>
+                    <p className="text-[11px] text-slate-500">
+                      Mỗi biến thể có mã SKU định danh, giá niêm yết, định mức tồn kho và các thuộc tính động theo ngành hàng: <strong>{editProdCategory || 'Ngành hàng'}</strong>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenAddVariantInEdit}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs transition"
+                  >
+                    <Plus size={14} />
+                    <span>Thêm biến thể mới</span>
+                  </button>
+                </div>
+
+                {editProdVariants.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-50 border border-dashed border-slate-300 rounded-xl space-y-2">
+                    <p className="text-xs text-slate-500">Sản phẩm này hiện chưa có biến thể SKU nào.</p>
+                    <button
+                      type="button"
+                      onClick={handleOpenAddVariantInEdit}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1.5"
+                    >
+                      <Plus size={14} /> Thêm biến thể đầu tiên
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {editProdVariants.map((v, varIdx) => {
+                      const isLocked = Boolean(v.hasTransactions);
+                      const isSaving = savingVariantId === v.variantId;
+
+                      return (
+                        <div
+                          key={v.variantId || varIdx}
+                          className="p-4 bg-slate-50/70 border border-slate-200 rounded-xl space-y-3 hover:border-blue-200 transition"
+                        >
+                          {/* Variant Card Header */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-200/80">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-slate-900 text-xs">
+                                #{varIdx + 1}. {v.variantName || v.sku || `Biến thể #${v.variantId}`}
+                              </span>
+
+                              {/* SKU Permanent Lock Badge */}
+                              <span
+                                className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200/90 text-slate-700 border border-slate-300 flex items-center gap-1"
+                                title="Mã SKU biến thể là mã định danh cố định trong hệ thống kho, không được phép chỉnh sửa sau khi tạo"
+                              >
+                                <Lock size={11} className="text-slate-600" />
+                                <span>Mã SKU cố định</span>
+                              </span>
+
+                              {/* Status Badge */}
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                v.isActive !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                {v.isActive !== false ? 'Đang bán' : 'Tạm dừng'}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSingleVariant(varIdx)}
+                              disabled={isSaving}
+                              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-2xs transition"
+                            >
+                              {isSaving ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  <span>Đang lưu...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={12} />
+                                  <span>Lưu biến thể này</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {/* Variant Primary Fields */}
+                          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[10px] font-bold text-slate-700">Mã SKU (Cố định):</label>
+                                <span className="text-[9px] text-slate-500 font-medium">Không thể sửa</span>
+                              </div>
+                              <input
+                                type="text"
+                                value={v.sku || ''}
+                                readOnly={true}
+                                title="Mã SKU biến thể là mã định danh duy nhất cố định, không được phép chỉnh sửa sau khi tạo."
+                                className="w-full h-8 px-2.5 rounded text-xs font-mono font-bold bg-slate-100 border border-slate-300 text-slate-600 cursor-not-allowed select-all focus:outline-none"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={10000}
+                                value={v.listPrice !== undefined && v.listPrice !== null ? v.listPrice : ''}
+                                onChange={(e) => handleUpdateEditVariant(varIdx, { listPrice: e.target.value === '' ? '' : Number(e.target.value) })}
+                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-700 focus:outline-none focus:border-blue-600"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
+                              <input
+                                type="number"
+                                min={0}
+                                step={10000}
+                                value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : (v.listPrice ?? '')}
+                                onChange={(e) => handleUpdateEditVariant(varIdx, { salePrice: e.target.value === '' ? '' : Number(e.target.value) })}
+                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-blue-600"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Định mức tồn tối thiểu:</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={v.inventory?.minThreshold ?? v.minThreshold ?? 5}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  handleUpdateEditVariant(varIdx, {
+                                    minThreshold: val,
+                                    inventory: {
+                                      ...(v.inventory || {}),
+                                      minThreshold: val
+                                    }
+                                  });
+                                }}
+                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-blue-600"
+                              />
+                            </div>
+
+                            <div>
+                              <label className="text-[10px] font-bold text-slate-700 block mb-1">Trạng thái SKU:</label>
+                              <select
+                                value={v.isActive !== false ? 'ACTIVE' : 'INACTIVE'}
+                                onChange={(e) => handleUpdateEditVariant(varIdx, { isActive: e.target.value === 'ACTIVE' })}
+                                className="w-full h-8 px-2 bg-white border border-slate-300 rounded text-xs font-semibold text-slate-800 focus:outline-none focus:border-blue-600"
+                              >
+                                <option value="ACTIVE">Đang kinh doanh</option>
+                                <option value="INACTIVE">Tạm dừng bán</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Dynamic Variant Attributes */}
+                          <div className="bg-white p-3 rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-2">
+                              Thuộc tính kỹ thuật biến thể ({editProdCategory || 'Ngành hàng'}):
+                            </span>
+                            <DynamicVariantInputs
+                              schema={editVariantSchema}
+                              variant={v}
+                              onChange={(updated) => handleUpdateEditVariant(varIdx, updated)}
+                            />
+                          </div>
+
+                          {/* Inventory Block (Read-only on-hand, reserved, available + Stock adjustment button) */}
+                          <div className="bg-slate-100 p-3 rounded-lg border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex flex-wrap items-center gap-4 text-xs">
+                              <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                                <Boxes size={15} className="text-blue-600" />
+                                <span>Khối Tồn Kho:</span>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-500 text-[11px]">Tồn thực tế:</span>
+                                <strong className="font-mono text-slate-900 font-bold">
+                                  {v.inventory?.onHandQty ?? v.onHandQty ?? 0}
+                                </strong>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-500 text-[11px]">Đang giữ đơn:</span>
+                                <strong className="font-mono text-amber-700 font-bold">
+                                  {v.inventory?.reservedQty ?? v.reservedQty ?? 0}
+                                </strong>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-500 text-[11px]">Khả dụng bán:</span>
+                                <strong className="font-mono text-emerald-700 font-bold">
+                                  {v.inventory?.availableQty ?? v.availableQty ?? 0}
+                                </strong>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleOpenStockAdjust(v)}
+                              className="px-3 py-1.5 bg-white hover:bg-slate-50 text-indigo-700 font-bold border border-indigo-200 rounded-lg text-xs flex items-center gap-1.5 shadow-2xs transition"
+                            >
+                              <Package size={13} />
+                              <span>Điều chỉnh tồn kho</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* ================= 4. QUẢN LÝ THÔNG SỐ KỸ THUẬT (PRODUCT_SPECS) ================= */}
+              <div className="space-y-2">
+                <span className="font-bold text-slate-800 text-xs uppercase tracking-wider block">
+                  4. Thông số kỹ thuật sản phẩm (Product_Specs)
+                </span>
+                <ProductSpecsEditor
+                  groups={editProdSpecGroups}
+                  onChange={setEditProdSpecGroups}
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-200">
+              <span className="text-[11px] text-slate-500">
+                Lưu ý: Thay đổi mã SKU hoặc thuộc tính biến thể sẽ cập nhật tên biến thể tự động
+              </span>
+              <div className="flex gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+                >
+                  Đóng / Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveProductEdit}
+                  disabled={isSavingProduct}
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
+                >
+                  {isSavingProduct ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      <span>Đang lưu thông tin sản phẩm...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={14} />
+                      <span>Lưu thông tin sản phẩm & Thông số</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODAL ĐIỀU CHỈNH TỒN KHO CHO BIẾN THỂ ================= */}
+      {adjustingVariant && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                  <Package size={16} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
+                    Điều chỉnh tồn kho SKU
+                  </h3>
+                  <span className="text-[11px] font-mono text-indigo-600 font-bold">
+                    {adjustingVariant.sku}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdjustingVariant(null)}
+                className="text-slate-400 hover:text-slate-700 p-1"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <span className="text-[11px] text-slate-500 block">Biến thể:</span>
+                <strong className="text-slate-800 text-xs block">
+                  {adjustingVariant.variantName || adjustingVariant.sku}
+                </strong>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[10px] text-slate-500 block">Tồn kho hiện tại:</span>
+                  <strong className="text-base font-mono text-slate-900">
+                    {adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-500 block">Chênh lệch:</span>
+                  {(() => {
+                    const cur = adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0;
+                    const diff = adjustActualCount - cur;
+                    return (
+                      <strong className={`text-base font-mono ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
+                        {diff > 0 ? `+${diff}` : diff}
+                      </strong>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                  Số lượng tồn thực tế sau kiểm kê *:
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  value={adjustActualCount}
+                  onChange={(e) => setAdjustActualCount(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                  Lý do điều chỉnh *:
+                </label>
+                <select
+                  value={adjustReason}
+                  onChange={(e) => setAdjustReason(e.target.value)}
+                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-medium focus:outline-none focus:border-blue-600 mb-2"
+                >
+                  <option value="Kiểm kê định kỳ cân đối số lượng">Kiểm kê định kỳ cân đối số lượng</option>
+                  <option value="Hàng hỏng vỡ/lỗi linh kiện">Hàng hỏng vỡ/lỗi linh kiện</option>
+                  <option value="Sai lệch trong quá trình nhập kho">Sai lệch trong quá trình nhập kho</option>
+                  <option value="Trả hàng đối tác/nhà cung cấp">Trả hàng đối tác/nhà cung cấp</option>
+                  <option value="Lý do khác">Lý do khác...</option>
+                </select>
+                {adjustReason === 'Lý do khác' && (
+                  <input
+                    type="text"
+                    placeholder="Nhập lý do cụ thể..."
+                    onChange={(e) => setAdjustReason(e.target.value)}
+                    className="w-full h-8 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600"
+                  />
                 )}
               </div>
             </div>
