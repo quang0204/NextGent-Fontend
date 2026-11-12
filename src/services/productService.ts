@@ -23,8 +23,7 @@ export interface ProductFilterParams {
 }
 
 export interface CreateProductImagePayload {
-  uploadId?: string;
-  imageUrl?: string;
+  imageUrl: string;
   isPrimary: boolean;
   sortOrder: number;
 }
@@ -46,7 +45,6 @@ export interface CreateProductVariantPayload {
   listPrice: number;
   salePrice?: number;
   compareAtPrice?: number;
-  imageUrl?: string;
   initialOnHandQty: number;
   minThreshold?: number;
 }
@@ -78,8 +76,7 @@ export interface UpdateAdminProductPayload {
   }>;
   images?: Array<{
     imageId?: number;
-    uploadId?: string;
-    imageUrl?: string;
+    imageUrl: string;
     isPrimary: boolean;
     sortOrder: number;
   }>;
@@ -95,7 +92,6 @@ export interface AddAdminVariantPayload {
   listPrice: number;
   salePrice?: number;
   compareAtPrice?: number;
-  imageUrl?: string;
   initialOnHandQty: number;
   minThreshold?: number;
 }
@@ -525,7 +521,6 @@ export const productService = {
           connectionType: v.connectionType,
           attributes: v.attributes,
           listPrice: v.listPrice,
-          imageUrl: v.imageUrl,
           isActive: v.isActive !== false,
           hasTransactions: false,
           inventory: inv ? {
@@ -550,11 +545,10 @@ export const productService = {
       if (res.data?.data) {
         return res.data.data;
       }
-      return res.data;
     } catch (err) {
-      console.warn('[productService.createAdminProduct] error', err);
-      throw err;
+      console.warn('[productService.createAdminProduct] Fallback to sharedStore', err);
     }
+    return null;
   },
 
   /**
@@ -567,11 +561,10 @@ export const productService = {
       if (res.data?.data) {
         return res.data.data;
       }
-      return res.data;
     } catch (err) {
-      console.warn('[productService.updateAdminProduct] error', err);
-      throw err;
+      console.warn('[productService.updateAdminProduct] Fallback to sharedStore', err);
     }
+    return null;
   },
 
   /**
@@ -584,11 +577,10 @@ export const productService = {
       if (res.data?.data) {
         return res.data.data;
       }
-      return res.data;
     } catch (err) {
-      console.warn('[productService.addAdminVariant] error', err);
-      throw err;
+      console.warn('[productService.addAdminVariant] Fallback to sharedStore', err);
     }
+    return null;
   },
 
   /**
