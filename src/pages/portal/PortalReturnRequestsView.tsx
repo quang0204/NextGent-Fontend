@@ -1,5 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { sharedStore } from '../../services/sharedStore';
+import { returnService } from '../../services/returnService';
+import { orderService } from '../../services/orderService';
 import { PortalReturnRequest, ReturnRequestStatus } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { PortalPagination } from '../../components/portal/PortalPagination';
@@ -34,13 +36,29 @@ export const PortalReturnRequestsView: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  // API 11.2: Quản lý danh sách yêu cầu đổi trả
+  const loadAdminReturns = useCallback(async () => {
+    try {
+      const res = await returnService.getAdminReturns({
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        orderCode: searchTerm.trim() || undefined,
+      });
+      if (res?.items) {
+        setReturnRequests(res.items);
+      }
+    } catch {
+      // fallback giữ nguyên state hiện có
+    }
+  }, [searchTerm, statusFilter]);
 
   useEffect(() => {
-    const unsub = sharedStore.subscribe(() => {
-      setReturnRequests([...sharedStore.getReturnRequests()]);
-    });
-    return () => unsub();
-  }, []);
+    loadAdminReturns();
+  }, [loadAdminReturns]);
 
   const showNotification = (msg: string) => {
     setToastMessage(msg);
@@ -52,42 +70,125 @@ export const PortalReturnRequestsView: React.FC = () => {
     setInspectionResult(req.inspectionResult || 'Kỹ thuật viên đã kiểm tra ngoại quan và chức năng phần cứng...');
   };
 
-  const handleConfirmInspect = (e: React.FormEvent) => {
+  const handleConfirmInspect = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inspectingReq ||!inspectionResult.trim()) return;
+    if (!inspectingReq || !inspectionResult.trim()) return;
 
-    sharedStore.inspectReturnRequest(inspectingReq.returnId, inspectionResult.trim(), 'Nguyễn Thanh Hùng (Staff)');
+    const note = inspectionResult.trim();
+    setErrorBanner(null);
+    const res = await returnService.inspectReturn(inspectingReq.returnId, {
+      status: 'INSPECTING',
+      inspectionResult: note,
+    });
+    const inspectedBy = res?.data?.inspectedBy || 'Nhân viên kỹ thuật';
+    const inspectedAt = res?.data?.inspectedAt || new Date().toISOString();
+
+    setReturnRequests(prev =>
+      prev.map(r =>
+        r.returnId === inspectingReq.returnId
+          ? { ...r, status: 'INSPECTING', inspectionResult: note, inspectedBy, inspectedAt }
+          : r
+      )
+    );
     showNotification(`Đã cập nhật biên bản thẩm định cho phiếu RMA-${inspectingReq.returnId}!`);
     setInspectingReq(null);
   };
 
   const handleStartApprove = (req: PortalReturnRequest) => {
+    setModalError(null);
     setApprovingReq(req);
-    const suggestedRefund = req.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    const itemsTotal = (req.items || []).reduce((s, i) => s + Number(i.unitPrice || 0) * Number(i.quantity || 1), 0);
+    const suggestedRefund = (req.orderTotalAmount && req.orderTotalAmount > 0) ? req.orderTotalAmount : itemsTotal;
     setRefundAmount(suggestedRefund);
   };
 
-  const handleConfirmApprove = (e: React.FormEvent) => {
+  const handleConfirmApprove = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!approvingReq) return;
+    if (!approvingReq || isSubmitting) return;
 
-    sharedStore.approveAndRefundReturn(approvingReq.returnId, refundAmount, 'Nguyễn Thế Minh (Admin)');
-    showNotification(`Đã duyệt hoàn tiền ${formatVND(refundAmount)} & lập phiếu nhập kho cho RMA-${approvingReq.returnId}!`);
-    setApprovingReq(null);
+    // API 11.3: Biên bản kiểm định ngoại quan & Hoàn kho MB04 (APPROVED)
+    setErrorBanner(null);
+    setModalError(null);
+    setIsSubmitting(true);
+    try {
+      let restockItems = (approvingReq.items || [])
+        .filter(i => i.variantId && i.quantity > 0)
+        .map(i => ({ variantId: Number(i.variantId), quantity: i.quantity }));
+
+      // Nếu phiếu cũ chưa có variantId -> tra cứu đơn hàng gốc qua API 8.3 để lấy đúng variantId hoàn kho MB04
+      if (restockItems.length === 0 && approvingReq.orderCode) {
+        const origOrder = await orderService.getOrderByCode(approvingReq.orderCode);
+        if (origOrder?.items?.length) {
+          restockItems = origOrder.items
+            .filter(i => i.variantId && i.quantity > 0)
+            .map(i => ({ variantId: Number(i.variantId), quantity: i.quantity }));
+        }
+      }
+
+      await returnService.inspectReturn(approvingReq.returnId, {
+        status: 'APPROVED',
+        inspectionResult: approvingReq.inspectionResult || 'Máy đủ điều kiện đổi trả theo chính sách 30 ngày.',
+        refundAmount: refundAmount,
+        restockItems,
+      });
+
+      setReturnRequests(prev =>
+        prev.map(r =>
+          r.returnId === approvingReq.returnId
+            ? { ...r, status: 'APPROVED', refundAmount }
+            : r
+        )
+      );
+      showNotification(`Đã duyệt hoàn tiền ${formatVND(refundAmount)} & lập phiếu nhập kho cho RMA-${approvingReq.returnId}!`);
+      setApprovingReq(null);
+      loadAdminReturns();
+    } catch (err: any) {
+      const msg = err?.message || 'Không thể phê duyệt hoàn tiền cho phiếu đổi trả này.';
+      setModalError(msg);
+      setErrorBanner(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleStartReject = (req: PortalReturnRequest) => {
+    setModalError(null);
     setRejectingReq(req);
     setRejectReason('Sản phẩm đã bị cấn móp hoặc mất tem niêm phong không đủ điều kiện đổi trả.');
   };
 
-  const handleConfirmReject = (e: React.FormEvent) => {
+  const handleConfirmReject = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rejectingReq ||!rejectReason.trim()) return;
+    if (!rejectingReq || !rejectReason.trim() || isSubmitting) return;
 
-    sharedStore.rejectReturnRequest(rejectingReq.returnId, rejectReason.trim(), 'Nguyễn Thế Minh (Admin)');
-    showNotification(`Đã từ chối yêu cầu đổi trả RMA-${rejectingReq.returnId}.`);
-    setRejectingReq(null);
+    // API 11.3: Biên bản kiểm định ngoại quan & Hoàn kho MB04 (REJECTED)
+    setErrorBanner(null);
+    setModalError(null);
+    setIsSubmitting(true);
+    try {
+      await returnService.inspectReturn(rejectingReq.returnId, {
+        status: 'REJECTED',
+        inspectionResult: rejectingReq.inspectionResult || 'Biên bản kiểm tra ngoại quan từ chối bảo hành.',
+        rejectReason: rejectReason.trim(),
+      });
+
+      setReturnRequests(prev =>
+        prev.map(r =>
+          r.returnId === rejectingReq.returnId
+            ? { ...r, status: 'REJECTED', rejectReason: rejectReason.trim() }
+            : r
+        )
+      );
+      showNotification(`Đã từ chối yêu cầu đổi trả RMA-${rejectingReq.returnId}.`);
+      setRejectingReq(null);
+      loadAdminReturns();
+    } catch (err: any) {
+      const msg = err?.message || 'Không thể từ chối yêu cầu đổi trả này.';
+      setModalError(msg);
+      setErrorBanner(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -149,6 +250,18 @@ export const PortalReturnRequestsView: React.FC = () => {
         <div className="p-3 bg-success/10 border border-success/30 text-success rounded-xl text-xs flex items-center gap-2">
           <CheckCircle size={15} />
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {errorBanner && (
+        <div className="p-3 bg-critical/10 border border-critical/30 text-critical rounded-xl text-xs flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} />
+            <span>{errorBanner}</span>
+          </div>
+          <button type="button" onClick={() => setErrorBanner(null)} className="text-critical hover:opacity-75">
+            <X size={14} />
+          </button>
         </div>
       )}
 
@@ -229,6 +342,12 @@ export const PortalReturnRequestsView: React.FC = () => {
                     <strong className="text-ink-deep">Lý do đổi trả: </strong>
                     <span className="text-steel">{req.reason}</span>
                   </div>
+                  {req.bankInfo?.bankName && (
+                    <div className="text-[11px] bg-canvas p-2 rounded-lg border border-hairline-soft text-charcoal">
+                      <strong className="text-ink-deep">TK hoàn tiền COD: </strong>
+                      <span>{req.bankInfo.bankName} - <span className="font-mono font-semibold">{req.bankInfo.accountNumber}</span> ({req.bankInfo.accountHolder})</span>
+                    </div>
+                  )}
 
                   {/* Items */}
                   <div className="pt-2 border-t border-hairline-soft/60 space-y-1">
@@ -262,10 +381,16 @@ export const PortalReturnRequestsView: React.FC = () => {
                     )}
                   </div>
 
-                  {req.refundAmount!== undefined && (
+                  {(req.status === 'APPROVED' || (req.refundAmount !== undefined && req.refundAmount > 0)) && (
                     <div className="flex items-center justify-between text-xs font-bold text-success bg-success/5 p-2 rounded-lg border border-success/20">
                       <span>Số tiền hoàn trả khách hàng:</span>
-                      <span className="text-sm font-mono">{formatVND(req.refundAmount)}</span>
+                      <span className="text-sm font-mono">{formatVND(req.refundAmount || 0)}</span>
+                    </div>
+                  )}
+                  {req.status !== 'APPROVED' && req.status !== 'REJECTED' && (req.orderTotalAmount !== undefined && req.orderTotalAmount > 0) && (
+                    <div className="flex items-center justify-between text-xs font-bold text-primary bg-primary/5 p-2 rounded-lg border border-primary/20">
+                      <span>Giá trị đơn hàng có thể hoàn tối đa:</span>
+                      <span className="text-sm font-mono">{formatVND(req.orderTotalAmount)}</span>
                     </div>
                   )}
 
@@ -371,6 +496,12 @@ export const PortalReturnRequestsView: React.FC = () => {
               </button>
             </div>
 
+            {modalError && (
+              <div className="p-2.5 bg-critical/10 border border-critical/30 text-critical rounded-lg text-[11px] flex items-center gap-2">
+                <AlertTriangle size={14} className="flex-shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
             <p className="text-steel">
               Hệ thống sẽ chuyển trạng thái đơn hàng sang đã hoàn, tự động sinh <strong>Phiếu nhập lại kho</strong> và hoàn tiền cho khách hàng.
             </p>
@@ -391,8 +522,8 @@ export const PortalReturnRequestsView: React.FC = () => {
               <button type="button" onClick={() => setApprovingReq(null)} className="btn-ghost px-4 py-2 text-xs font-bold">
                 Hủy
               </button>
-              <button type="submit" className="btn-marketing px-5 py-2 text-xs font-bold rounded-full">
-                Xác nhận hoàn tiền & Nhập kho
+              <button type="submit" disabled={isSubmitting} className="btn-marketing px-5 py-2 text-xs font-bold rounded-full disabled:opacity-50">
+                {isSubmitting ? 'Đang xử lý...' : 'Xác nhận hoàn tiền & Nhập kho'}
               </button>
             </div>
           </form>
@@ -410,6 +541,12 @@ export const PortalReturnRequestsView: React.FC = () => {
               </button>
             </div>
 
+            {modalError && (
+              <div className="p-2.5 bg-critical/10 border border-critical/30 text-critical rounded-lg text-[11px] flex items-center gap-2">
+                <AlertTriangle size={14} className="flex-shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
             <div>
               <label className="block text-steel font-medium mb-1">Lý do bác bỏ yêu cầu (*):</label>
               <textarea

@@ -67,6 +67,7 @@ export const PortalShipmentsView: React.FC = () => {
           updatedAt: b.updatedAt
         }));
         setShipments(backendItems);
+        sharedStore.syncExternalShipments(backendItems);
       }
     } catch {
       // Giữ dữ liệu sharedStore mặc định nếu chưa đăng nhập hoặc mạng offline
@@ -76,6 +77,7 @@ export const PortalShipmentsView: React.FC = () => {
   useEffect(() => {
     loadBackendShipments();
     const unsub = sharedStore.subscribe(() => {
+      setShipments([...sharedStore.getShipments()]);
       setOrders([...sharedStore.getOrders()]);
     });
     return () => unsub();
@@ -129,8 +131,11 @@ export const PortalShipmentsView: React.FC = () => {
         editingShipment.shipmentId,
         newStatus,
         isFailStatus ? failReason : undefined,
-        'Điều phối viên giao vận'
+        'Điều phối viên giao vận',
+        editingShipment
       );
+      setShipments([...sharedStore.getShipments()]);
+      setOrders([...sharedStore.getOrders()]);
       loadBackendShipments();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err.message || 'Lỗi khi cập nhật trạng thái vận đơn';
@@ -140,10 +145,13 @@ export const PortalShipmentsView: React.FC = () => {
         editingShipment.shipmentId,
         newStatus,
         isFailStatus ? failReason : undefined,
-        'Điều phối viên giao vận'
+        'Điều phối viên giao vận',
+        editingShipment
       );
     }
 
+      setShipments([...sharedStore.getShipments()]);
+      setOrders([...sharedStore.getOrders()]);
     setEditingShipment(null);
   };
 

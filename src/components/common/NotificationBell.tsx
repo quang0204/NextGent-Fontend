@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bell, CheckCheck, Package, Tag, Info, ChevronRight, X } from 'lucide-react';
+import { Bell, CheckCheck, Package, Tag, Info, ChevronRight } from 'lucide-react';
 import { useNotificationStore } from '../../stores/notificationStore';
 import { useAuthStore } from '../../stores/authStore';
 import { NotificationItem, NotificationType } from '../../types/notification';
@@ -21,13 +21,28 @@ export const NotificationBell: React.FC = () => {
     clearOnLogout 
   } = useNotificationStore();
 
+  const effectiveUserId = user?.userId ?? (isAuthenticated ? 1 : null);
+
   useEffect(() => {
-    if (isAuthenticated && user?.userId) {
-      loadNotifications(user.userId);
+    if (isAuthenticated && effectiveUserId) {
+      loadNotifications(effectiveUserId);
     } else {
       clearOnLogout();
     }
-  }, [isAuthenticated, user?.userId]);
+  }, [isAuthenticated, effectiveUserId]);
+
+  // Lắng nghe sự kiện cập nhật thông báo toàn hệ thống (Real-time custom event)
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (isAuthenticated && effectiveUserId) {
+        loadNotifications(effectiveUserId);
+      }
+    };
+    window.addEventListener('notification:updated', handleUpdate);
+    return () => {
+      window.removeEventListener('notification:updated', handleUpdate);
+    };
+  }, [isAuthenticated, effectiveUserId]);
 
   // Click outside listener
   useEffect(() => {
@@ -70,12 +85,28 @@ export const NotificationBell: React.FC = () => {
     }
   };
 
+  const formatNotifDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return `${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, ${d.toLocaleDateString('vi-VN')}`;
+    } catch {
+      return dateStr;
+    }
+  };
+
   const latestFive = notifications.slice(0, 5);
 
   return (
     <div className="relative" ref={dropdownRef}>
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const next = !isOpen;
+          setIsOpen(next);
+          if (next && isAuthenticated && effectiveUserId) {
+            loadNotifications(effectiveUserId);
+          }
+        }}
         className="btn-icon-circular relative text-ink hover:text-ink-deep hover:bg-surface-soft transition"
         title="Trung tâm Thông báo"
         aria-label="Thông báo"
@@ -153,7 +184,7 @@ export const NotificationBell: React.FC = () => {
                       {item.content}
                     </p>
                     <div className="text-[10px] text-steel/80 pt-0.5 flex items-center justify-between">
-                      <span>{new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, {new Date(item.createdAt).toLocaleDateString('vi-VN')}</span>
+                      <span>{formatNotifDate(item.createdAt)}</span>
                       {item.orderCode && (
                         <span className="text-primary font-mono font-bold group-hover:underline">
                           #{item.orderCode}

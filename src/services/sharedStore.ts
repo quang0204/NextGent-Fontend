@@ -34,21 +34,21 @@ import {
 import { notificationService } from './notificationService';
 
 // Khóa lưu trữ LocalStorage để đồng bộ xuyên suốt
-const STORAGE_KEY_PRODUCTS = 'np_products_v2';
-const STORAGE_KEY_INVENTORY = 'np_inventory_v2';
-const STORAGE_KEY_ORDERS = 'np_orders_v2';
-const STORAGE_KEY_VOUCHERS = 'np_vouchers_v2';
-const STORAGE_KEY_MOVEMENTS = 'np_movements_v2';
-const STORAGE_KEY_ADJUSTMENTS = 'np_adjustments_v2';
-const STORAGE_KEY_AUDIT = 'np_audit_v2';
-const STORAGE_KEY_TICKETS = 'np_tickets_v2';
-const STORAGE_KEY_REVIEWS = 'np_reviews_v2';
-const STORAGE_KEY_CATEGORIES = 'np_categories_v2';
-const STORAGE_KEY_BRANDS = 'np_brands_v2';
-const STORAGE_KEY_SHIPMENTS = 'np_shipments_v2';
-const STORAGE_KEY_RETURNS = 'np_returns_v2';
-const STORAGE_KEY_FAQS = 'np_faqs_v2';
-const STORAGE_KEY_PROMOTIONS = 'np_promotions_v2';
+const STORAGE_KEY_PRODUCTS = 'ng_db_products_v2';
+const STORAGE_KEY_INVENTORY = 'ng_db_inventory_v2';
+const STORAGE_KEY_ORDERS = 'ng_db_orders_v2';
+const STORAGE_KEY_VOUCHERS = 'ng_db_vouchers_v2';
+const STORAGE_KEY_MOVEMENTS = 'ng_db_movements_v2';
+const STORAGE_KEY_ADJUSTMENTS = 'ng_db_adjustments_v2';
+const STORAGE_KEY_AUDIT = 'ng_db_audit_v2';
+const STORAGE_KEY_TICKETS = 'ng_db_tickets_v2';
+const STORAGE_KEY_REVIEWS = 'ng_db_reviews_v2';
+const STORAGE_KEY_CATEGORIES = 'ng_db_categories_v2';
+const STORAGE_KEY_BRANDS = 'ng_db_brands_v2';
+const STORAGE_KEY_SHIPMENTS = 'ng_db_shipments_v2';
+const STORAGE_KEY_RETURNS = 'ng_db_returns_v2';
+const STORAGE_KEY_FAQS = 'ng_db_faqs_v2';
+const STORAGE_KEY_PROMOTIONS = 'ng_db_promotions_v2';
 
 const loadFromStorage = <T>(key: string, defaultValue: T): T => {
   try {
@@ -138,14 +138,7 @@ const sanitizeProducts = (loadedProds: Product[]): Product[] => {
 
 // Khởi tạo các mảng dữ liệu dùng chung (Single Source of Truth)
 const loadInitialProducts = (): Product[] => {
-  const stored = loadFromStorage(STORAGE_KEY_PRODUCTS, MOCK_PRODUCTS);
-  const existingIds = new Set(stored.map((p: Product) => p.productId));
-  const missingMocks = MOCK_PRODUCTS.filter(p =>!existingIds.has(p.productId));
-  if (missingMocks.length > 0) {
-    const merged = [...stored,...missingMocks];
-    saveToStorage(STORAGE_KEY_PRODUCTS, merged);
-    return sanitizeProducts(merged);
-  }
+  const stored = loadFromStorage<Product[]>(STORAGE_KEY_PRODUCTS, []);
   return sanitizeProducts(stored);
 };
 
@@ -174,38 +167,25 @@ export const sanitizeOrderNotes = (order: OrderDetail): OrderDetail => {
 };
 
 const loadInitialOrders = (): OrderDetail[] => {
-  const stored = loadFromStorage(STORAGE_KEY_ORDERS, MOCK_ORDERS_DETAIL);
-  const existingCodes = new Set(stored.map((o: OrderDetail) => o.orderCode));
-  const missing = MOCK_ORDERS_DETAIL.filter(o => !existingCodes.has(o.orderCode));
-  const list = missing.length > 0 ? [...stored, ...missing] : stored;
-  const cleaned = list.map(sanitizeOrderNotes);
-  saveToStorage(STORAGE_KEY_ORDERS, cleaned);
-  return cleaned;
+  const stored = loadFromStorage<OrderDetail[]>(STORAGE_KEY_ORDERS, []);
+  return stored.map(sanitizeOrderNotes);
 };
 
 const loadInitialShipments = (): PortalShipment[] => {
-  const stored = loadFromStorage(STORAGE_KEY_SHIPMENTS, PORTAL_SHIPMENTS);
-  const existingCodes = new Set(stored.map((s: PortalShipment) => s.orderCode));
-  const missing = PORTAL_SHIPMENTS.filter(s =>!existingCodes.has(s.orderCode));
-  if (missing.length > 0) {
-    const merged = [...stored,...missing];
-    saveToStorage(STORAGE_KEY_SHIPMENTS, merged);
-    return merged;
-  }
-  return stored;
+  return loadFromStorage<PortalShipment[]>(STORAGE_KEY_SHIPMENTS, []);
 };
 
 let products: Product[] = loadInitialProducts();
-let inventories: PortalInventoryItem[] = loadFromStorage(STORAGE_KEY_INVENTORY, PORTAL_INVENTORY_ITEMS);
+let inventories: PortalInventoryItem[] = loadFromStorage(STORAGE_KEY_INVENTORY, []);
 let orders: OrderDetail[] = loadInitialOrders();
 let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, PORTAL_VOUCHERS);
 let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, PORTAL_STOCK_MOVEMENTS);
 let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, PORTAL_STOCK_ADJUSTMENTS);
 let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDIT_LOGS);
-let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, PORTAL_TICKETS);
+let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, []);
 let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
 let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
-let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, PORTAL_BRANDS);
+let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, []);
 let shipments: PortalShipment[] = loadInitialShipments();
 let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, PORTAL_RETURN_REQUESTS);
 let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, PORTAL_FAQS);
@@ -267,6 +247,90 @@ export const sharedStore = {
     return products;
   },
 
+
+
+  setProducts(prods: Product[]) {
+
+    products = prods;
+
+    saveToStorage(STORAGE_KEY_PRODUCTS, products);
+
+    for (const p of prods) {
+
+      if (p.variants) {
+
+        for (const v of p.variants) {
+
+          let existing = inventories.find(inv => Number(inv.variantId) === Number(v.variantId));
+
+          const onHand = v.onHandQty ?? v.availableQty ?? 25;
+
+          const reserved = v.reservedQty ?? 0;
+
+          const avail = v.availableQty !== undefined ? v.availableQty : Math.max(0, onHand - reserved);
+
+          if (!existing) {
+
+            const newInv: PortalInventoryItem = {
+              inventoryId: v.variantId,
+              variantId: v.variantId,
+              productId: p.productId,
+              productName: p.name,
+              sku: v.sku || ("SKU-" + v.variantId),
+              color: v.color,
+              romGb: v.romGb,
+              onHandQty: onHand,
+              reservedQty: reserved,
+              availableQty: avail,
+              minThreshold: 5,
+              status: avail > 0 ? "IN_STOCK" : "OUT_OF_STOCK",
+            };
+            inventories.push(newInv);
+
+          } else {
+
+            existing.onHandQty = onHand;
+
+            existing.availableQty = avail;
+
+            existing.sku = v.sku || existing.sku;
+
+            existing.productName = p.name || existing.productName;
+
+          }
+
+        }
+
+      }
+
+    }
+
+    saveToStorage(STORAGE_KEY_INVENTORY, inventories);
+
+    notify();
+
+  },
+
+
+
+  syncExternalProduct(prod: Product) {
+
+    const idx = products.findIndex(p => p.productId === prod.productId);
+
+    if (idx !== -1) {
+
+      products[idx] = prod;
+
+    } else {
+
+      products.unshift(prod);
+
+    }
+
+    this.setProducts(products);
+
+  },
+
   getProductById(id: number): Product | undefined {
     return products.find(p => p.productId === id);
   },
@@ -290,10 +354,20 @@ export const sharedStore = {
   updateProduct(productId: number, data: Partial<Product>): boolean {
     const idx = products.findIndex(p => p.productId === productId);
     if (idx === -1) return false;
-    products[idx] = {...products[idx],...data };
+    const updated = { ...products[idx], ...data };
+    if (data.status === 'INACTIVE' && Array.isArray(updated.variants)) {
+      updated.variants = updated.variants.map(v => ({ ...v, isActive: false }));
+    } else if (data.status === 'ACTIVE' && Array.isArray(updated.variants)) {
+      updated.variants = updated.variants.map(v => ({ ...v, isActive: true }));
+    }
+    products[idx] = updated;
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
     notify();
     return true;
+  },
+
+  updateProductStatus(productId: number, status: 'ACTIVE' | 'INACTIVE'): boolean {
+    return this.updateProduct(productId, { status });
   },
 
   updateVariant(productId: number, variantId: number, data: Partial<ProductVariant>): boolean {
@@ -301,11 +375,41 @@ export const sharedStore = {
     if (!prod || !Array.isArray(prod.variants)) return false;
     const vIdx = prod.variants.findIndex(v => v.variantId === variantId);
     if (vIdx === -1) return false;
-    prod.variants[vIdx] = {...prod.variants[vIdx],...data };
+    prod.variants[vIdx] = { ...prod.variants[vIdx], ...data };
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
     notify();
     return true;
   },
+
+  syncExternalBrands(brandsList: any[]) {
+
+    if (!Array.isArray(brandsList)) return;
+
+    portalBrands = brandsList.map((b, idx) => ({
+
+      brandId: b.brandId,
+
+      name: b.name,
+
+      slug: (b as any).slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+
+      logoUrl: b.logoUrl,
+
+      description: b.description,
+
+      isVisible: b.isVisible !== false,
+
+      productCount: b.totalProducts || 0,
+
+      createdAt: new Date().toISOString()
+
+    }));
+
+    saveToStorage(STORAGE_KEY_BRANDS, portalBrands);
+
+  },
+
+
 
   getBrands(category?: string): Brand[] {
     if (!category || category === 'all') {
@@ -353,6 +457,32 @@ export const sharedStore = {
 
   getOrders(): OrderDetail[] {
     return orders.map(sanitizeOrderNotes);
+  },
+
+
+
+  syncExternalOrders(remoteOrders: OrderDetail[]) {
+
+    if (!Array.isArray(remoteOrders)) return;
+
+    for (const ro of remoteOrders) {
+
+      const idx = orders.findIndex(o => Number(o.orderId) === Number(ro.orderId) || o.orderCode === ro.orderCode);
+
+      if (idx !== -1) {
+
+        orders[idx] = { ...orders[idx], ...ro };
+
+      } else {
+
+        orders.unshift(ro);
+
+      }
+
+    }
+
+    saveToStorage(STORAGE_KEY_ORDERS, orders);
+
   },
 
   getOrderById(orderId: number): OrderDetail | undefined {
@@ -516,6 +646,40 @@ export const sharedStore = {
     return shipments;
   },
 
+
+
+  syncExternalShipments(remoteShipments: PortalShipment[]) {
+
+    if (!Array.isArray(remoteShipments)) return;
+
+    for (const rs of remoteShipments) {
+
+      const idx = shipments.findIndex(s => 
+
+        Number(s.shipmentId) === Number(rs.shipmentId) || 
+
+        (s.trackingCode && s.trackingCode === rs.trackingCode) ||
+
+        (s.orderCode && s.orderCode === rs.orderCode)
+
+      );
+
+      if (idx !== -1) {
+
+        shipments[idx] = { ...shipments[idx], ...rs };
+
+      } else {
+
+        shipments.push(rs);
+
+      }
+
+    }
+
+    saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
+
+  },
+
   createShipmentForOrder(order: OrderDetail, carrier = 'Giao Hàng Nhanh Express', staffName = 'Hệ thống tự động'): PortalShipment {
     const existing = shipments.find(s => s.orderId === order.orderId || s.orderCode === order.orderCode);
     if (existing) return existing;
@@ -559,9 +723,35 @@ export const sharedStore = {
     shipmentId: number, 
     status: PortalShipment['status'], 
     failReason?: string, 
-    staffName = 'Điều phối viên giao vận'
+    staffName = 'Điều phối viên giao vận',
+    shipmentContext?: Partial<PortalShipment>
   ): { success: boolean; message: string } {
-    const ship = shipments.find(s => s.shipmentId === shipmentId);
+    let ship = shipments.find(s => 
+      Number(s.shipmentId) === Number(shipmentId) || 
+      (shipmentContext?.trackingCode && s.trackingCode === shipmentContext.trackingCode) ||
+      (shipmentContext?.orderCode && s.orderCode === shipmentContext.orderCode) ||
+      (shipmentContext?.orderId && Number(s.orderId) === Number(shipmentContext.orderId))
+    );
+
+    if (!ship && shipmentContext) {
+      ship = {
+        shipmentId: Number(shipmentId) || Date.now(),
+        orderId: Number(shipmentContext.orderId || 0),
+        orderCode: shipmentContext.orderCode || ("DH-" + shipmentId),
+        carrier: shipmentContext.carrier || 'Giao Hàng Nhanh Express',
+        trackingCode: shipmentContext.trackingCode || ("GHN-" + shipmentId),
+        status,
+        recipientName: shipmentContext.recipientName || 'Khách hàng',
+        recipientPhone: shipmentContext.recipientPhone || '',
+        shippingAddress: shipmentContext.shippingAddress || '',
+        codAmount: shipmentContext.codAmount || 0,
+        failReason,
+        updatedBy: staffName,
+        updatedAt: new Date().toISOString()
+      };
+      shipments.unshift(ship);
+    }
+
     if (!ship) return { success: false, message: 'Không tìm thấy vận đơn tương ứng' };
 
     const oldStatus = ship.status;
@@ -574,90 +764,69 @@ export const sharedStore = {
     const nowTimeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
 
     // ĐỒNG BỘ TỰ ĐỘNG SANG BẢNG ORDERS THEO ĐÚNG TIẾN TRÌNH VẬN HÀNH
-    const ord = orders.find(o => o.orderCode === ship.orderCode || o.orderId === ship.orderId);
+    const targetOrderCode = ship.orderCode || shipmentContext?.orderCode;
+    const targetOrderId = ship.orderId || shipmentContext?.orderId;
+    const targetTracking = ship.trackingCode || shipmentContext?.trackingCode;
+
+    const ord = orders.find(o => 
+      (targetOrderCode && (o.orderCode === targetOrderCode || o.orderCode.toUpperCase().includes(targetOrderCode.toUpperCase()))) ||
+      (targetOrderId && (Number(o.orderId) === Number(targetOrderId) || String(o.orderId) === String(targetOrderId))) ||
+      (targetTracking && o.trackingCode === targetTracking)
+    );
     if (ord) {
       if (status === 'PREPARING') {
-        // Vận đơn "Đang chuẩn bị hàng" -> Đơn hàng đồng bộ sang "Đang chuẩn bị hàng" (PREPARING)
         ord.status = 'PREPARING';
       } else if (status === 'PICKED_UP') {
-        // Vận đơn "Đã lấy hàng" -> Đơn hàng đồng bộ sang "Đã lấy hàng" (PICKED_UP)
         ord.status = 'PICKED_UP';
         ord.carrier = ship.carrier;
         ord.trackingCode = ship.trackingCode;
+        ord.statusHistory = ord.statusHistory || [];
         ord.statusHistory.unshift({
           status: 'PICKED_UP',
           time: nowTimeStr,
-          note: `Bưu tá đã lấy hàng từ kho thành công (Vận đơn ${ship.trackingCode}: Đã lấy hàng).`
+          note: "Bưu tá đã lấy hàng từ kho thành công (Vận đơn " + ship.trackingCode + ": Đã lấy hàng)."
         });
       } else if (status === 'IN_TRANSIT') {
-        // Vận đơn "Đang giao hàng" -> Đơn hàng đồng bộ sang "Đang giao hàng" (SHIPPING)
         ord.status = 'SHIPPING';
         ord.carrier = ship.carrier;
         ord.trackingCode = ship.trackingCode;
+        ord.statusHistory = ord.statusHistory || [];
         ord.statusHistory.unshift({
           status: 'SHIPPING',
           time: nowTimeStr,
-          note: `Kiện hàng đang trên đường vận chuyển tới địa chỉ người nhận (Vận đơn ${ship.trackingCode}: Đang giao hàng).`
+          note: "Kiện hàng đang trên đường vận chuyển tới địa chỉ người nhận (Vận đơn " + ship.trackingCode + ": Đang giao hàng)."
         });
       } else if (status === 'DELIVERED') {
-        // Vận đơn "Giao thành công" -> Đơn hàng đồng bộ sang "Hoàn tất" (COMPLETED)
         ord.status = 'COMPLETED';
         ord.paymentStatus = 'PAID';
         ord.completedAt = new Date().toISOString();
+        ord.statusHistory = ord.statusHistory || [];
         ord.statusHistory.unshift({
           status: 'COMPLETED',
           time: nowTimeStr,
-          note: `Khách hàng đã nhận thiết bị thành công (Vận đơn ${ship.trackingCode}: Giao thành công). Ghi nhận doanh thu thuần.`
+          note: "Khách hàng đã nhận thiết bị thành công (Vận đơn " + ship.trackingCode + ": Giao thành công). Ghi nhận doanh thu thuần."
         });
-      } else if (status === 'DELIVERY_FAILED' || status === 'FAILED' || status === 'PICKUP_FAILED') {
-        // Vận đơn "Giao thất bại" -> Đơn hàng đồng bộ sang "Đã hủy" (CANCELLED)
-        ord.status = 'CANCELLED';
-        ord.cancelReason = `Giao hàng không thành công: ${failReason || 'Shipper không liên hệ được khách hàng / Khách từ chối nhận'}`;
-        ord.statusHistory.unshift({
-          status: 'CANCELLED',
-          time: nowTimeStr,
-          note: `Đơn hàng bị hủy do giao hàng không thành công: ${failReason || 'Giao thất bại'}. Chuyển đơn sang quy trình kiểm định hoàn kho.`
-        });
-
-        // Giải phóng tồn kho giữ chỗ (reservedQty)
-        for (const it of ord.items) {
-          inventories = inventories.map(inv => {
-            if (inv.variantId === it.variantId) {
-              const newReserved = Math.max(0, inv.reservedQty - it.quantity);
-              const newAvail = Math.max(0, inv.onHandQty - newReserved);
-              return {...inv,
-                reservedQty: newReserved,
-                availableQty: newAvail,
-                status: newAvail <= 0? 'OUT_OF_STOCK': newAvail <= inv.minThreshold? 'LOW_STOCK': 'IN_STOCK'
-              };
-            }
-            return inv;
-          });
-
-          products = products.map(prod => {
-            if (prod.variants.some(vr => vr.variantId === it.variantId)) {
-              return {...prod,
-                variants: prod.variants.map(vr => {
-                  if (vr.variantId === it.variantId) {
-                    const newReserved = Math.max(0, vr.reservedQty - it.quantity);
-                    return {...vr,
-                      reservedQty: newReserved,
-                      availableQty: Math.max(0, vr.onHandQty - newReserved)
-                    };
-                  }
-                  return vr;
-                })
-              };
-            }
-            return prod;
-          });
-        }
-        saveToStorage(STORAGE_KEY_INVENTORY, inventories);
-        saveToStorage(STORAGE_KEY_PRODUCTS, products);
       }
 
       ord.updatedAt = new Date().toISOString();
       saveToStorage(STORAGE_KEY_ORDERS, orders);
+
+      const shipmentNotifTitles: Partial<Record<string, string>> = {
+        PICKED_UP: "Bưu tá đã lấy kiện hàng #" + ord.orderCode,
+        IN_TRANSIT: "Đơn hàng #" + ord.orderCode + " đang trên đường giao!",
+        DELIVERED: "Giao hàng thành công đơn #" + ord.orderCode,
+        DELIVERY_FAILED: "Giao hàng không thành công #" + ord.orderCode,
+      };
+      if (shipmentNotifTitles[status]) {
+        notificationService.createNotification({
+          userId: 1,
+          orderId: ord.orderId,
+          orderCode: ord.orderCode,
+          title: shipmentNotifTitles[status]!,
+          content: ord.statusHistory?.[0]?.note || ("Vận đơn " + ship.trackingCode + " đã cập nhật: " + status + "."),
+          type: "ORDER",
+        });
+      }
     }
 
     this.addAuditLog({
@@ -666,11 +835,11 @@ export const sharedStore = {
       entityName: 'Shipments',
       entityId: ship.trackingCode,
       oldValue: oldStatus,
-      newValue: `Cập nhật sang ${status}${failReason? ` (Lý do: ${failReason})`: ''} - Tự động đồng bộ Orders`
+      newValue: "Cập nhật sang " + status + (failReason ? (" (Lý do: " + failReason + ")") : "") + " - Tự động đồng bộ Orders"
     });
 
     notify();
-    return { success: true, message: `Cập nhật vận đơn ${ship.trackingCode} sang ${status} và đồng bộ Đơn hàng thành công!` };
+    return { success: true, message: "Cập nhật vận đơn " + ship.trackingCode + " sang " + status + " và đồng bộ Đơn hàng thành công!" };
   },
 
   // ================= BẢNG 21: RETURN_REQUESTS =================
@@ -844,7 +1013,34 @@ export const sharedStore = {
 
   // ================= BẢNG 11 & 12: PROMOTIONS & PROMOTION_VARIANTS =================
   getPromotions(): PortalPromotion[] {
-    return promotions;
+    return promotions.map(p => {
+      if (!p.variants || p.variants.length === 0) {
+        const found = PORTAL_PROMOTIONS.find(dp => dp.promotionId === p.promotionId || dp.name === p.name);
+        if (found?.variants && found.variants.length > 0) {
+          return { ...p, variants: found.variants };
+        }
+      }
+      return p;
+    });
+  },
+
+  syncExternalPromotions(externalPromos: PortalPromotion[]) {
+    promotions = externalPromos.map(ep => {
+      let variants = ep.variants && ep.variants.length > 0 ? ep.variants : [];
+      if (variants.length === 0) {
+        const local = promotions.find(p => p.promotionId === ep.promotionId || p.name === ep.name)
+          || PORTAL_PROMOTIONS.find(p => p.promotionId === ep.promotionId || p.name === ep.name);
+        if (local?.variants && local.variants.length > 0) {
+          variants = local.variants;
+        }
+      }
+      return {
+        ...ep,
+        variants,
+      };
+    });
+    saveToStorage(STORAGE_KEY_PROMOTIONS, promotions);
+    notify();
   },
 
   addPromotion(data: Omit<PortalPromotion, 'promotionId' | 'createdAt'>): PortalPromotion {
@@ -1057,7 +1253,9 @@ export const sharedStore = {
         productNameSnapshot: matchedProd.name,
         skuSnapshot: matchedVariant.sku,
         colorSnapshot: matchedVariant.color,
-        romSnapshot: matchedVariant.romGb >= 1024? '1TB': `${matchedVariant.romGb}GB`,
+        romSnapshot: (matchedVariant.romGb && matchedVariant.romGb > 0)
+          ? (matchedVariant.romGb >= 1024 ? '1TB' : `${matchedVariant.romGb}GB`)
+          : (matchedVariant.variantName || 'Tiêu chuẩn'),
         unitPrice,
         quantity: it.quantity,
         lineTotal,
@@ -1104,6 +1302,24 @@ export const sharedStore = {
 
     orders = [newOrder,...orders];
     saveToStorage(STORAGE_KEY_ORDERS, orders);
+
+
+
+    notificationService.createNotification({
+
+      userId: 1,
+
+      orderId: newOrderId,
+
+      orderCode: mockOrderCode,
+
+      title: "Đặt hàng thành công #" + mockOrderCode,
+
+      content: "Đơn hàng #" + mockOrderCode + " (" + formatCurrencyVND(finalTotalAmount) + ") đã được ghi nhận thành công và đang chờ xác nhận.",
+
+      type: "ORDER",
+
+    });
 
     // Ghi Audit Log
     this.addAuditLog({
@@ -1185,6 +1401,24 @@ export const sharedStore = {
 
     saveToStorage(STORAGE_KEY_ORDERS, orders);
     saveToStorage(STORAGE_KEY_INVENTORY, inventories);
+
+
+
+    notificationService.createNotification({
+
+      userId: 1,
+
+      orderId: order.orderId,
+
+      orderCode: order.orderCode,
+
+      title: "Đơn hàng #" + order.orderCode + " đã bị hủy",
+
+      content: "Đơn hàng #" + order.orderCode + " đã được hủy theo yêu cầu. Lý do: " + reason + ".",
+
+      type: "ORDER",
+
+    });
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
 
     this.addAuditLog({
@@ -1433,6 +1667,27 @@ export const sharedStore = {
         saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
       }
     }
+
+        const statusNotifTitles: Partial<Record<OrderStatus, string>> = {
+      CONFIRMED: "Đơn hàng #" + order.orderCode + " đã được xác nhận!",
+      PREPARING: "Kiện hàng #" + order.orderCode + " đang được chuẩn bị",
+      PICKED_UP: "Bưu tá đã lấy kiện hàng #" + order.orderCode,
+      SHIPPING: "Đơn hàng #" + order.orderCode + " đang trên đường giao đến bạn!",
+      COMPLETED: "Giao hàng thành công #" + order.orderCode,
+      CANCELLED: "Đơn hàng #" + order.orderCode + " đã bị hủy",
+    };
+    if (statusNotifTitles[nextStatus]) {
+      notificationService.createNotification({
+        userId: 1,
+        orderId: order.orderId,
+        orderCode: order.orderCode,
+        title: statusNotifTitles[nextStatus]!,
+        content: order.statusHistory?.[0]?.note || ("Đơn hàng #" + order.orderCode + " đã cập nhật: " + nextStatus + "."),
+        type: "ORDER",
+      });
+    }
+
+
 
     order.updatedAt = new Date().toISOString();
     saveToStorage(STORAGE_KEY_ORDERS, orders);

@@ -96,7 +96,8 @@ export const ProductListPage: React.FC = () => {
         minPrice: currentMinPrice,
         maxPrice: currentMaxPrice,
         rom: currentRom,
-        ram: currentRam
+        ram: currentRam,
+        limit: 100
       });
       setBrands(brandList);
       setProducts(prodList);

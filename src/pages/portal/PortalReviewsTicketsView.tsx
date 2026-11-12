@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
 import { reviewService, ticketService } from '../../services/feedbackService';
-import { PORTAL_TICKETS } from '../../services/portalMockData';
+
 import { ProductReview } from '../../types/review';
 import { PortalSupportTicket } from '../../types/portal';
 import { RatingStars } from '../../components/common/RatingStars';
@@ -27,6 +27,9 @@ import { PortalPagination } from '../../components/portal/PortalPagination';
 interface ModeratedReview extends ProductReview {
   status: 'PUBLISHED' | 'HIDDEN';
 }
+
+const isTicketWaiting = (st?: string) => st === 'WAITING' || st === 'OPEN' || st === 'IN_PROGRESS';
+const isTicketRejected = (st?: string) => st === 'REJECTED' || st === 'CLOSED';
 
 export const PortalReviewsTicketsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'REVIEWS' | 'TICKETS'>('REVIEWS');
@@ -50,7 +53,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
   const [storeReplyText, setStoreReplyText] = useState('');
 
   // Tickets State
-  const [tickets, setTickets] = useState<PortalSupportTicket[]>(PORTAL_TICKETS);
+  const [tickets, setTickets] = useState<PortalSupportTicket[]>([]);
   const [ticketStatusFilter, setTicketStatusFilter] = useState<'ALL' | 'WAITING' | 'RESOLVED' | 'REJECTED'>('ALL');
   const [selectedTicket, setSelectedTicket] = useState<PortalSupportTicket | null>(null);
   const [ticketReplyText, setTicketReplyText] = useState('');
@@ -175,7 +178,10 @@ export const PortalReviewsTicketsView: React.FC = () => {
 
   const filteredTickets = useMemo(() => {
     return tickets.filter(t => {
-      return ticketStatusFilter === 'ALL' || t.status === ticketStatusFilter;
+      if (ticketStatusFilter === 'ALL') return true;
+      if (ticketStatusFilter === 'WAITING') return isTicketWaiting(t.status);
+      if (ticketStatusFilter === 'REJECTED') return isTicketRejected(t.status);
+      return t.status === ticketStatusFilter;
     });
   }, [tickets, ticketStatusFilter]);
 
@@ -231,7 +237,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
             }`}
           >
             <HelpCircle size={14} className={activeTab === 'TICKETS'? 'text-blue-600': 'text-slate-400'} />
-            Phiếu hỗ trợ & Khiếu nại ({tickets.filter(t => t.status === 'WAITING').length} chờ xử lý)
+            Phiếu hỗ trợ & Khiếu nại ({tickets.filter(t => isTicketWaiting(t.status)).length} chờ xử lý)
           </button>
         </div>
       </div>
@@ -488,10 +494,10 @@ export const PortalReviewsTicketsView: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3 px-4">
-                        {t.status === 'WAITING'? (
+                        {isTicketWaiting(t.status)? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
                             <Clock size={12} />
-                            Chờ phản hồi
+                            {t.status === 'IN_PROGRESS' ? 'Đang xử lý' : 'Chờ phản hồi'}
                           </span>
                         ): t.status === 'RESOLVED'? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -513,7 +519,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
                           }}
                           className="px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded transition"
                         >
-                          {t.status === 'WAITING'? 'Xử lý ngay': 'Xem chi tiết'}
+                          {isTicketWaiting(t.status)? 'Xử lý ngay': 'Xem chi tiết'}
                         </button>
                       </td>
                     </tr>

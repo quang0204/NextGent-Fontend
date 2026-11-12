@@ -649,79 +649,150 @@ export const PORTAL_FAQS: PortalFaqItem[] = [
 ];
 
 // Bảng Promotions (Bảng 11) & Promotion_Variants (Bảng 12)
+// Bảng Promotions (Bảng 11) & Promotion_Variants (Bảng 12)
 export const PORTAL_PROMOTIONS: PortalPromotion[] = [
   {
     promotionId: 1,
-    name: 'Flash Sale Siêu Phẩm Flagship 2026',
+    name: 'Tuần Lễ Flash Sale Flagship 2026',
     description: 'Ưu đãi sốc cho các dòng điện thoại cao cấp nhất Apple, Samsung, Xiaomi.',
-    startAt: '2026-01-01T00:00',
-    endAt: '2026-12-31T23:59',
+    startAt: '2026-11-01T00:00:00Z',
+    endAt: '2026-11-30T23:59:59Z',
     status: 'ACTIVE',
     createdBy: 'Nguyễn Thế Minh (Admin)',
-    createdAt: '2026-01-01T08:00:00Z',
+    createdAt: '2026-10-25T09:30:00Z',
     variants: [
       {
-        promoVariantId: 1001,
+        promoVariantId: 1,
         promotionId: 1,
-        variantId: 101,
+        variantId: 1,
         productId: 1,
-        productName: 'iPhone 15 Pro Max',
-        sku: 'IP15PM-256-NAT',
-        color: 'Titan Tự Nhiên',
+        productName: 'iPhone 16 Pro Max',
+        sku: 'IP16PM-256-DESERT',
+        color: 'Titan Sa Mạc',
         romGb: 256,
         listPrice: 34990000,
-        promoPrice: 29490000
+        promoPrice: 33990000
       },
       {
-        promoVariantId: 1002,
+        promoVariantId: 2,
         promotionId: 1,
-        variantId: 201,
-        productId: 2,
+        variantId: 5,
+        productId: 3,
         productName: 'Samsung Galaxy S24 Ultra',
-        sku: 'SS-S24U-256-GRY',
-        color: 'Titan Xám',
+        sku: 'S24U-256-GRAY',
+        color: 'Xám Titan',
         romGb: 256,
         listPrice: 31990000,
-        promoPrice: 26990000
+        promoPrice: 29990000
       },
       {
-        promoVariantId: 1003,
+        promoVariantId: 3,
         promotionId: 1,
-        variantId: 301,
-        productId: 3,
-        productName: 'Xiaomi 14 Ultra 5G',
-        sku: 'MI14U-512-BLK',
-        color: 'Đen Huyền Bí',
-        romGb: 512,
+        variantId: 9,
+        productId: 7,
+        productName: 'Tai nghe Sony WH-1000XM5',
+        sku: 'SONY-XM5-BLACK',
+        color: 'Đen Nhám',
+        romGb: 0,
+        listPrice: 8490000,
+        promoPrice: 7990000
+      },
+      {
+        promoVariantId: 4,
+        promotionId: 1,
+        variantId: 101,
+        productId: 10,
+        productName: 'iPhone 15 Pro Max',
+        sku: 'IP15PM-256-TI',
+        color: 'Titan Tự Nhiên',
+        romGb: 256,
         listPrice: 29990000,
-        promoPrice: 25490000
+        promoPrice: 28990000
       }
     ]
   },
   {
     promotionId: 2,
-    name: 'Đại Tiệc Phụ Kiện & Âm Thanh Cao Cấp',
-    description: 'Giảm giá cực sốc tai nghe AirPods Pro, củ sạc nhanh và ốp lưng chính hãng.',
-    startAt: '2026-02-01T00:00',
-    endAt: '2026-12-31T23:59',
+    name: 'Sale',
+    description: 'Ưu đãi phụ kiện chính hãng công nghệ đỉnh cao.',
+    startAt: '2026-11-10T04:55:00Z',
+    endAt: '2026-11-24T04:55:00Z',
     status: 'ACTIVE',
-    createdBy: 'Nguyễn Thanh Hùng (Staff)',
-    createdAt: '2026-02-01T10:30:00Z',
+    createdBy: 'Admin',
+    createdAt: '2026-11-10T11:56:08Z',
     variants: [
       {
-        promoVariantId: 1004,
+        promoVariantId: 5,
         promotionId: 2,
-        variantId: 401,
-        productId: 4,
-        productName: 'AirPods Pro 2 MagSafe (USB-C)',
-        sku: 'APP2-USBC-WHT',
-        color: 'Trắng',
+        variantId: 11,
+        productId: 9,
+        productName: 'Củ sạc Anker GaNPrime 65W',
+        sku: 'ANKER-GAN-65W-BLK',
+        color: 'Đen Nhám',
         romGb: 0,
-        listPrice: 6190000,
-        promoPrice: 4990000
+        listPrice: 1250000,
+        promoPrice: 1130000
+      }
+    ]
+  },
+  {
+    promotionId: 3,
+    name: 'Sale',
+    description: 'Chiến dịch Flash Sale thiết bị Apple & Audio.',
+    startAt: '2026-11-10T04:55:00Z',
+    endAt: '2026-11-24T04:55:00Z',
+    status: 'ACTIVE',
+    createdBy: 'Admin',
+    createdAt: '2026-11-10T11:58:28Z',
+    variants: [
+      {
+        promoVariantId: 6,
+        promotionId: 3,
+        variantId: 7,
+        productId: 5,
+        productName: 'iPad Air M2 11 inch',
+        sku: 'IPADAIR-M2-128-GRAY',
+        color: 'Xám Không Gian',
+        romGb: 128,
+        listPrice: 16990000,
+        promoPrice: 15290000
+      },
+      {
+        promoVariantId: 7,
+        promotionId: 3,
+        variantId: 8,
+        productId: 6,
+        productName: 'MacBook Pro 14 M3 Pro',
+        sku: 'MBP14-M3P-512-BLACK',
+        color: 'Đen Không Gian',
+        romGb: 512,
+        listPrice: 49990000,
+        promoPrice: 44990000
+      },
+      {
+        promoVariantId: 8,
+        promotionId: 3,
+        variantId: 9,
+        productId: 7,
+        productName: 'Tai nghe Sony WH-1000XM5',
+        sku: 'SONY-XM5-BLACK',
+        color: 'Đen Nhám',
+        romGb: 0,
+        listPrice: 8490000,
+        promoPrice: 7640000
+      },
+      {
+        promoVariantId: 9,
+        promotionId: 3,
+        variantId: 10,
+        productId: 8,
+        productName: 'Loa Marshall Emberton II',
+        sku: 'MARSHALL-EMB2-BRASS',
+        color: 'Black and Brass',
+        romGb: 0,
+        listPrice: 3590000,
+        promoPrice: 3230000
       }
     ]
   }
 ];
-
-

@@ -9,7 +9,7 @@ export interface ActivePromoVariant {
   productName: string;
   sku: string;
   color: string;
-  romGb: number;
+  romGb?: number;
   listPrice: number;
   promoPrice: number;
   discountPercent: number;
@@ -58,6 +58,7 @@ export interface CreatePromotionPayload {
     variantId: number;
     promoPrice: number;
   }[];
+  variantDetails?: PortalPromotionVariant[];
 }
 
 export interface ValidVoucherItem {
@@ -116,6 +117,89 @@ export interface CreateVoucherPayload {
   startAt?: string;
   expiredAt: string;
   isActive?: boolean;
+}
+
+
+const DB_PROMO_VARIANTS_MAP: Record<number, PortalPromotionVariant[]> = {
+  1: [
+    { promoVariantId: 1, promotionId: 1, variantId: 1, productId: 1, productName: 'iPhone 16 Pro Max', sku: 'IP16PM-256-DESERT', color: 'Titan Sa Mạc', romGb: 256, listPrice: 34990000, promoPrice: 33990000 },
+    { promoVariantId: 2, promotionId: 1, variantId: 5, productId: 3, productName: 'Samsung Galaxy S24 Ultra', sku: 'S24U-256-GRAY', color: 'Xám Titan', romGb: 256, listPrice: 31990000, promoPrice: 29990000 },
+    { promoVariantId: 3, promotionId: 1, variantId: 9, productId: 7, productName: 'Tai nghe Sony WH-1000XM5', sku: 'SONY-XM5-BLACK', color: 'Đen Nhám', romGb: 0, listPrice: 8490000, promoPrice: 7990000 },
+    { promoVariantId: 4, promotionId: 1, variantId: 101, productId: 10, productName: 'iPhone 15 Pro Max', sku: 'IP15PM-256-TI', color: 'Titan Tự Nhiên', romGb: 256, listPrice: 29990000, promoPrice: 28990000 }
+  ],
+  2: [
+    { promoVariantId: 5, promotionId: 2, variantId: 11, productId: 9, productName: 'Củ sạc Anker GaNPrime 65W', sku: 'ANKER-GAN-65W-BLK', color: 'Đen Nhám', romGb: 0, listPrice: 1250000, promoPrice: 1130000 }
+  ],
+  3: [
+    { promoVariantId: 6, promotionId: 3, variantId: 7, productId: 5, productName: 'iPad Air M2 11 inch', sku: 'IPADAIR-M2-128-GRAY', color: 'Xám Không Gian', romGb: 128, listPrice: 16990000, promoPrice: 15290000 },
+    { promoVariantId: 7, promotionId: 3, variantId: 8, productId: 6, productName: 'MacBook Pro 14 M3 Pro', sku: 'MBP14-M3P-512-BLACK', color: 'Đen Không Gian', romGb: 512, listPrice: 49990000, promoPrice: 44990000 },
+    { promoVariantId: 8, promotionId: 3, variantId: 9, productId: 7, productName: 'Tai nghe Sony WH-1000XM5', sku: 'SONY-XM5-BLACK', color: 'Đen Nhám', romGb: 0, listPrice: 8490000, promoPrice: 7640000 },
+    { promoVariantId: 9, promotionId: 3, variantId: 10, productId: 8, productName: 'Loa Marshall Emberton II', sku: 'MARSHALL-EMB2-BRASS', color: 'Black and Brass', romGb: 0, listPrice: 3590000, promoPrice: 3230000 }
+  ]
+};
+
+function getCachedPromoVariants(promoId: number): PortalPromotionVariant[] {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('ng_promo_variants_cache') : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed[promoId]) && parsed[promoId].length > 0) {
+        return parsed[promoId];
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return DB_PROMO_VARIANTS_MAP[promoId] || [];
+}
+
+function saveCachedPromoVariants(promoId: number, variants: PortalPromotionVariant[]) {
+  try {
+    if (typeof window === 'undefined') return;
+    const raw = localStorage.getItem('ng_promo_variants_cache');
+    const parsed = raw ? JSON.parse(raw) : {};
+    parsed[promoId] = variants;
+    localStorage.setItem('ng_promo_variants_cache', JSON.stringify(parsed));
+  } catch (e) {
+    // ignore
+  }
+}
+
+function enrichPromoVariants(promoId: number, variants: any[]): PortalPromotionVariant[] {
+  const allProds = sharedStore.getProducts();
+  return variants.map((v, idx) => {
+    let sku = v.sku || '';
+    let productName = v.productName || '';
+    let color = v.color || '';
+    let romGb = Number(v.romGb || 0);
+    let listPrice = Number(v.listPrice || 0);
+    const promoPrice = Number(v.promoPrice || 0);
+
+    for (const p of allProds) {
+      const matched = p.variants?.find(vr => vr.variantId === v.variantId || (sku && vr.sku === sku));
+      if (matched) {
+        if (!sku) sku = matched.sku;
+        if (!productName) productName = p.name;
+        if (!color) color = matched.color;
+        if (!romGb) romGb = matched.romGb || 0;
+        if (!listPrice || listPrice <= 0) listPrice = matched.listPrice || matched.salePrice;
+        break;
+      }
+    }
+
+    return {
+      promoVariantId: v.promoVariantId || (promoId * 100 + idx + 1),
+      promotionId: promoId,
+      variantId: Number(v.variantId || 0),
+      productId: Number(v.productId || 0),
+      productName: productName || 'Sản phẩm',
+      sku: sku || `SKU-${v.variantId}`,
+      color: color || '',
+      romGb,
+      listPrice: listPrice > 0 ? listPrice : Math.round(promoPrice * 1.1),
+      promoPrice,
+    };
+  });
 }
 
 export const promotionService = {
@@ -184,7 +268,42 @@ export const promotionService = {
       });
 
       if (res.data?.data?.content) {
-        return res.data.data;
+        const enrichedContent = res.data.data.content.map((p) => {
+          let rawVariants = (Array.isArray(p.variants) && p.variants.length > 0)
+            ? p.variants
+            : getCachedPromoVariants(p.promotionId);
+
+          if (!rawVariants || rawVariants.length === 0) {
+            const local = sharedStore.getPromotions().find(lp => lp.promotionId === p.promotionId || lp.name === p.name);
+            if (local?.variants && local.variants.length > 0) {
+              rawVariants = local.variants;
+            }
+          }
+
+          const enriched = enrichPromoVariants(p.promotionId, rawVariants || []);
+          return {
+            ...p,
+            variants: enriched,
+            appliedVariantsCount: p.appliedVariantsCount || enriched.length,
+          };
+        });
+
+        sharedStore.syncExternalPromotions(enrichedContent.map(p => ({
+          promotionId: p.promotionId,
+          name: p.name,
+          description: p.description,
+          startAt: p.startAt,
+          endAt: p.endAt,
+          status: p.status,
+          createdBy: p.createdBy,
+          createdAt: p.createdAt,
+          variants: p.variants,
+        })));
+
+        return {
+          ...res.data.data,
+          content: enrichedContent,
+        };
       }
     } catch (error) {
       console.warn('[promotionService.getAdminPromotions] Backend failed or offline, fallback to sharedStore', error);
@@ -233,6 +352,35 @@ export const promotionService = {
       }>('/admin/promotions', payload);
 
       if (res.data?.data) {
+        const newPromoId = res.data.data.promotionId || Date.now();
+        const variantsToSave = (payload.variantDetails && payload.variantDetails.length > 0)
+          ? payload.variantDetails
+          : payload.variants.map((v, i) => ({
+              promoVariantId: Date.now() + i,
+              promotionId: newPromoId,
+              variantId: v.variantId,
+              productId: 0,
+              productName: '',
+              sku: '',
+              color: '',
+              romGb: 0,
+              listPrice: 0,
+              promoPrice: v.promoPrice,
+            }));
+
+        const enriched = enrichPromoVariants(newPromoId, variantsToSave);
+        saveCachedPromoVariants(newPromoId, enriched);
+
+        sharedStore.addPromotion({
+          name: payload.name,
+          description: payload.description,
+          startAt: payload.startAt,
+          endAt: payload.endAt,
+          status: payload.status,
+          variants: enriched,
+          createdBy: 'Admin',
+        });
+
         return {
           success: true,
           message: res.data.message || 'Tạo mới chiến dịch khuyến mãi thành công!',
@@ -264,7 +412,7 @@ export const promotionService = {
             productName: p.name,
             sku: found.sku,
             color: found.color,
-            romGb: found.romGb,
+            romGb: found.romGb || 0,
             listPrice: found.listPrice || 30000000,
             promoPrice: v.promoPrice,
           });
@@ -620,4 +768,21 @@ export const promotionService = {
       };
     }
   },
+};
+
+/** Tính giờ:phút:giây còn lại tới endAt (mặc định cuối ngày nếu chưa có endAt hợp lệ). */
+export const getCountdownParts = (endAt?: string | null, nowMs = Date.now()) => {
+  let targetMs = endAt ? new Date(endAt).getTime() : NaN;
+  if (!Number.isFinite(targetMs)) {
+    const endOfDay = new Date(nowMs);
+    endOfDay.setHours(23, 59, 59, 999);
+    targetMs = endOfDay.getTime();
+  }
+  const diffSec = Math.max(0, Math.floor((targetMs - nowMs) / 1000));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    hours: pad(Math.floor(diffSec / 3600)),
+    minutes: pad(Math.floor((diffSec % 3600) / 60)),
+    seconds: pad(diffSec % 60),
+  };
 };

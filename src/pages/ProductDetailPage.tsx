@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productService } from '../services/productService';
+import { promotionService, getCountdownParts } from '../services/promotionService';
 import { orderService } from '../services/orderService';
 import { sharedStore } from '../services/sharedStore';
 import { Product, ProductVariant } from '../types/product';
@@ -62,24 +63,27 @@ export const ProductDetailPage: React.FC = () => {
   // Modal Giữ chỗ tồn kho 30 phút
   const [reservedOrder, setReservedOrder] = useState<any | null>(null);
   const [holdSecondsLeft, setHoldSecondsLeft] = useState<number>(1800);
+  const [flashSaleEndAt, setFlashSaleEndAt] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
   useEffect(() => {
     const fetchDetail = async () => {
       setIsLoading(true);
       const prodId = id? parseInt(id, 10): 1;
-      const [data, allProducts, revs] = await Promise.all([
+      const [data, related, revs, activePromos] = await Promise.all([
         productService.getProductById(prodId),
-        productService.getProducts(),
-        productService.getReviews(prodId)
+        productService.getRelatedProducts(prodId),
+        productService.getReviews(prodId),
+        promotionService.getActivePromotions().catch(() => [])
       ]);
+      const matchedPromo = activePromos.find(pr => pr.variants?.some(v => Number(v.productId) === prodId));
+      setFlashSaleEndAt(matchedPromo?.endAt || null);
 
       if (data) {
         setProduct(data);
         const initialVariant = data.variants[0];
         setSelectedVariant(initialVariant);
         setActiveImage(initialVariant.imageUrl || data.thumbnail);
-        // Lọc sản phẩm tương tự
-        const related = allProducts.filter(p => p.productId!== data.productId).slice(0, 4);
         setRelatedProducts(related);
       }
       setReviews(revs);
@@ -95,6 +99,12 @@ export const ProductDetailPage: React.FC = () => {
     }
     return () => clearInterval(timer);
   }, [reservedOrder, holdSecondsLeft]);
+
+  useEffect(() => {
+    if (!product?.isFlashSale) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [product?.isFlashSale]);
 
   if (isLoading) {
     return (
@@ -116,7 +126,15 @@ export const ProductDetailPage: React.FC = () => {
     );
   }
 
-  const isOutOfStock = selectedVariant.availableQty <= 0;
+  const onHandDisplay = selectedVariant.onHandQty !== undefined 
+    ? selectedVariant.onHandQty 
+    : (selectedVariant.availableQty ?? 0);
+  const reservedDisplay = selectedVariant.reservedQty !== undefined 
+    ? selectedVariant.reservedQty 
+    : 0;
+  const effectiveAvailableQty = Math.max(0, onHandDisplay - reservedDisplay);
+  const isOutOfStock = effectiveAvailableQty <= 0;
+  const flashCountdown = getCountdownParts(flashSaleEndAt, nowMs);
   const isFavorited = isInWishlist(product.productId);
   const isCompared = isInCompare(product.productId);
 
@@ -132,12 +150,12 @@ export const ProductDetailPage: React.FC = () => {
       productName: product.name,
       sku: selectedVariant.sku,
       color: selectedVariant.color,
-      storage: selectedVariant.romGb >= 1024? '1TB': `${selectedVariant.romGb}GB`,
+      storage: !selectedVariant.romGb || selectedVariant.romGb <= 0 ? 'Tiêu chuẩn' : (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`),
       price: selectedVariant.salePrice,
       originalPrice: selectedVariant.listPrice,
       imageUrl: selectedVariant.imageUrl,
       quantity: 1,
-      availableQty: selectedVariant.availableQty,
+      availableQty: effectiveAvailableQty,
     });
 
     // Nếu là người dùng vãng lai (chưa đăng nhập): lập tức chuyển hướng sang đăng nhập / đăng ký
@@ -168,12 +186,12 @@ export const ProductDetailPage: React.FC = () => {
       productName: product.name,
       sku: selectedVariant.sku,
       color: selectedVariant.color,
-      storage: selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`,
+      storage: !selectedVariant.romGb || selectedVariant.romGb <= 0 ? 'Tiêu chuẩn' : (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`),
       price: selectedVariant.salePrice,
       originalPrice: selectedVariant.listPrice,
       imageUrl: selectedVariant.imageUrl,
       quantity: 1,
-      availableQty: selectedVariant.availableQty,
+      availableQty: effectiveAvailableQty,
     };
 
     setBuyNowItem(buyItem);
@@ -270,7 +288,7 @@ export const ProductDetailPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-hairline-soft">
         <div>
           <h1 className="text-2xl sm:text-3xl font-medium text-ink-deep tracking-tight">
-            {product.name} {selectedVariant.romGb >= 1024? '1TB': `${selectedVariant.romGb}GB`}
+            {product.name} {selectedVariant.romGb && selectedVariant.romGb > 0 ? (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`) : ''}
           </h1>
           <div className="flex items-center gap-3 mt-1.5 text-xs text-steel">
             <RatingStars rating={product.rating} reviewCount={reviews.length || product.reviewCount} size={14} />
@@ -378,11 +396,11 @@ export const ProductDetailPage: React.FC = () => {
                 <div className="flex items-center gap-1.5 text-xs text-canvas/80">
                   <span>Kết thúc sau:</span>
                   <div className="flex items-center gap-1 font-mono font-bold text-warning text-xs">
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">03</span>
+                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.hours}</span>
                     <span>:</span>
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">24</span>
+                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.minutes}</span>
                     <span>:</span>
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">58</span>
+                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.seconds}</span>
                   </div>
                 </div>
               </div>
@@ -390,13 +408,15 @@ export const ProductDetailPage: React.FC = () => {
             <div className="p-5 bg-surface-soft">
               <div className="flex items-baseline justify-between flex-wrap gap-3">
                 <PriceDisplay
-                  salePrice={selectedVariant.salePrice}
-                  listPrice={selectedVariant.listPrice}
+                  salePrice={selectedVariant.salePrice || selectedVariant.listPrice || 0}
+                  listPrice={selectedVariant.listPrice && selectedVariant.listPrice > (selectedVariant.salePrice || 0) ? selectedVariant.listPrice : undefined}
                   size="xl"
                 />
-                <span className="text-xs text-steel">
-                  Tiết kiệm: <strong className="text-ink-deep font-bold">{formatVND(selectedVariant.listPrice - selectedVariant.salePrice)}</strong>
-                </span>
+                {selectedVariant.listPrice && selectedVariant.listPrice > (selectedVariant.salePrice || 0) && (
+                  <span className="text-xs text-steel">
+                    Tiết kiệm: <strong className="text-emerald-700 font-bold">{formatVND(selectedVariant.listPrice - (selectedVariant.salePrice || 0))}</strong>
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -423,12 +443,12 @@ export const ProductDetailPage: React.FC = () => {
                 {isOutOfStock? (
                   <strong className="font-bold">Phiên bản này hiện đang Tạm hết hàng</strong>
                 ): (
-                  <>Tồn kho khả dụng: <strong className="text-ink-deep font-bold">{selectedVariant.availableQty} máy</strong> (Đã trừ giữ chỗ)</>
+                  <>Tồn kho khả dụng: <strong className="text-ink-deep font-bold">{effectiveAvailableQty} máy</strong> (Đã trừ giữ chỗ)</>
                 )}
               </span>
             </div>
             <span className="text-[11px] font-mono text-steel">
-              Kho: {selectedVariant.onHandQty} | Giữ: {selectedVariant.reservedQty}
+              Kho: {onHandDisplay} | Giữ: {reservedDisplay}
             </span>
           </div>
 

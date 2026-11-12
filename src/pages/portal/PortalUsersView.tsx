@@ -21,7 +21,7 @@ import {
   Loader2,
   ChevronDown
 } from 'lucide-react';
-import { PORTAL_USERS } from '../../services/portalMockData';
+
 import { PortalUser } from '../../types/portal';
 import { PortalPagination } from '../../components/portal/PortalPagination';
 import { PasswordInput } from '../../components/common/PasswordInput';
@@ -29,13 +29,13 @@ import { userService } from '../../services/userService';
 import { AdminUserDetail } from '../../types/user';
 
 export const PortalUsersView: React.FC = () => {
-  const [users, setUsers] = useState<PortalUser[]>(PORTAL_USERS);
+  const [users, setUsers] = useState<PortalUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'CUSTOMER' | 'STAFF' | 'ADMIN'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'LOCKED'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [totalElements, setTotalElements] = useState(PORTAL_USERS.length);
+  const [totalElements, setTotalElements] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
   // Modal lock/unlock user (API 2.11)

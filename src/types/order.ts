@@ -45,6 +45,12 @@ export interface OrderDetail {
   carrier?: string;
   trackingCode?: string;
   cancelReason?: string;
+  returnId?: number;
+  returnStatus?: 'PENDING' | 'INSPECTING' | 'APPROVED' | 'REJECTED' | 'REFUNDED' | string;
+  returnReason?: string;
+  returnRejectReason?: string;
+  returnInspectionResult?: string;
+  returnRefundAmount?: number;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;

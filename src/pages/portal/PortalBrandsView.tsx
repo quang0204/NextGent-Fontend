@@ -15,7 +15,9 @@ import {
   AlertCircle, 
   Package,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  UploadCloud,
+  ImageIcon
 } from 'lucide-react';
 
 // Chuyển đổi tên sang slug
@@ -45,6 +47,9 @@ export const PortalBrandsView: React.FC = () => {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [logoUrl, setLogoUrl] = useState('');
+  const [logoUploadId, setLogoUploadId] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const [description, setDescription] = useState('');
   const [isVisible, setIsVisible] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -86,6 +91,8 @@ export const PortalBrandsView: React.FC = () => {
     setName('');
     setSlug('');
     setLogoUrl('');
+    setLogoUploadId(null);
+    setUploadError('');
     setDescription('');
     setIsVisible(true);
     setFormError('');
@@ -97,10 +104,98 @@ export const PortalBrandsView: React.FC = () => {
     setName(b.name);
     setSlug(b.slug || generateSlug(b.name));
     setLogoUrl(b.logoUrl || '');
+    setLogoUploadId(null);
+    setUploadError('');
     setDescription(b.description || '');
     setIsVisible(b.isVisible !== false);
     setFormError('');
     setShowModal(true);
+  };
+
+  // Upload logo trực tiếp lên MinIO theo quy trình Presigned URL & Redis Session
+  const handleLogoFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showToast('Tệp chọn không phải là định dạng hình ảnh hợp lệ (JPG, PNG, WEBP, GIF, SVG)!', 'error');
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      showToast('Kích thước ảnh không được vượt quá 10MB!', 'error');
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    setUploadError('');
+
+    try {
+      // Bước 1: Yêu cầu backend cấp Presigned URL
+      const presignedRes = await brandService.createPresignedUrls({
+        storageType: 'BRANDS',
+        brandId: editingBrand?.brandId,
+        files: [{
+          fileName: file.name,
+          contentType: file.type,
+          fileSize: file.size,
+        }],
+      });
+
+      const item = presignedRes.data?.[0];
+      if (!item) {
+        throw new Error('Không thể khởi tạo liên kết tải ảnh lên MinIO');
+      }
+
+      // Bước 2: Tải binary trực tiếp từ trình duyệt lên MinIO bằng HTTP PUT
+      await brandService.uploadBinaryToMinio(item.uploadUrl, file);
+
+      // Bước 3: Xác nhận tải lên hoàn tất và kiểm tra magic bytes
+      const confirmRes = await brandService.confirmUpload({
+        uploadId: item.uploadId,
+        objectKey: item.objectKey,
+      });
+
+      const confirmedData = confirmRes.data;
+      setLogoUrl(confirmedData.accessUrl || confirmedData.canonicalUrl);
+      setLogoUploadId(confirmedData.uploadId);
+
+      showToast('Tải lên và xác thực logo qua MinIO thành công!', 'success');
+
+      // Nếu là Cách A (cập nhật trực tiếp vào brandId có sẵn), DB đã lưu thẳng -> refresh danh sách
+      if (editingBrand) {
+        await loadBrands();
+      }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Lỗi tải ảnh lên MinIO!';
+      setUploadError(msg);
+      showToast(msg, 'error');
+    } finally {
+      setIsUploadingLogo(false);
+      e.target.value = '';
+    }
+  };
+
+  // Xóa logo riêng của thương hiệu
+  const handleRemoveLogo = async () => {
+    if (editingBrand && editingBrand.logoUrl) {
+      if (!window.confirm(`Bạn có chắc chắn muốn xóa logo của thương hiệu "${editingBrand.name}"?`)) {
+        return;
+      }
+      try {
+        await brandService.deleteBrandLogo(editingBrand.brandId);
+        showToast('Đã xóa logo thương hiệu thành công!', 'success');
+        setLogoUrl('');
+        setLogoUploadId(null);
+        await loadBrands();
+      } catch (err: any) {
+        const msg = err.response?.data?.message || err.message || 'Không thể xóa logo thương hiệu!';
+        showToast(msg, 'error');
+      }
+    } else {
+      setLogoUrl('');
+      setLogoUploadId(null);
+    }
   };
 
   const handleNameChange = (val: string) => {
@@ -121,7 +216,8 @@ export const PortalBrandsView: React.FC = () => {
     const payload: BrandPayload = {
       name: name.trim(),
       slug: slug.trim() || generateSlug(name.trim()),
-      logoUrl: logoUrl.trim() || undefined,
+      logoUrl: logoUrl.trim(),
+      logoUploadId: logoUploadId || undefined,
       description: description.trim(),
       isVisible: isVisible,
     };
@@ -462,35 +558,92 @@ export const PortalBrandsView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Logo Thương hiệu: Tải lên MinIO qua Presigned URL */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Đường dẫn Logo URL
+                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                  <span>Logo thương hiệu (MinIO Object Storage)</span>
+                  <span className="text-[10px] text-slate-400 font-normal">PNG, JPG, WEBP, SVG (tối đa 10MB)</span>
                 </label>
-                <input
-                  type="url"
-                  placeholder="https://cdn.nextgen.vn/brands/apple.png"
-                  value={logoUrl}
-                  onChange={(e) => setLogoUrl(e.target.value)}
-                  className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                />
-              </div>
 
-              {/* Logo Preview */}
-              {logoUrl && (
-                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center gap-3">
-                  <span className="text-[11px] text-slate-500 font-semibold">Xem trước Logo:</span>
-                  <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shadow-2xs">
-                    <img
-                      src={logoUrl}
-                      alt="Preview"
-                      className="max-h-full max-w-full object-contain"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
+                {/* Khung tải file */}
+                <div className="mt-1 border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 transition-colors bg-slate-50/50">
+                  <div className="flex flex-col items-center justify-center text-center">
+                    {isUploadingLogo ? (
+                      <div className="py-3 flex flex-col items-center gap-2">
+                        <Loader2 className="animate-spin text-blue-600" size={26} />
+                        <span className="text-xs text-blue-600 font-medium">Đang tải ảnh trực tiếp lên MinIO & xác thực...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
+                          <UploadCloud size={20} />
+                        </div>
+                        <label className="cursor-pointer text-xs font-semibold text-blue-600 hover:text-blue-700 inline-block mb-1">
+                          <span>Nhấp để chọn tệp tải lên</span>
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                            onChange={handleLogoFileSelect}
+                            className="hidden"
+                          />
+                        </label>
+                        <p className="text-[11px] text-slate-400">hoặc kéo thả tệp hình ảnh vào đây</p>
+                      </>
+                    )}
                   </div>
                 </div>
-              )}
+
+                {uploadError && (
+                  <p className="text-rose-600 text-[11px] mt-1.5 flex items-center gap-1">
+                    <AlertCircle size={12} /> {uploadError}
+                  </p>
+                )}
+
+                {/* Xem trước Logo & Tùy chọn Xóa */}
+                {logoUrl && (
+                  <div className="mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between shadow-2xs">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-12 h-12 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0">
+                        <img
+                          src={logoUrl}
+                          alt="Logo Preview"
+                          className="max-h-full max-w-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-800 truncate">Logo hiện tại</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[220px]" title={logoUrl}>
+                          {logoUrl}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveLogo}
+                      className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition flex items-center gap-1 font-medium"
+                      title="Xóa logo này"
+                    >
+                      <Trash2 size={13} />
+                      <span>Xóa logo</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Nhập URL thủ công (fallback) */}
+                <details className="mt-2 text-[11px] text-slate-500">
+                  <summary className="cursor-pointer hover:text-slate-700">Tùy chọn: Nhập liên kết URL bên ngoài</summary>
+                  <input
+                    type="url"
+                    placeholder="https://..."
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    className="w-full mt-1.5 h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-[11px] focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                </details>
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">

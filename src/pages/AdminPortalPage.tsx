@@ -114,11 +114,11 @@ class PortalErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
 }
 
 export const AdminPortalPage: React.FC = () => {
-  const { user } = useAuthStore();
+  const { user, isAuthenticated, token } = useAuthStore();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // 1. Nếu chưa đăng nhập -> chuyển hướng đến trang đăng nhập (kèm redirect param)
-  if (!user) {
+  // 1. Nếu chưa đăng nhập hoặc phiên làm việc đã hết hạn -> chuyển hướng đến trang đăng nhập (kèm redirect param)
+  if (!user || !isAuthenticated || !token) {
     return <Navigate to="/auth?redirect=/admin" replace />;
   }
 
