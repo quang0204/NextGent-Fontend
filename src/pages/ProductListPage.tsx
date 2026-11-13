@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { productService, ProductFilterParams } from '../services/productService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
@@ -12,7 +12,13 @@ import {
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
-  Check
+  Check,
+  Sparkles,
+  Zap,
+  BatteryCharging,
+  Cpu,
+  Wifi,
+  Tag
 } from 'lucide-react';
 
 const getPriceRangesForCategory = (cat: string) => {
@@ -34,6 +40,15 @@ const getPriceRangesForCategory = (cat: string) => {
       { label: 'Trên 3 triệu', min: 3000000, max: 50000000 },
     ];
   }
+  if (cat === 'tablet') {
+    return [
+      { label: 'Tất cả mức giá', min: undefined, max: undefined },
+      { label: 'Dưới 8 triệu', min: 0, max: 8000000 },
+      { label: 'Từ 8 - 15 triệu', min: 8000000, max: 15000000 },
+      { label: 'Từ 15 - 25 triệu', min: 15000000, max: 25000000 },
+      { label: 'Trên 25 triệu', min: 25000000, max: 100000000 },
+    ];
+  }
   return [
     { label: 'Tất cả mức giá', min: undefined, max: undefined },
     { label: 'Dưới 5 triệu', min: 0, max: 5000000 },
@@ -44,10 +59,11 @@ const getPriceRangesForCategory = (cat: string) => {
   ];
 };
 
-const ITEMS_PER_PAGE = 6;
+const ITEMS_PER_PAGE = 9;
 
 export const ProductListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,54 +73,81 @@ export const ProductListPage: React.FC = () => {
   const rawCategory = searchParams.get('category');
   const isSale = searchParams.get('sale') === 'true';
   const currentSearch = searchParams.get('q') || '';
-  const currentCategory = rawCategory || (currentSearch || isSale? 'all': 'phone');
+  const currentCategory = rawCategory || (currentSearch || isSale ? 'all' : 'phone');
 
   // Hỗ trợ chọn đồng thời nhiều hãng sản xuất
   const rawBrand = searchParams.get('brand');
-  const selectedBrands: string[] = rawBrand && rawBrand!== 'all'? rawBrand.split(',').map(s => s.trim()).filter(Boolean): [];
+  const selectedBrands: string[] = rawBrand && rawBrand !== 'all' ? rawBrand.split(',').map(s => s.trim()).filter(Boolean) : [];
   const isAllBrands = selectedBrands.length === 0;
 
   const currentSort = (searchParams.get('sort') as ProductFilterParams['sort']) || 'newest';
-  const currentMinPrice = searchParams.get('minPrice')? Number(searchParams.get('minPrice')): undefined;
-  const currentMaxPrice = searchParams.get('maxPrice')? Number(searchParams.get('maxPrice')): undefined;
-  const currentRom = searchParams.get('rom')? Number(searchParams.get('rom')): undefined;
-  const currentRam = searchParams.get('ram')? Number(searchParams.get('ram')): undefined;
+  const currentMinPrice = searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
+  const currentMaxPrice = searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
+  const currentRom = searchParams.get('rom') ? Number(searchParams.get('rom')) : undefined;
+  const currentRam = searchParams.get('ram') ? Number(searchParams.get('ram')) : undefined;
+  const currentCpu = searchParams.get('cpu') || undefined;
+  const currentRequirement = searchParams.get('req') || undefined;
+  const currentConnectionType = searchParams.get('conn') || undefined;
+  const currentMinDiscount = searchParams.get('minDiscount') ? Number(searchParams.get('minDiscount')) : undefined;
+  const currentInstallment = searchParams.get('installment') === 'true';
+
   const rawPage = searchParams.get('page');
-  const currentPage = rawPage? Math.max(1, parseInt(rawPage, 10) || 1): 1;
+  const currentPage = rawPage ? Math.max(1, parseInt(rawPage, 10) || 1) : 1;
 
-  // Danh sách khoảng giá động theo từng ngành hàng (Laptop, Phụ kiện, Điện thoại)
-  const priceRanges = getPriceRangesForCategory(isSale? 'sale': currentCategory);
-
+  // Danh sách khoảng giá động theo từng ngành hàng
+  const priceRanges = getPriceRangesForCategory(isSale ? 'sale' : currentCategory);
 
   useEffect(() => {
     const fetch = async () => {
       setIsLoading(true);
-      const catKey = isSale? 'sale': currentCategory;
+      const catKey = isSale ? 'sale' : currentCategory;
       const brandList = await productService.getBrands(catKey);
 
-      // Chỉ lọc theo các brand hợp lệ với ngành hàng hiện tại (tránh lỗi giữ hãng của ngành khác gây 0 sản phẩm)
+      // Chỉ lọc theo các brand hợp lệ với ngành hàng hiện tại
       const validSelectedBrands = selectedBrands.filter(b =>
         brandList.some(item => item.name.toLowerCase() === b.toLowerCase())
       );
 
       const prodList = await productService.getProducts({
-        category: isSale? undefined: (currentCategory === 'all'? undefined: currentCategory),
-        isFlashSale: isSale? true: undefined,
-        brands: validSelectedBrands.length > 0? validSelectedBrands: undefined,
+        category: isSale ? undefined : (currentCategory === 'all' ? undefined : currentCategory),
+        isFlashSale: isSale ? true : undefined,
+        brands: validSelectedBrands.length > 0 ? validSelectedBrands : undefined,
         search: currentSearch || undefined,
         sort: currentSort,
         minPrice: currentMinPrice,
         maxPrice: currentMaxPrice,
         rom: currentRom,
         ram: currentRam,
+        cpu: currentCpu,
+        requirement: currentRequirement,
+        connectionType: currentConnectionType,
+        minDiscount: currentMinDiscount,
+        isInstallment0: currentInstallment ? true : undefined,
         limit: 100
       });
+
       setBrands(brandList);
       setProducts(prodList);
       setIsLoading(false);
     };
     fetch();
-  }, [searchParams, isSale, currentCategory]);
+  }, [
+    searchParams,
+    isSale,
+    currentCategory,
+    currentMinPrice,
+    currentMaxPrice,
+    currentRom,
+    currentRam,
+    currentCpu,
+    currentRequirement,
+    currentConnectionType,
+    currentMinDiscount,
+    currentInstallment,
+    currentSort,
+    currentSearch,
+    rawBrand
+  ]);
 
   const updateParam = (key: string, value: string | undefined) => {
     const newParams = new URLSearchParams(searchParams);
@@ -114,7 +157,7 @@ export const ProductListPage: React.FC = () => {
       newParams.set(key, value);
     }
     // Khi đổi tiêu chí lọc, reset về trang 1
-    if (key!== 'page') {
+    if (key !== 'page') {
       newParams.delete('page');
     }
     setSearchParams(newParams);
@@ -129,10 +172,8 @@ export const ProductListPage: React.FC = () => {
     let nextBrands: string[];
     const exists = selectedBrands.some(b => b.toLowerCase() === brandName.toLowerCase());
     if (exists) {
-      // Click lần 2: Bỏ chọn hãng đó
-      nextBrands = selectedBrands.filter(b => b.toLowerCase()!== brandName.toLowerCase());
+      nextBrands = selectedBrands.filter(b => b.toLowerCase() !== brandName.toLowerCase());
     } else {
-      // Click lần 1: Chọn thêm hãng đó
       nextBrands = [...selectedBrands, brandName];
     }
 
@@ -166,7 +207,18 @@ export const ProductListPage: React.FC = () => {
     setSearchParams(newParams);
   };
 
-  const hasActiveFilters = selectedBrands.length > 0 || currentMinPrice!== undefined || currentMaxPrice!== undefined || currentRom!== undefined || currentRam!== undefined || currentSearch;
+  const hasActiveFilters = 
+    selectedBrands.length > 0 || 
+    currentMinPrice !== undefined || 
+    currentMaxPrice !== undefined || 
+    currentRom !== undefined || 
+    currentRam !== undefined || 
+    currentCpu !== undefined ||
+    currentRequirement !== undefined ||
+    currentConnectionType !== undefined ||
+    currentMinDiscount !== undefined ||
+    currentInstallment ||
+    Boolean(currentSearch);
 
   // Pagination Logic
   const totalItems = products.length;
@@ -189,12 +241,12 @@ export const ProductListPage: React.FC = () => {
   };
 
   const categoryTitle = 
-    currentSearch? `Kết quả tìm kiếm: "${currentSearch}"`:
-    isSale? 'Sản phẩm Khuyến mãi & Flash Sale':
-    currentCategory === 'phone'? 'Điện thoại thông minh':
-    currentCategory === 'laptop'? 'Laptop, Máy tính xách tay':
-    currentCategory === 'tablet'? 'Máy tính bảng':
-    currentCategory === 'accessory'? 'Phụ kiện di động chính hãng': 'Tất cả sản phẩm';
+    currentSearch ? `Kết quả tìm kiếm: "${currentSearch}"` :
+    isSale ? 'Sản phẩm Khuyến mãi Flash Sale ⚡' :
+    currentCategory === 'phone' ? 'Điện thoại thông minh (Smartphone)' :
+    currentCategory === 'laptop' ? 'Laptop, Máy tính xách tay' :
+    currentCategory === 'tablet' ? 'Máy tính bảng (Tablet)' :
+    currentCategory === 'accessory' ? 'Phụ kiện di động chính hãng' : 'Tất cả sản phẩm công nghệ';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-6">
@@ -214,13 +266,13 @@ export const ProductListPage: React.FC = () => {
               {categoryTitle}
             </h1>
             {isSale && (
-              <span className="text-xs bg-warning text-ink-deep font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                Ưu đãi có hạn
+              <span className="text-xs bg-critical text-canvas font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                Giảm đến 50%
               </span>
             )}
           </div>
           <p className="text-xs sm:text-sm text-steel mt-0.5">
-            Hiển thị <strong>{products.length}</strong> thiết bị phân phối chính hãng, đầy đủ hóa đơn VAT
+            Tìm thấy <strong>{products.length}</strong> thiết bị phân phối chính hãng 100%, bảo hành 12 tháng, giao nhanh toàn quốc
           </p>
         </div>
 
@@ -230,21 +282,120 @@ export const ProductListPage: React.FC = () => {
           className="lg:hidden inline-flex items-center gap-2 bg-canvas border border-hairline-soft text-xs font-bold text-ink px-4 py-2 rounded-full self-start hover:border-slate transition-colors"
         >
           <Filter size={14} className="text-primary" />
-          <span>Bộ lọc nâng cao</span>
+          <span>Bộ lọc ({hasActiveFilters ? 'Đang lọc' : 'Mặc định'})</span>
         </button>
       </div>
+
+      {/* 4. Active Filter Chips */}
+      {hasActiveFilters && (
+        <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-soft/60 border border-hairline-soft p-3 rounded-2xl">
+          <span className="font-bold text-steel uppercase text-[11px] tracking-wider mr-1">Đang chọn:</span>
+          
+          {selectedBrands.map(b => (
+            <span key={b} className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Hãng: {b}</span>
+              <button type="button" onClick={() => handleToggleBrand(b)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          ))}
+
+          {(currentMinPrice !== undefined || currentMaxPrice !== undefined) && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>
+                Giá: {currentMinPrice ? `${(currentMinPrice / 1000000).toFixed(0)}tr` : '0đ'} - {currentMaxPrice ? `${(currentMaxPrice / 1000000).toFixed(0)}tr` : 'Max'}
+              </span>
+              <button type="button" onClick={handleClearPrice} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentRom && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Bộ nhớ: {currentRom >= 1024 ? '1 TB' : `${currentRom} GB`}</span>
+              <button type="button" onClick={() => updateParam('rom', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentRam && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>RAM: {currentRam} GB</span>
+              <button type="button" onClick={() => updateParam('ram', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentCpu && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>CPU: {currentCpu.toUpperCase()}</span>
+              <button type="button" onClick={() => updateParam('cpu', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentRequirement && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Nhu cầu: {currentRequirement}</span>
+              <button type="button" onClick={() => updateParam('req', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentConnectionType && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Kết nối: {currentConnectionType.toUpperCase()}</span>
+              <button type="button" onClick={() => updateParam('conn', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentMinDiscount && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Giảm &ge; {currentMinDiscount}%</span>
+              <button type="button" onClick={() => updateParam('minDiscount', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          {currentInstallment && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Trả góp 0%</span>
+              <button type="button" onClick={() => updateParam('installment', undefined)} className="text-steel hover:text-critical">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            className="ml-auto text-xs font-bold text-critical hover:underline"
+          >
+            Xóa tất cả bộ lọc
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
         {/* ========================================= */}
         {/* DESKTOP SIDEBAR FILTERS (3 cols)          */}
         {/* ========================================= */}
-        <aside className="hidden lg:block lg:col-span-3 space-y-4 sticky top-24">
-          <div className="bg-canvas border border-hairline-soft rounded-xxl p-6 space-y-6 shadow-none">
-            <div className="flex items-center justify-between pb-4 border-b border-hairline-soft">
+        <aside className="hidden lg:block lg:col-span-3 space-y-4 sticky top-20">
+          <div className="bg-canvas border border-hairline-soft rounded-2xl p-5 space-y-5 shadow-none max-h-[calc(100vh-100px)] overflow-y-auto no-scrollbar">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-hairline-soft">
               <span className="font-bold text-xs text-ink-deep uppercase tracking-wider flex items-center gap-2">
                 <SlidersHorizontal size={14} className="text-primary" />
-                <span>Bộ lọc sản phẩm</span>
+                <span>Bộ lọc đa tiêu chí</span>
               </span>
               {hasActiveFilters && (
                 <button
@@ -256,22 +407,24 @@ export const ProductListPage: React.FC = () => {
               )}
             </div>
 
-            {/* 1. Thương hiệu (Hỗ trợ chọn nhiều hãng) */}
+            {/* 1. THƯƠNG HIỆU */}
             <div>
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2.5">
                 <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Hãng sản xuất</h4>
                 {selectedBrands.length > 0 && (
-                  <span className="text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                     {selectedBrands.length} đã chọn
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => handleToggleBrand('all')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                    isAllBrands? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                    isAllBrands
+                      ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
+                      : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
                   }`}
                 >
                   Tất cả
@@ -283,8 +436,10 @@ export const ProductListPage: React.FC = () => {
                       key={b.brandId}
                       type="button"
                       onClick={() => handleToggleBrand(b.name)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border flex items-center gap-1.5 ${
-                        isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
+                          : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
                       }`}
                     >
                       {isSelected && <Check size={12} className="stroke-[3]" />}
@@ -295,11 +450,11 @@ export const ProductListPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. Mức giá & Khoảng giá tùy chỉnh */}
-            <div className="pt-5 border-t border-hairline-soft space-y-3">
+            {/* 2. KHOẢNG GIÁ */}
+            <div className="pt-4 border-t border-hairline-soft space-y-2.5">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Khoảng giá bán</h4>
-                {(currentMinPrice!== undefined || currentMaxPrice!== undefined) && (
+                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Mức giá bán</h4>
+                {(currentMinPrice !== undefined || currentMaxPrice !== undefined) && (
                   <button
                     type="button"
                     onClick={handleClearPrice}
@@ -309,114 +464,68 @@ export const ProductListPage: React.FC = () => {
                   </button>
                 )}
               </div>
-
-              {/* Radio presets */}
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-1 text-xs">
                 {priceRanges.map((r, i) => {
                   const isChecked = currentMinPrice === r.min && currentMaxPrice === r.max;
                   return (
                     <label
                       key={i}
-                      className="flex items-center gap-2.5 cursor-pointer text-charcoal hover:text-ink select-none py-0.5"
+                      className="flex items-center gap-2 cursor-pointer text-charcoal hover:text-ink select-none py-1 px-1.5 rounded-lg hover:bg-surface-soft"
                     >
                       <input
                         type="radio"
-                        name="priceRange"
+                        name="desktopPrice"
                         checked={isChecked}
                         onChange={() => setPriceRange(r.min, r.max)}
-                        className="w-4 h-4 text-primary accent-primary focus:ring-0 cursor-pointer"
+                        className="w-4 h-4 text-primary accent-primary cursor-pointer"
                       />
-                      <span className={`text-xs ${isChecked? 'font-bold text-ink-deep': 'text-charcoal'}`}>{r.label}</span>
+                      <span className={`text-xs ${isChecked ? 'font-bold text-primary' : 'text-charcoal'}`}>{r.label}</span>
                     </label>
                   );
                 })}
               </div>
             </div>
 
-            {/* 3. Tiêu chí cấu hình riêng biệt theo danh mục */}
-            {/* A. Cấu hình cho LAPTOP */}
-            {currentCategory === 'laptop' && (
-              <div className="pt-5 border-t border-hairline-soft space-y-4">
+            {/* ========================================================= */}
+            {/* 3A. BỘ LỌC ĐIỆN THOẠI (Smartphone)                        */}
+            {/* ========================================================= */}
+            {(currentCategory === 'phone' || (currentCategory === 'all' && !isSale)) && (
+              <div className="pt-4 border-t border-hairline-soft space-y-4">
+                {/* ROM */}
                 <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2.5">Bộ nhớ RAM Laptop</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[8, 16, 32].map((ram) => {
-                      const isSelected = currentRam === ram;
-                      return (
-                        <button
-                          key={ram}
-                          type="button"
-                          onClick={() => updateParam('ram', isSelected? undefined: String(ram))}
-                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                            isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
-                          }`}
-                        >
-                          {ram} GB
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2.5">Ổ cứng SSD</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[256, 512, 1024].map((rom) => {
-                      const isSelected = currentRom === rom;
-                      return (
-                        <button
-                          key={rom}
-                          type="button"
-                          onClick={() => updateParam('rom', isSelected? undefined: String(rom))}
-                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                            isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
-                          }`}
-                        >
-                          {rom >= 1024? '1 TB SSD': `${rom} GB SSD`}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* B. Cấu hình cho ĐIỆN THOẠI */}
-            {(currentCategory === 'phone' || (currentCategory === 'all' &&!isSale)) && (
-              <div className="pt-5 border-t border-hairline-soft space-y-4">
-                <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2.5">Dung lượng bộ nhớ (ROM)</h4>
-                  <div className="flex flex-wrap gap-2">
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Dung lượng bộ nhớ (ROM)</h4>
+                  <div className="grid grid-cols-2 gap-1.5">
                     {[128, 256, 512, 1024].map((rom) => {
                       const isSelected = currentRom === rom;
                       return (
                         <button
                           key={rom}
                           type="button"
-                          onClick={() => updateParam('rom', isSelected? undefined: String(rom))}
-                          className={`px-3 py-1.5 rounded-full text-xs font-sans font-bold transition-all border ${
-                            isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                          onClick={() => updateParam('rom', isSelected ? undefined : String(rom))}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
                           }`}
                         >
-                          {rom >= 1024? '1 TB': `${rom} GB`}
+                          {rom >= 1024 ? '1 TB' : `${rom} GB`}
                         </button>
                       );
                     })}
                   </div>
                 </div>
 
+                {/* RAM */}
                 <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2.5">Dung lượng RAM</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[6, 8, 12, 16].map((ram) => {
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Dung lượng RAM</h4>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[4, 6, 8, 12, 16].map((ram) => {
                       const isSelected = currentRam === ram;
                       return (
                         <button
                           key={ram}
                           type="button"
-                          onClick={() => updateParam('ram', isSelected? undefined: String(ram))}
-                          className={`px-3 py-1.5 rounded-full text-xs font-sans font-bold transition-all border ${
-                            isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                          onClick={() => updateParam('ram', isSelected ? undefined : String(ram))}
+                          className={`px-2 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
                           }`}
                         >
                           {ram} GB
@@ -425,29 +534,268 @@ export const ProductListPage: React.FC = () => {
                     })}
                   </div>
                 </div>
+
+                {/* Nhu cầu */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Chọn theo nhu cầu</h4>
+                  <div className="space-y-1.5">
+                    {[
+                      { key: 'gaming', label: '🎮 Chơi game / Cấu hình mạnh' },
+                      { key: 'camera', label: '📸 Chụp ảnh đẹp / Zoom quang' },
+                      { key: 'battery', label: '🔋 Pin trâu trên 5000 mAh' },
+                      { key: 'foldable', label: '📱 Màn hình gập thế hệ mới' },
+                    ].map((item) => {
+                      const isSelected = currentRequirement === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => updateParam('req', isSelected ? undefined : item.key)}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            isSelected ? 'border-primary bg-primary/10 text-primary font-bold' : 'border-hairline-soft bg-canvas hover:bg-surface-soft text-charcoal'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Trả góp 0% */}
+                <div className="pt-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-charcoal select-none">
+                    <input
+                      type="checkbox"
+                      checked={currentInstallment}
+                      onChange={(e) => updateParam('installment', e.target.checked ? 'true' : undefined)}
+                      className="w-4 h-4 rounded text-primary accent-primary cursor-pointer"
+                    />
+                    <span>Hỗ trợ trả góp 0% lãi suất</span>
+                  </label>
+                </div>
               </div>
             )}
 
-            {/* C. Cấu hình cho MÁY TÍNH BẢNG (TABLET) */}
+            {/* ========================================================= */}
+            {/* 3B. BỘ LỌC LAPTOP                                         */}
+            {/* ========================================================= */}
+            {currentCategory === 'laptop' && (
+              <div className="pt-4 border-t border-hairline-soft space-y-4">
+                {/* CPU */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Vi xử lý (CPU)</h4>
+                  <div className="space-y-1.5">
+                    {[
+                      { key: 'apple', label: 'Apple Silicon (M1, M2, M3)' },
+                      { key: 'intel', label: 'Intel Core i5 / i7 / i9' },
+                      { key: 'amd', label: 'AMD Ryzen 5 / 7' },
+                    ].map((item) => {
+                      const isSelected = currentCpu === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => updateParam('cpu', isSelected ? undefined : item.key)}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            isSelected ? 'border-primary bg-primary/10 text-primary font-bold' : 'border-hairline-soft bg-canvas hover:bg-surface-soft text-charcoal'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* RAM */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Dung lượng RAM</h4>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[8, 16, 32].map((ram) => {
+                      const isSelected = currentRam === ram;
+                      return (
+                        <button
+                          key={ram}
+                          type="button"
+                          onClick={() => updateParam('ram', isSelected ? undefined : String(ram))}
+                          className={`px-2 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          }`}
+                        >
+                          {ram} GB
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Ổ cứng SSD */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Ổ cứng lưu trữ SSD</h4>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[256, 512, 1024].map((rom) => {
+                      const isSelected = currentRom === rom;
+                      return (
+                        <button
+                          key={rom}
+                          type="button"
+                          onClick={() => updateParam('rom', isSelected ? undefined : String(rom))}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          }`}
+                        >
+                          {rom >= 1024 ? '1 TB SSD' : `${rom} GB SSD`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Nhu cầu Laptop */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Nhu cầu sử dụng</h4>
+                  <div className="space-y-1.5">
+                    {[
+                      { key: 'office', label: '💼 Văn phòng mỏng nhẹ' },
+                      { key: 'gaming', label: '⚡ Laptop Gaming hiệu năng cao' },
+                      { key: 'graphic', label: '🎨 Thiết kế đồ họa & Kỹ thuật' },
+                    ].map((item) => {
+                      const isSelected = currentRequirement === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => updateParam('req', isSelected ? undefined : item.key)}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            isSelected ? 'border-primary bg-primary/10 text-primary font-bold' : 'border-hairline-soft bg-canvas hover:bg-surface-soft text-charcoal'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 3C. BỘ LỌC MÁY TÍNH BẢNG (Tablet)                         */}
+            {/* ========================================================= */}
             {currentCategory === 'tablet' && (
-              <div className="pt-5 border-t border-hairline-soft">
-                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2.5">Dung lượng lưu trữ</h4>
-                <div className="flex flex-wrap gap-2">
-                  {[64, 128, 256, 512].map((rom) => {
-                    const isSelected = currentRom === rom;
-                    return (
-                      <button
-                        key={rom}
-                        type="button"
-                        onClick={() => updateParam('rom', isSelected? undefined: String(rom))}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                          isSelected? 'border-ink-deep bg-ink-deep text-canvas shadow-xs': 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
-                        }`}
-                      >
-                        {rom} GB
-                      </button>
-                    );
-                  })}
+              <div className="pt-4 border-t border-hairline-soft space-y-4">
+                {/* ROM */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Bộ nhớ lưu trữ</h4>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[64, 128, 256, 512].map((rom) => {
+                      const isSelected = currentRom === rom;
+                      return (
+                        <button
+                          key={rom}
+                          type="button"
+                          onClick={() => updateParam('rom', isSelected ? undefined : String(rom))}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          }`}
+                        >
+                          {rom} GB
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Kết nối */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Kết nối mạng</h4>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { key: 'wifi', label: 'Wifi Only' },
+                      { key: '5g', label: 'Có 5G / Gắn SIM' },
+                    ].map((item) => {
+                      const isSelected = currentConnectionType === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => updateParam('conn', isSelected ? undefined : item.key)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 3D. BỘ LỌC PHỤ KIỆN DI ĐỘNG                               */}
+            {/* ========================================================= */}
+            {currentCategory === 'accessory' && (
+              <div className="pt-4 border-t border-hairline-soft space-y-4">
+                {/* Chuẩn kết nối */}
+                <div>
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Chuẩn sạc & Kết nối</h4>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { key: 'usb-c', label: 'USB-C GaN' },
+                      { key: 'lightning', label: 'Lightning' },
+                      { key: 'magsafe', label: 'MagSafe Không dây' },
+                      { key: 'bluetooth', label: 'Bluetooth' },
+                    ].map((item) => {
+                      const isSelected = currentConnectionType === item.key;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => updateParam('conn', isSelected ? undefined : item.key)}
+                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
+                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ========================================================= */}
+            {/* 3E. BỘ LỌC FLASH SALE                                     */}
+            {/* ========================================================= */}
+            {isSale && (
+              <div className="pt-4 border-t border-hairline-soft space-y-4">
+                <div>
+                  <h4 className="text-xs font-bold text-critical uppercase tracking-wider mb-2">Mức giảm giá Flash Sale</h4>
+                  <div className="space-y-1.5">
+                    {[
+                      { min: 20, label: '🔥 Giảm từ 20% trở lên' },
+                      { min: 30, label: '⚡ Giảm từ 30% trở lên' },
+                      { min: 50, label: '💥 Giảm sốc trên 50%' },
+                    ].map((item) => {
+                      const isSelected = currentMinDiscount === item.min;
+                      return (
+                        <button
+                          key={item.min}
+                          type="button"
+                          onClick={() => updateParam('minDiscount', isSelected ? undefined : String(item.min))}
+                          className={`w-full text-left px-3 py-2 rounded-xl text-xs font-medium transition-all border ${
+                            isSelected ? 'border-critical bg-critical text-canvas font-bold' : 'border-hairline-soft bg-canvas hover:bg-rose-50 text-charcoal'
+                          }`}
+                        >
+                          {item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -460,25 +808,28 @@ export const ProductListPage: React.FC = () => {
         {/* ========================================= */}
         <div className="lg:col-span-9 space-y-6">
           
-          {/* Sắp xếp bar */}
+          {/* Thanh sắp xếp */}
           <div className="bg-canvas border border-hairline-soft rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-none">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-charcoal flex items-center gap-1.5">
                 <ArrowUpDown size={14} className="text-steel" />
                 <span>Sắp xếp:</span>
               </span>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 {[
                   { key: 'newest', label: 'Mới nhất' },
                   { key: 'best_seller', label: 'Bán chạy nhất' },
-                  { key: 'price_asc', label: 'Giá tăng dần' },
-                  { key: 'price_desc', label: 'Giá giảm dần' },
+                  { key: 'price_asc', label: 'Giá thấp → cao' },
+                  { key: 'price_desc', label: 'Giá cao → thấp' },
+                  { key: 'discount_desc', label: 'Giảm giá nhiều nhất' },
                 ].map((s) => (
                   <button
                     key={s.key}
                     onClick={() => updateParam('sort', s.key)}
-                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
-                      currentSort === s.key? 'bg-ink-deep text-canvas shadow-xs': 'bg-surface-soft text-charcoal hover:bg-hairline-soft hover:text-ink'
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
+                      currentSort === s.key
+                        ? 'bg-ink-deep text-canvas shadow-xs font-black'
+                        : 'bg-surface-soft text-charcoal hover:bg-hairline-soft hover:text-ink'
                     }`}
                   >
                     {s.label}
@@ -486,28 +837,36 @@ export const ProductListPage: React.FC = () => {
                 ))}
               </div>
             </div>
+            <span className="text-steel font-medium text-[11px] ml-auto">
+              Trang {safePage} / {totalPages}
+            </span>
           </div>
 
           {/* Grid Products */}
-          {isLoading? (
+          {isLoading ? (
             <div className="py-24 text-center text-steel text-xs">
               <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="font-semibold text-charcoal">Đang nạp danh sách thiết bị...</p>
+              <p className="font-semibold text-charcoal">Đang nạp danh sách thiết bị công nghệ...</p>
             </div>
-          ): products.length === 0? (
-            <div className="py-16 bg-canvas rounded-xxl border border-hairline-soft text-center text-steel text-xs p-8">
+          ) : products.length === 0 ? (
+            <div className="py-16 bg-canvas rounded-2xl border border-hairline-soft text-center text-steel text-xs p-8">
+              <div className="w-12 h-12 rounded-full bg-surface-soft text-steel flex items-center justify-center mx-auto mb-3">
+                <SlidersHorizontal size={22} />
+              </div>
               <p className="text-ink-deep font-bold text-base">Không tìm thấy sản phẩm phù hợp</p>
-              <p className="text-steel text-xs mt-1">Vui lòng điều chỉnh hoặc xóa các bộ lọc giá / bộ nhớ để xem thêm.</p>
+              <p className="text-steel text-xs mt-1 max-w-sm mx-auto">
+                Vui lòng thử bỏ chọn một số tiêu chí hãng sản xuất, mức giá hoặc dung lượng bộ nhớ.
+              </p>
               <button
                 onClick={clearAllFilters}
-                className="btn-marketing mt-4 inline-flex items-center justify-center px-6 py-2.5 text-xs"
+                className="mt-4 inline-flex items-center justify-center px-6 py-2.5 text-xs font-bold rounded-xl bg-ink-deep text-canvas hover:bg-charcoal transition"
               >
                 Xóa tất cả bộ lọc
               </button>
             </div>
-          ): (
+          ) : (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-5 items-stretch">
+              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 items-stretch">
                 {paginatedProducts.map((p) => (
                   <ProductCard key={p.productId} product={p} />
                 ))}
@@ -521,7 +880,6 @@ export const ProductListPage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-1.5 select-none">
-                    {/* Trang đầu */}
                     <button
                       type="button"
                       onClick={() => goToPage(1)}
@@ -532,7 +890,6 @@ export const ProductListPage: React.FC = () => {
                       <ChevronsLeft size={14} />
                     </button>
 
-                    {/* Trang trước */}
                     <button
                       type="button"
                       onClick={() => goToPage(safePage - 1)}
@@ -543,7 +900,6 @@ export const ProductListPage: React.FC = () => {
                       <span className="hidden sm:inline">Trước</span>
                     </button>
 
-                    {/* Các số trang */}
                     {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
                       const isActive = p === safePage;
                       return (
@@ -552,7 +908,7 @@ export const ProductListPage: React.FC = () => {
                           type="button"
                           onClick={() => goToPage(p)}
                           className={`min-w-[34px] h-[34px] rounded-lg font-bold transition flex items-center justify-center text-xs ${
-                            isActive? 'bg-ink-deep text-canvas shadow-xs': 'border border-hairline-soft text-charcoal hover:bg-surface-soft'
+                            isActive ? 'bg-ink-deep text-canvas shadow-xs font-black' : 'border border-hairline-soft text-charcoal hover:bg-surface-soft'
                           }`}
                         >
                           {p}
@@ -560,7 +916,6 @@ export const ProductListPage: React.FC = () => {
                       );
                     })}
 
-                    {/* Trang kế tiếp */}
                     <button
                       type="button"
                       onClick={() => goToPage(safePage + 1)}
@@ -571,7 +926,6 @@ export const ProductListPage: React.FC = () => {
                       <ChevronRight size={14} />
                     </button>
 
-                    {/* Trang cuối */}
                     <button
                       type="button"
                       onClick={() => goToPage(totalPages)}
@@ -596,30 +950,30 @@ export const ProductListPage: React.FC = () => {
       {/* ========================================= */}
       {isMobileFilterOpen && (
         <div className="fixed inset-0 z-50 bg-ink-deep/60 backdrop-blur-xs flex justify-end">
-          <div className="bg-canvas w-full max-w-xs h-full p-6 overflow-y-auto space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-hairline-soft">
+          <div className="bg-canvas w-full max-w-xs h-full p-5 overflow-y-auto space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-hairline-soft">
               <span className="font-bold text-sm text-ink-deep uppercase tracking-wider">Bộ lọc sản phẩm</span>
               <button onClick={() => setIsMobileFilterOpen(false)} className="text-steel hover:text-ink p-1">
                 <X size={20} />
               </button>
             </div>
 
-            {/* Hãng (Hỗ trợ chọn nhiều hãng) */}
+            {/* Hãng */}
             <div>
-              <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center justify-between mb-2">
                 <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Thương hiệu</h4>
                 {selectedBrands.length > 0 && (
-                  <span className="text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                     {selectedBrands.length} đã chọn
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => handleToggleBrand('all')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
-                    isAllBrands? 'border-ink-deep bg-ink-deep text-canvas': 'border-hairline-soft bg-canvas text-ink'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                    isAllBrands ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
                   }`}
                 >
                   Tất cả
@@ -631,8 +985,8 @@ export const ProductListPage: React.FC = () => {
                       key={b.brandId}
                       type="button"
                       onClick={() => handleToggleBrand(b.name)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold border flex items-center gap-1.5 ${
-                        isSelected? 'border-ink-deep bg-ink-deep text-canvas': 'border-hairline-soft bg-canvas text-ink'
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                        isSelected ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
                       }`}
                     >
                       {isSelected && <Check size={12} className="stroke-[3]" />}
@@ -643,30 +997,25 @@ export const ProductListPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Mức giá & Khoảng giá tùy chọn */}
-            <div className="pt-4 border-t border-hairline-soft space-y-3">
+            {/* Mức giá */}
+            <div className="pt-3 border-t border-hairline-soft space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Mức giá</h4>
-                {(currentMinPrice!== undefined || currentMaxPrice!== undefined) && (
-                  <button
-                    type="button"
-                    onClick={handleClearPrice}
-                    className="text-[11px] text-critical hover:underline font-bold"
-                  >
+                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Khoảng giá</h4>
+                {(currentMinPrice !== undefined || currentMaxPrice !== undefined) && (
+                  <button type="button" onClick={handleClearPrice} className="text-[11px] text-critical hover:underline font-bold">
                     Bỏ lọc
                   </button>
                 )}
               </div>
-
-              <div className="space-y-2 text-xs">
+              <div className="space-y-1 text-xs">
                 {priceRanges.map((r, i) => (
-                  <label key={i} className="flex items-center gap-2.5 cursor-pointer text-charcoal">
+                  <label key={i} className="flex items-center gap-2 cursor-pointer text-charcoal py-1">
                     <input
                       type="radio"
                       name="mPriceRange"
                       checked={currentMinPrice === r.min && currentMaxPrice === r.max}
                       onChange={() => setPriceRange(r.min, r.max)}
-                      className="w-4 h-4 text-primary accent-primary focus:ring-0"
+                      className="w-4 h-4 text-primary accent-primary"
                     />
                     <span>{r.label}</span>
                   </label>
@@ -674,81 +1023,39 @@ export const ProductListPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Cấu hình đặc thù theo danh mục (Mobile) */}
-            {currentCategory === 'laptop' && (
-              <div className="pt-4 border-t border-hairline-soft space-y-3">
-                <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">RAM Laptop</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[8, 16, 32].map((ram) => (
-                      <button
-                        key={ram}
-                        type="button"
-                        onClick={() => updateParam('ram', currentRam === ram? undefined: String(ram))}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
-                          currentRam === ram? 'border-ink-deep bg-ink-deep text-canvas': 'border-hairline-soft bg-canvas text-ink'
-                        }`}
-                      >
-                        {ram} GB
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Ổ cứng SSD</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[256, 512, 1024].map((rom) => (
-                      <button
-                        key={rom}
-                        type="button"
-                        onClick={() => updateParam('rom', currentRom === rom? undefined: String(rom))}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
-                          currentRom === rom? 'border-ink-deep bg-ink-deep text-canvas': 'border-hairline-soft bg-canvas text-ink'
-                        }`}
-                      >
-                        {rom >= 1024? '1 TB SSD': `${rom} GB SSD`}
-                      </button>
-                    ))}
-                  </div>
+            {/* ROM / RAM (Mobile) */}
+            {(currentCategory === 'phone' || currentCategory === 'tablet') && (
+              <div className="pt-3 border-t border-hairline-soft space-y-3">
+                <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Bộ nhớ ROM</h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {[64, 128, 256, 512, 1024].map((rom) => (
+                    <button
+                      key={rom}
+                      type="button"
+                      onClick={() => updateParam('rom', currentRom === rom ? undefined : String(rom))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                        currentRom === rom ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                      }`}
+                    >
+                      {rom >= 1024 ? '1 TB' : `${rom} GB`}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
 
-            {(currentCategory === 'phone' || (currentCategory === 'all' &&!isSale)) && (
-              <div className="pt-4 border-t border-hairline-soft space-y-3">
-                <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Bộ nhớ ROM</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[128, 256, 512, 1024].map((rom) => (
-                      <button
-                        key={rom}
-                        type="button"
-                        onClick={() => updateParam('rom', currentRom === rom? undefined: String(rom))}
-                        className={`px-3 py-1.5 rounded-full text-xs font-bold border ${
-                          currentRom === rom? 'border-ink-deep bg-ink-deep text-canvas': 'border-hairline-soft bg-canvas text-ink'
-                        }`}
-                      >
-                        {rom >= 1024? '1 TB': `${rom} GB`}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="pt-6 border-t border-hairline-soft flex gap-3">
+            <div className="pt-5 border-t border-hairline-soft flex gap-2.5">
               <button
                 onClick={clearAllFilters}
-                className="btn-secondary flex-1 py-2.5 text-xs"
+                className="flex-1 py-2 rounded-xl text-xs font-bold border border-hairline-soft hover:bg-surface-soft transition"
               >
                 Đặt lại
               </button>
               <button
                 onClick={() => setIsMobileFilterOpen(false)}
-                className="btn-marketing flex-1 py-2.5 text-xs"
+                className="flex-1 py-2 rounded-xl text-xs font-bold bg-ink-deep text-canvas hover:bg-charcoal transition"
               >
-                Xem kết quả
+                Xem ({products.length})
               </button>
             </div>
           </div>

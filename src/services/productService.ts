@@ -13,13 +13,18 @@ export interface ProductFilterParams {
   maxPrice?: number;
   rom?: number;
   ram?: number;
+  cpu?: string;
+  requirement?: string;
+  connectionType?: string;
+  minDiscount?: number;
+  isInstallment0?: boolean;
   search?: string;
-  sort?: 'price_asc' | 'price_desc' | 'newest' | 'best_seller';
+  sort?: 'price_asc' | 'price_desc' | 'newest' | 'best_seller' | 'discount_desc' | 'rating_desc';
   page?: number;
   limit?: number;
   brandId?: number;
   categoryId?: number;
-  sortBy?: 'newest' | 'price_asc' | 'price_desc' | 'rating' | 'best_seller';
+  sortBy?: 'newest' | 'price_asc' | 'price_desc' | 'rating' | 'best_seller' | 'discount_desc' | 'rating_desc';
 }
 
 export interface CreateProductImagePayload {
@@ -279,14 +284,56 @@ export const productService = {
    * Danh sách sản phẩm kèm bộ lọc đa tiêu chí
    */
   async getProducts(params?: ProductFilterParams): Promise<Product[]> {
+    const categoryIdMap: Record<string, number> = {
+      phone: 1,
+      tablet: 2,
+      laptop: 3,
+      accessory: 4,
+    };
+
+    const matchesCategory = (p: Product, catKey?: string) => {
+      if (!catKey || catKey === 'all') return true;
+      const cName = (p.categoryName || '').toLowerCase();
+      const pName = (p.name || '').toLowerCase();
+      const catId = p.categoryId;
+
+      if (catKey === 'phone') {
+        return catId === 1 || catId === 5 || catId === 6 || catId === 7 ||
+               cName.includes('điện thoại') || cName.includes('smartphone') || cName.includes('iphone') ||
+               pName.includes('iphone') || pName.includes('galaxy s') || pName.includes('galaxy z') || pName.includes('xiaomi') || pName.includes('oppo');
+      }
+      if (catKey === 'laptop') {
+        return catId === 3 || catId === 10 || catId === 11 ||
+               cName.includes('laptop') || cName.includes('macbook') || cName.includes('máy tính xách tay') ||
+               pName.includes('macbook') || pName.includes('rog') || pName.includes('laptop') || pName.includes('thinkpad') || pName.includes('zenbook');
+      }
+      if (catKey === 'tablet') {
+        return catId === 2 || catId === 8 || catId === 9 ||
+               cName.includes('máy tính bảng') || cName.includes('tablet') || cName.includes('ipad') ||
+               pName.includes('ipad') || pName.includes('tab');
+      }
+      if (catKey === 'accessory') {
+        return catId === 4 || catId === 12 || catId === 13 || catId === 14 ||
+               cName.includes('phụ kiện') || cName.includes('tai nghe') || cName.includes('sạc') || cName.includes('cáp') || cName.includes('loa') ||
+               pName.includes('airpods') || pName.includes('sạc') || pName.includes('cáp') || pName.includes('tai nghe') || pName.includes('củ sạc') || pName.includes('loa');
+      }
+      return cName.includes(catKey.toLowerCase());
+    };
+
+    let fetchedProducts: Product[] | null = null;
+
     try {
       const queryParams: any = {
         page: params?.page || 1,
-        limit: params?.limit || 20,
+        limit: params?.limit || 100,
       };
       if (params?.search) queryParams.search = params.search;
       if (params?.brandId) queryParams.brandId = params.brandId;
-      if (params?.categoryId) queryParams.categoryId = params.categoryId;
+      if (params?.categoryId) {
+        queryParams.categoryId = params.categoryId;
+      } else if (params?.category && categoryIdMap[params.category]) {
+        queryParams.categoryId = categoryIdMap[params.category];
+      }
       if (params?.minPrice !== undefined) queryParams.minPrice = params.minPrice;
       if (params?.maxPrice !== undefined) queryParams.maxPrice = params.maxPrice;
       if (params?.ram) queryParams.ram = params.ram;
@@ -315,30 +362,21 @@ export const productService = {
           );
           const withPromos = await applyActivePromotionsToProducts(prods);
           sharedStore.setProducts(withPromos);
-          return params?.isFlashSale !== undefined
-            ? withPromos.filter((p) => !p.isFlashSale === !params.isFlashSale)
-            : withPromos;
+          fetchedProducts = withPromos;
         }
       }
     } catch (err) {
       console.warn('[productService.getProducts] Fallback to sharedStore', err);
     }
 
-    let results = [...sharedStore.getProducts()];
+    let results = fetchedProducts ? [...fetchedProducts] : [...sharedStore.getProducts()];
 
-    // Lọc danh mục (Điện thoại, Laptop, Máy tính bảng, Phụ kiện)
+    // 1. Lọc danh mục
     if (params?.category && params.category !== 'all') {
-      const catMap: Record<string, string> = {
-        phone: 'Điện thoại',
-        laptop: 'Laptop',
-        tablet: 'Máy tính bảng',
-        accessory: 'Phụ kiện',
-      };
-      const targetCategory = catMap[params.category] || params.category;
-      results = results.filter(p => p.categoryName.toLowerCase().includes(targetCategory.toLowerCase()));
+      results = results.filter(p => matchesCategory(p, params.category));
     }
 
-    // Lọc thương hiệu (hỗ trợ chọn đồng thời nhiều hãng)
+    // 2. Lọc thương hiệu (hỗ trợ chọn đồng thời nhiều hãng)
     if (params?.brands && params.brands.length > 0) {
       const lowerList = params.brands.map(b => b.toLowerCase().trim());
       results = results.filter(p => lowerList.includes(p.brandName.toLowerCase().trim()));
@@ -349,12 +387,12 @@ export const productService = {
       }
     }
 
-    // Lọc Flash sale
+    // 3. Lọc Flash sale
     if (params?.isFlashSale !== undefined) {
       results = results.filter(p => !p.isFlashSale === !params.isFlashSale);
     }
 
-    // Lọc theo khoảng giá (minPrice, maxPrice)
+    // 4. Lọc theo khoảng giá
     if (params?.minPrice !== undefined && params?.maxPrice !== undefined) {
       results = results.filter(p => p.variants.some(v => v.salePrice >= params.minPrice! && v.salePrice <= params.maxPrice!));
     } else {
@@ -366,17 +404,79 @@ export const productService = {
       }
     }
 
-    // Lọc theo dung lượng ROM
+    // 5. Lọc theo dung lượng ROM / Ổ cứng SSD
     if (params?.rom) {
       results = results.filter(p => p.variants.some(v => v.romGb === params.rom));
     }
 
-    // Lọc theo dung lượng RAM
+    // 6. Lọc theo dung lượng RAM
     if (params?.ram) {
       results = results.filter(p => p.variants.some(v => v.ramGb === params.ram));
     }
 
-    // Lọc theo từ khóa tìm kiếm
+    // 7. Lọc theo CPU (Apple Silicon, Intel, AMD)
+    if (params?.cpu) {
+      const lowerCpu = params.cpu.toLowerCase();
+      results = results.filter(p => {
+        const text = `${p.name} ${p.description || ''} ${JSON.stringify(p.specGroups || [])}`.toLowerCase();
+        return text.includes(lowerCpu);
+      });
+    }
+
+    // 8. Lọc theo Chuẩn kết nối (Wifi, 5G, USB-C, Lightning, Bluetooth...)
+    if (params?.connectionType) {
+      const lowerConn = params.connectionType.toLowerCase();
+      results = results.filter(p => 
+        p.variants.some(v => v.connectionType?.toLowerCase().includes(lowerConn)) ||
+        JSON.stringify(p.specGroups || []).toLowerCase().includes(lowerConn) ||
+        p.name.toLowerCase().includes(lowerConn)
+      );
+    }
+
+    // 9. Lọc theo Nhu cầu sử dụng
+    if (params?.requirement) {
+      const req = params.requirement.toLowerCase();
+      results = results.filter(p => {
+        const text = `${p.name} ${p.description || ''} ${JSON.stringify(p.specGroups || [])} ${JSON.stringify(p.highlights || [])}`.toLowerCase();
+        if (req === 'gaming') {
+          return text.includes('gaming') || text.includes('rog') || text.includes('120hz') || text.includes('144hz') || text.includes('tản nhiệt') || text.includes('rtx');
+        }
+        if (req === 'camera') {
+          return text.includes('camera') || text.includes('leica') || text.includes('zoom') || text.includes('chụp ảnh') || text.includes('lyt-900') || text.includes('48mp');
+        }
+        if (req === 'battery') {
+          return text.includes('5000') || text.includes('6000') || text.includes('pin trâu') || text.includes('sạc nhanh');
+        }
+        if (req === 'foldable') {
+          return text.includes('fold') || text.includes('flip') || text.includes('gập');
+        }
+        if (req === 'office') {
+          return text.includes('văn phòng') || text.includes('mỏng nhẹ') || text.includes('macbook air') || text.includes('zenbook');
+        }
+        if (req === 'graphic') {
+          return text.includes('đồ họa') || text.includes('macbook pro') || text.includes('creators') || text.includes('m3 max') || text.includes('rtx');
+        }
+        return text.includes(req);
+      });
+    }
+
+    // 10. Lọc theo % giảm giá tối thiểu
+    if (params?.minDiscount) {
+      results = results.filter(p => {
+        return p.variants.some(v => {
+          if (!v.listPrice || v.listPrice <= v.salePrice) return false;
+          const disc = Math.round(((v.listPrice - v.salePrice) / v.listPrice) * 100);
+          return disc >= params.minDiscount!;
+        });
+      });
+    }
+
+    // 11. Lọc theo Trả góp 0%
+    if (params?.isInstallment0) {
+      results = results.filter(p => p.isInstallment0);
+    }
+
+    // 12. Lọc theo từ khóa tìm kiếm
     if (params?.search) {
       const q = params.search.toLowerCase();
       results = results.filter(p => 
@@ -386,24 +486,32 @@ export const productService = {
       );
     }
 
-    // Sắp xếp
-    if (params?.sort || params?.sortBy) {
-      const s = params.sortBy || params.sort;
-      switch (s) {
-        case 'price_asc':
-          results.sort((a, b) => (a.variants[0]?.salePrice || 0) - (b.variants[0]?.salePrice || 0));
-          break;
-        case 'price_desc':
-          results.sort((a, b) => (b.variants[0]?.salePrice || 0) - (a.variants[0]?.salePrice || 0));
-          break;
-        case 'best_seller':
-          results.sort((a, b) => (b.soldCount || 0) - (a.soldCount || 0));
-          break;
-        case 'newest':
-        default:
-          results.sort((a, b) => b.productId - a.productId);
-          break;
-      }
+    // 13. Sắp xếp đa dạng
+    const s = params?.sortBy || params?.sort || 'newest';
+    switch (s) {
+      case 'price_asc':
+        results.sort((a, b) => (a.variants[0]?.salePrice || 0) - (b.variants[0]?.salePrice || 0));
+        break;
+      case 'price_desc':
+        results.sort((a, b) => (b.variants[0]?.salePrice || 0) - (a.variants[0]?.salePrice || 0));
+        break;
+      case 'best_seller':
+        results.sort((a, b) => (b.soldCount || 0) - (a.soldCount || 0));
+        break;
+      case 'rating_desc':
+        results.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+        break;
+      case 'discount_desc':
+        results.sort((a, b) => {
+          const discA = a.variants[0]?.listPrice ? Math.max(0, a.variants[0].listPrice - a.variants[0].salePrice) : 0;
+          const discB = b.variants[0]?.listPrice ? Math.max(0, b.variants[0].listPrice - b.variants[0].salePrice) : 0;
+          return discB - discA;
+        });
+        break;
+      case 'newest':
+      default:
+        results.sort((a, b) => b.productId - a.productId);
+        break;
     }
 
     return results;
