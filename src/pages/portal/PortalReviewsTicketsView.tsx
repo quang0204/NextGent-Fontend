@@ -353,6 +353,21 @@ export const PortalReviewsTicketsView: React.FC = () => {
                     "{r.comment}"
                   </div>
 
+                  {/* Ảnh khách gửi kèm (API 12.3 trả về imageUrls) */}
+                  {r.images && r.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {r.images.map((img, i) => (
+                        <a key={img} href={img} target="_blank" rel="noopener noreferrer" title="Xem ảnh gốc">
+                          <img
+                            src={img}
+                            alt={`Ảnh đánh giá ${i + 1}`}
+                            className="w-16 h-16 object-cover rounded border border-slate-200 hover:opacity-90 transition"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Existing Store Reply */}
                   {r.storeReply && replyingReviewId!== r.reviewId && (
                     <div className="mt-2.5 ml-4 p-3 bg-blue-50/60 border-l-2 border-blue-600 rounded-r text-xs space-y-1">

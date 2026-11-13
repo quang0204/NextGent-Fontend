@@ -8,7 +8,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../types/order';
 import { formatVND } from '../components/common/PriceDisplay';
-import { ReviewImageUploader } from '../components/common/ReviewImageUploader';
+import { ReviewImageUploader, ReviewImageFile } from '../components/common/ReviewImageUploader';
 import { 
   Search, 
   Package, 
@@ -220,7 +220,7 @@ export const OrderTrackingPage: React.FC = () => {
   } | null>(null);
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewComment, setReviewComment] = useState('');
-  const [reviewImages, setReviewImages] = useState<string[]>([]);
+  const [reviewImages, setReviewImages] = useState<ReviewImageFile[]>([]);
   const [reviewMessage, setReviewMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
@@ -408,6 +408,7 @@ export const OrderTrackingPage: React.FC = () => {
     e.preventDefault();
     if (!reviewModalItem || !reviewComment.trim()) return;
 
+    setReviewMessage(null);
     setIsSubmittingReview(true);
     const res = await productService.submitReview({
       orderItemId: reviewModalItem.orderItemId,
@@ -417,7 +418,7 @@ export const OrderTrackingPage: React.FC = () => {
       phone: reviewModalItem.customerPhone,
       rating: reviewRating,
       comment: reviewComment.trim(),
-      images: reviewImages
+      imageFiles: reviewImages.map(img => img.file)
     });
     setIsSubmittingReview(false);
 
@@ -1811,17 +1812,30 @@ export const OrderTrackingPage: React.FC = () => {
 
             {/* Upload real photos */}
             <div className="space-y-1.5">
-              <label className="font-bold text-charcoal block">Hình ảnh thực tế (tối đa 3 ảnh):</label>
+              <label className="font-bold text-charcoal block">Hình ảnh thực tế (tối đa 5 ảnh):</label>
               <ReviewImageUploader
                 images={reviewImages}
                 onChange={setReviewImages}
-                maxImages={3}
+                maxImages={5}
+                maxSizeMB={5}
+                disabled={isSubmittingReview}
               />
             </div>
 
             <div className="text-[11px] text-steel bg-surface-soft p-2.5 rounded-lg border border-hairline-soft">
               Đánh giá của bạn sẽ được gắn nhãn <strong className="text-primary font-bold">"Đã mua hàng chính hãng"</strong> và xác thực trên hệ thống bán lẻ.
             </div>
+
+            {/* Biểu mẫu cuộn được: lặp lại thông báo ngay sát nút Gửi để lỗi (vd: tải ảnh thất bại) không bị khuất ở đầu form */}
+            {reviewMessage?.type === 'error' && (
+              <div role="alert" className="p-3 rounded-xl border flex items-start gap-2 bg-critical/10 border-critical/30 text-critical">
+                <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                <span>{reviewMessage.text}</span>
+              </div>
+            )}
+            {isSubmittingReview && reviewImages.length > 0 && (
+              <div className="text-[11px] text-steel">Đang tải {reviewImages.length} ảnh lên và gửi đánh giá, vui lòng chờ...</div>
+            )}
 
             <div className="flex gap-2.5 justify-end pt-3 border-t border-hairline-soft">
               <button

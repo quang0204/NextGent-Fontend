@@ -660,16 +660,35 @@ export const productService = {
     rating: number;
     comment: string;
     images?: string[];
+    /** File ảnh gốc người dùng chọn — được tải lên MinIO rồi gửi uploadIds cho backend. */
+    imageFiles?: File[];
   }): Promise<{ success: boolean; message: string; review?: ProductReview }> {
+    const { imageFiles = [], ...rest } = review;
     if (review.orderItemId) {
+      let uploadIds: string[] = [];
+      if (imageFiles.length > 0) {
+        try {
+          uploadIds = await reviewService.uploadReviewImages(imageFiles);
+        } catch (err: any) {
+          console.warn('[productService.submitReview] Upload ảnh đánh giá thất bại', err);
+          return {
+            success: false,
+            message:
+              err?.response?.data?.message ||
+              err?.message ||
+              'Không tải được ảnh đánh giá lên. Vui lòng thử lại.',
+          };
+        }
+      }
       const res = await reviewService.createReview({
         orderItemId: review.orderItemId,
         rating: review.rating,
         comment: review.comment,
+        ...(uploadIds.length > 0 ? { uploadIds } : {}),
       });
       return res;
     }
-    return sharedStore.submitReview(review);
+    return sharedStore.submitReview(rest);
   },
 
   // Lấy danh sách sản phẩm so sánh
