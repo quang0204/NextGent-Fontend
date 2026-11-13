@@ -222,6 +222,13 @@ export const PortalBrandsView: React.FC = () => {
       isVisible: isVisible,
     };
 
+    if (editingBrand && editingBrand.isVisible && !isVisible && (editingBrand.totalProducts || 0) > 0) {
+      const confirmed = window.confirm(
+        `CẢNH BÁO RÀNG BUỘC TOÀN VẸN:\nThương hiệu "${name}" hiện có ${editingBrand.totalProducts} sản phẩm đang liên kết!\n\nKhi chuyển sang trạng thái Ẩn, các sản phẩm thuộc hãng này sẽ bị ảnh hưởng hiển thị trên trang bán lẻ.\nBạn có chắc chắn muốn lưu thay đổi này?`
+      );
+      if (!confirmed) return;
+    }
+
     setIsSubmitting(true);
     setFormError('');
 
@@ -229,7 +236,8 @@ export const PortalBrandsView: React.FC = () => {
       if (editingBrand) {
         // API 3.9: PUT /api/v1/admin/brands/{id}
         const res = await brandService.updateBrand(editingBrand.brandId, payload);
-        showToast(res.message || `Cập nhật thương hiệu "${name}" thành công!`, 'success');
+        const isWarning = editingBrand.isVisible && !isVisible && (editingBrand.totalProducts || 0) > 0;
+        showToast(res.message || `Cập nhật thương hiệu "${name}" thành công!`, isWarning ? 'warning' : 'success');
       } else {
         // API 3.8: POST /api/v1/admin/brands
         const res = await brandService.createBrand(payload);
@@ -239,7 +247,7 @@ export const PortalBrandsView: React.FC = () => {
       setShowModal(false);
       await loadBrands();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Có lỗi xảy ra khi lưu thương hiệu!';
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Có lỗi xảy ra khi lưu thương hiệu!';
       setFormError(msg);
       showToast(msg, 'error');
     } finally {
@@ -247,29 +255,49 @@ export const PortalBrandsView: React.FC = () => {
     }
   };
 
-  // Bật/tắt hiển thị nhanh
+  // Bật/tắt hiển thị nhanh (Có kiểm tra ràng buộc & cảnh báo khi ẩn thương hiệu đang có sản phẩm)
   const handleToggleVisibility = async (b: BrandItem) => {
     const nextVisible = !b.isVisible;
+    if (!nextVisible && (b.totalProducts || 0) > 0) {
+      const confirmed = window.confirm(
+        `CẢNH BÁO RÀNG BUỘC TOÀN VẸN:\nThương hiệu "${b.name}" hiện đang có ${b.totalProducts} sản phẩm kinh doanh liên kết!\n\nKhi tạm ẩn thương hiệu, các sản phẩm thuộc hãng này sẽ bị ảnh hưởng hiển thị trên trang bán lẻ.\nBạn có chắc chắn muốn tạm ẩn thương hiệu này không?`
+      );
+      if (!confirmed) return;
+    }
+
     try {
-      await brandService.updateBrand(b.brandId, {
+      const res = await brandService.updateBrand(b.brandId, {
         name: b.name,
         slug: b.slug,
         logoUrl: b.logoUrl,
         description: b.description,
         isVisible: nextVisible,
       });
-      showToast(`Đã ${nextVisible ? 'mở kinh doanh' : 'tạm ẩn'} thương hiệu "${b.name}"!`, 'info');
+      const isWarn = !nextVisible && (b.totalProducts || 0) > 0;
+      const defaultMsg = isWarn
+        ? `Cảnh báo: Đã tạm ẩn thương hiệu "${b.name}" (đang có ${b.totalProducts} sản phẩm liên kết)!`
+        : `Đã ${nextVisible ? 'mở kinh doanh' : 'tạm ẩn'} thương hiệu "${b.name}"!`;
+      showToast(res.message || defaultMsg, isWarn ? 'warning' : 'info');
       await loadBrands();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Không thể đổi trạng thái thương hiệu!';
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Không thể đổi trạng thái thương hiệu!';
       showToast(msg, 'error');
     }
   };
 
-  // Xóa thương hiệu (API 3.10: DELETE /api/v1/admin/brands/{id})
+  // Xóa thương hiệu (API 3.10: DELETE /api/v1/admin/brands/{id} - Kiểm tra ràng buộc và cảnh báo khi có sản phẩm)
   const handleDeleteBrand = async (b: BrandItem) => {
     if (!isAdmin) {
       showToast('Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền xóa thương hiệu đối tác!', 'error');
+      return;
+    }
+
+    if ((b.totalProducts || 0) > 0) {
+      showToast(
+        `CẢNH BÁO RÀNG BUỘC: Không thể xóa thương hiệu "${b.name}" vì đang có ${b.totalProducts} sản phẩm liên kết trên hệ thống! Hãy đổi hãng cho các sản phẩm trước hoặc chọn ẩn thương hiệu thay vì xóa.`,
+        'error',
+        6000
+      );
       return;
     }
 
@@ -282,8 +310,8 @@ export const PortalBrandsView: React.FC = () => {
       showToast(res.message || `Đã xóa thương hiệu "${b.name}" thành công!`, 'success');
       await loadBrands();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Không thể xóa thương hiệu này!';
-      showToast(msg, 'error');
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Không thể xóa thương hiệu này!';
+      showToast(msg, 'error', 6000);
     }
   };
 

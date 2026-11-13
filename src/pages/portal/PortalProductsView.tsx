@@ -5,6 +5,7 @@ import { categoryService } from '../../services/categoryService';
 import { inventoryService } from '../../services/inventoryService';
 import { Product, Brand, ProductVariant, ProductSpecGroup, VariantSchemaField } from '../../types/product';
 import { variantSchemaService } from '../../services/variantSchemaService';
+import { useToastStore } from '../../stores/toastStore';
 import { DynamicVariantInputs } from '../../components/portal/DynamicVariantInputs';
 import { ProductSpecsEditor } from '../../components/portal/ProductSpecsEditor';
 import { ProductImagesManager } from '../../components/portal/ProductImagesManager';
@@ -55,6 +56,7 @@ interface DraftVariant {
 }
 
 export const PortalProductsView: React.FC = () => {
+  const { showToast } = useToastStore();
   const [activeSubTab, setActiveSubTab] = useState<'products' | 'categories' | 'brands'>('products');
 
   const [products, setProducts] = useState<Product[]>(sharedStore.getProducts());
@@ -258,22 +260,22 @@ export const PortalProductsView: React.FC = () => {
   const handleDeleteCategory = (catName: string) => {
     const hasProducts = (products || []).some(p => p && (p.categoryName || '').toLowerCase() === (catName || '').toLowerCase());
     if (hasProducts) {
-      alert(`RÀNG BUỘC TOÀN VẸN: Không thể xóa danh mục "${catName}" vì đang có sản phẩm liên kết! Vui lòng di chuyển hoặc xóa các sản phẩm trực thuộc trước.`);
+      showToast(`HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${catName}" vì đang có sản phẩm liên kết! Vui lòng di chuyển hoặc xóa các sản phẩm trực thuộc trước.`, 'error', 6000);
       return;
     }
     setCategories(categories.filter(c => c.name !== catName));
-    alert(`Đã xóa danh mục "${catName}".`);
+    showToast(`Đã xóa danh mục "${catName}".`, 'success');
   };
 
   // Xóa thương hiệu với kiểm tra ràng buộc
   const handleDeleteBrand = (brandName: string) => {
     const hasProducts = (products || []).some(p => p && (p.brandName || '').toLowerCase() === (brandName || '').toLowerCase());
     if (hasProducts) {
-      alert(`RÀNG BUỘC TOÀN VẸN: Không thể xóa thương hiệu "${brandName}" vì đang có sản phẩm kinh doanh thuộc thương hiệu này!`);
+      showToast(`CẢNH BÁO RÀNG BUỘC: Không thể xóa thương hiệu "${brandName}" vì đang có sản phẩm kinh doanh thuộc thương hiệu này! Hãy chuyển sản phẩm sang thương hiệu khác trước.`, 'error', 6000);
       return;
     }
     setBrands(brands.filter(b => b.name !== brandName));
-    alert(`Đã xóa thương hiệu "${brandName}".`);
+    showToast(`Đã xóa thương hiệu "${brandName}".`, 'success');
   };
 
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
@@ -409,27 +411,6 @@ export const PortalProductsView: React.FC = () => {
     setShowAddModal(false);
     setNewProdName('');
     alert(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`);
-  };
-
-  const handleDeleteProduct = (p: Product) => {
-    if (!p) return;
-    if (confirm(`Bạn có chắc chắn muốn xóa sản phẩm "${p.name}" (ID: ${p.productId})? Thao tác này sẽ xóa toàn bộ các biến thể SKU và tồn kho liên quan.`)) {
-      // API 4.9: Bật/Tắt trạng thái kinh doanh của sản phẩm
-      productService.updateProductStatus(p.productId, 'INACTIVE', 'Nhân viên quản trị thao tác ngừng kinh doanh')
-        .catch(err => console.warn('[PortalProductsView] updateProductStatus error', err));
-
-      sharedStore.deleteProduct(p.productId);
-      sharedStore.addAuditLog({
-        performedBy: 'Nguyễn Thế Minh (Admin)',
-        action: 'DELETE_PRODUCT',
-        entityName: 'Products',
-        entityId: String(p.productId),
-        oldValue: p.name,
-        newValue: 'DELETED'
-      });
-      setProducts([...sharedStore.getProducts()]);
-      alert(`Đã xóa sản phẩm "${p.name}" thành công!`);
-    }
   };
 
   // Bật / Tắt trạng thái kinh doanh của sản phẩm (đồng bộ tới toàn bộ biến thể)
@@ -1309,7 +1290,7 @@ export const PortalProductsView: React.FC = () => {
                           </td>
 
                           <td className="p-3.5 text-center whitespace-nowrap">
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center">
                               <button 
                                 onClick={() => handleOpenEditProduct(p)}
                                 className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition border border-slate-200"
@@ -1317,28 +1298,6 @@ export const PortalProductsView: React.FC = () => {
                               >
                                 <Edit size={13} className="text-blue-600" />
                                 <span>Chỉnh sửa</span>
-                              </button>
-
-                              <button 
-                                onClick={() => {
-                                  if (variants.length > 0 && variants[0]) {
-                                    handleOpenEditVariant(p.productId, variants[0]);
-                                  } else {
-                                    alert('Sản phẩm này chưa có biến thể SKU nào!');
-                                  }
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition"
-                                title="Sửa ảnh & giá các biến thể SKU"
-                              >
-                                <Tag size={14} />
-                              </button>
-
-                              <button
-                                onClick={() => handleDeleteProduct(p)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                                title="Xóa sản phẩm"
-                              >
-                                <Trash2 size={14} />
                               </button>
                             </div>
                           </td>

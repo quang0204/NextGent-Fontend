@@ -78,10 +78,16 @@ export const PortalCategoriesView: React.FC = () => {
   const loadCategories = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await categoryService.getCategories(true);
-      if (res.data && Array.isArray(res.data)) {
-        setCategoryTree(res.data);
-        const flatted = flattenCategories(res.data);
+      const res: any = await categoryService.getCategories(true);
+      const rawData = Array.isArray(res)
+        ? res
+        : (Array.isArray(res?.data)
+            ? res.data
+            : (Array.isArray(res?.data?.data) ? res.data.data : null));
+
+      if (rawData && rawData.length > 0) {
+        setCategoryTree(rawData);
+        const flatted = flattenCategories(rawData);
         setFlatCategories(flatted);
         // Đồng bộ vào sharedStore cho toàn bộ hệ thống
         sharedStore.setCategories(flatted.map((c, i) => ({
@@ -93,11 +99,52 @@ export const PortalCategoriesView: React.FC = () => {
           sortOrder: i + 1,
           productCount: c.productCount,
         })));
+      } else {
+        // Fallback local store nếu API trả về mảng rỗng
+        let localCats = sharedStore.getCategories();
+        if (!localCats || localCats.length === 0) {
+          sharedStore.resetToDefault();
+          localCats = sharedStore.getCategories();
+        }
+        if (localCats.length > 0) {
+          const mappedTree: CategoryItem[] = localCats
+            .filter(c => c.parentId === null)
+            .map(root => ({
+              categoryId: root.categoryId,
+              parentId: null,
+              name: root.name,
+              slug: generateSlug(root.name),
+              description: root.description,
+              iconUrl: '',
+              isVisible: root.isVisible,
+              productCount: root.productCount || 0,
+              children: localCats
+                .filter(sub => sub.parentId === root.categoryId)
+                .map(sub => ({
+                  categoryId: sub.categoryId,
+                  parentId: root.categoryId,
+                  parentName: root.name,
+                  name: sub.name,
+                  slug: generateSlug(sub.name),
+                  description: sub.description,
+                  iconUrl: '',
+                  isVisible: sub.isVisible,
+                  productCount: sub.productCount || 0,
+                  children: []
+                }))
+            }));
+          setCategoryTree(mappedTree);
+          setFlatCategories(flattenCategories(mappedTree));
+        }
       }
     } catch (err) {
       console.warn('API getCategories error, falling back to local store', err);
-      // Fallback local store nếu không có mạng
-      const localCats = sharedStore.getCategories();
+      // Fallback local store nếu không có mạng hoặc chưa bật BE
+      let localCats = sharedStore.getCategories();
+      if (!localCats || localCats.length === 0) {
+        sharedStore.resetToDefault();
+        localCats = sharedStore.getCategories();
+      }
       const mappedTree: CategoryItem[] = localCats
         .filter(c => c.parentId === null)
         .map(root => ({
@@ -322,10 +369,30 @@ export const PortalCategoriesView: React.FC = () => {
     }
   };
 
-  // Xử lý xóa danh mục (API 3.5: DELETE /api/v1/admin/categories/{id})
+  // Xử lý xóa danh mục (API 3.5: DELETE /api/v1/admin/categories/{id} - Chặn hoàn toàn nếu có sản phẩm hoặc danh mục con)
   const handleDeleteCategory = async (cat: CategoryItem) => {
     if (!isAdmin) {
       showToast('Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền xóa danh mục!', 'error');
+      return;
+    }
+
+    // 1. Chặn hoàn toàn hành vi xóa nếu đang có sản phẩm liên kết
+    if ((cat.productCount || 0) > 0) {
+      showToast(
+        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang có ${cat.productCount} sản phẩm liên kết! Vui lòng chuyển sản phẩm sang danh mục khác trước khi xóa.`,
+        'error',
+        6000
+      );
+      return;
+    }
+
+    // 2. Chặn hoàn toàn nếu đang có danh mục con
+    if (cat.children && cat.children.length > 0) {
+      showToast(
+        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang chứa ${cat.children.length} danh mục con trực thuộc! Vui lòng xóa hoặc di chuyển các nhánh con trước.`,
+        'error',
+        6000
+      );
       return;
     }
 
@@ -338,8 +405,8 @@ export const PortalCategoriesView: React.FC = () => {
       showToast(res.message || `Đã xóa danh mục "${cat.name}" thành công!`, 'success');
       await loadCategories();
     } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Không thể xóa danh mục này!';
-      showToast(msg, 'error');
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Không thể xóa danh mục này!';
+      showToast(msg, 'error', 6000);
     }
   };
 
