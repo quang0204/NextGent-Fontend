@@ -12,7 +12,8 @@ import { ReviewImageUploader } from '../components/common/ReviewImageUploader';
 import { 
   Search, 
   Package, 
-  CheckCircle, 
+  CheckCircle,
+  CheckCircle2, 
   Clock, 
   Truck, 
   AlertCircle, 
@@ -28,7 +29,9 @@ import {
   ArrowRight,
   ArrowLeft,
   Star,
-  X
+  X,
+  Copy,
+  Check
 } from 'lucide-react';
 
 export const resolveOrderReturnState = (ord: OrderDetail, returnRequests?: any[]) => {
@@ -258,9 +261,123 @@ export const OrderTrackingPage: React.FC = () => {
     }
   }, [urlCode]);
 
-  // API 10.1: POST /api/v1/payments/create-intent khi đơn ở trạng thái PENDING_PAYMENT
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [isNotifyingPayment, setIsNotifyingPayment] = useState(false);
+
+  // Countdown timer cho QR chuyển khoản (15 phút)
+  const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number; isExpired: boolean }>({
+    minutes: 15,
+    seconds: 0,
+    isExpired: false,
+  });
+
+  // Tính toán đếm ngược thời gian hết hạn mã QR
   useEffect(() => {
-    if (order && order.status === 'PENDING_PAYMENT') {
+    if (!order || order.paymentStatus === 'PAID') return;
+    const isTransfer = order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER' || order.status === 'PENDING_PAYMENT';
+    if (!isTransfer) return;
+
+    const calculateTime = () => {
+      let deadlineMs = 0;
+      if (order.paymentDeadline) {
+        deadlineMs = new Date(order.paymentDeadline).getTime();
+      } else {
+        const createdMs = order.createdAt ? new Date(order.createdAt).getTime() : Date.now();
+        deadlineMs = createdMs + 15 * 60 * 1000;
+      }
+
+      const diffSec = Math.floor((deadlineMs - Date.now()) / 1000);
+      if (diffSec <= 0) {
+        setTimeLeft({ minutes: 0, seconds: 0, isExpired: true });
+      } else {
+        setTimeLeft({
+          minutes: Math.floor(diffSec / 60),
+          seconds: diffSec % 60,
+          isExpired: false,
+        });
+      }
+    };
+
+    calculateTime();
+    const timer = setInterval(calculateTime, 1000);
+    return () => clearInterval(timer);
+  }, [order?.paymentDeadline, order?.createdAt, order?.paymentStatus, order?.paymentMethod, order?.status]);
+
+  // Tự động hủy đơn hàng và nhả tồn kho khi QR hết hiệu lực (15 phút)
+  useEffect(() => {
+    if (timeLeft.isExpired && order && order.status === 'PENDING_PAYMENT' && order.paymentStatus !== 'PAID') {
+      const cancelReasonText = 'Mã QR hết hiệu lực thanh toán (Quá thời hạn giữ chỗ 15 phút) - Hệ thống tự động hủy đơn và nhả tồn kho';
+      
+      // 1. Gọi backend hủy đơn và nhả tồn kho
+      orderService.cancelOrder(order.orderCode, cancelReasonText, 'Hệ thống tự động').catch(() => {});
+      
+      // 2. Cập nhật sharedStore để hoàn trả tồn kho ngay lập tức
+      sharedStore.cancelOrder(order.orderId, cancelReasonText, 'Hệ thống tự động');
+      
+      // 3. Cập nhật state order của trang hiện tại
+      const updated = sharedStore.getOrderById(order.orderId);
+      if (updated) {
+        setOrder(updated);
+      } else {
+        setOrder(prev => prev ? {
+          ...prev,
+          status: 'CANCELLED',
+          cancelReason: cancelReasonText
+        } : null);
+      }
+
+      showToast('Đơn hàng đã tự động bị hủy do hết hạn thanh toán QR. Toàn bộ tồn kho giữ chỗ đã được giải phóng!', 'warning');
+    }
+  }, [timeLeft.isExpired, order?.orderId, order?.status, order?.paymentStatus]);
+
+  // Tự động đồng bộ khi Admin xác nhận thanh toán (qua sharedStore hoặc Polling API)
+  useEffect(() => {
+    if (!order) return;
+
+    // 1. Lắng nghe sharedStore (tự động nhận ngay lập tức khi Admin thao tác cùng hệ thống)
+    const unsubscribe = sharedStore.subscribe(() => {
+      const freshOrder = sharedStore.getOrderById(order.orderId) || (order.orderCode ? sharedStore.getOrderByCode(order.orderCode) : undefined);
+      if (freshOrder && (freshOrder.paymentStatus !== order.paymentStatus || freshOrder.status !== order.status)) {
+        setOrder(freshOrder);
+        if (freshOrder.paymentStatus === 'PAID') {
+          showToast('Đơn hàng đã được xác nhận thanh toán thành công!', 'success');
+        }
+      }
+    });
+
+    // 2. Định kỳ kiểm tra backend mỗi 3 giây nếu đơn hàng chưa thanh toán
+    let pollInterval: any = null;
+    if (order.paymentStatus !== 'PAID' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER' || order.status === 'PENDING_PAYMENT')) {
+      pollInterval = setInterval(async () => {
+        try {
+          const fresh = await orderService.trackOrder(order.orderCode);
+          if (fresh && fresh.paymentStatus === 'PAID') {
+            setOrder(fresh);
+            sharedStore.updateOrderPaymentStatus(fresh.orderId, 'PAID');
+            showToast('Đơn hàng đã được xác nhận thanh toán thành công!', 'success');
+          }
+        } catch (_) {}
+      }, 3000);
+    }
+
+    return () => {
+      unsubscribe();
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [order?.orderId, order?.orderCode, order?.paymentStatus, order?.status]);
+
+  const handleCopyText = (text: string, fieldName: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(fieldName);
+    showToast(`Đã sao chép ${fieldName}!`, 'info');
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  // API 10.1: POST /api/v1/payments/create-intent khi đơn chuyển khoản chưa thanh toán
+  useEffect(() => {
+    const isTransfer = order && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER');
+    const isNotPaid = order && order.paymentStatus !== 'PAID';
+    if (isTransfer && isNotPaid) {
       paymentService.createPaymentIntent({
         orderId: order.orderId,
         paymentMethod: 'BANK_TRANSFER',
@@ -270,7 +387,7 @@ export const OrderTrackingPage: React.FC = () => {
         console.warn('[OrderTrackingPage] createPaymentIntent error', err);
       });
     }
-  }, [order?.orderId, order?.status]);
+  }, [order?.orderId, order?.status, order?.paymentStatus, order?.paymentMethod]);
 
   const handleOpenReviewModal = (item: OrderItemSnapshot, ord: OrderDetail) => {
     setReviewModalItem({
@@ -651,13 +768,31 @@ export const OrderTrackingPage: React.FC = () => {
                 </div>
               </div>
             ): order.status === 'CANCELLED'? (
-              <div className="p-4 bg-surface-soft border border-critical/30 rounded-xl text-xs text-critical flex items-center gap-2.5">
-                <XCircle size={18} className="flex-shrink-0" />
-                <div>
-                  <strong>Đơn hàng này đã bị hủy.</strong>
-                  <p className="text-[11px] text-charcoal mt-0.5">
-                    Lý do: {order.cancelReason || 'Khách hàng hủy đơn trước khi xuất kho'}. Lượng tồn kho đã được hoàn trả lại cho hệ thống.
-                  </p>
+              <div className="p-5 bg-rose-50/80 border-2 border-rose-300 rounded-2xl text-xs text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
+                    <XCircle size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-sm font-black text-rose-900 uppercase tracking-tight">Đơn hàng này đã bị hủy</strong>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 text-rose-800 border border-rose-300">
+                        ĐÃ HỦY & NHẢ TỒN KHO
+                      </span>
+                    </div>
+                    <p className="text-xs text-rose-800 leading-relaxed">
+                      Lý do: <span className="font-semibold">{order.cancelReason || 'Hết hạn thời gian thanh toán qua mã QR (15 phút)'}</span>.
+                      <strong className="block text-emerald-800 font-extrabold mt-1">✓ Toàn bộ số lượng sản phẩm giữ chỗ đã được giải phóng và hoàn trả lại tồn kho khả dụng.</strong>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Link
+                    to="/products"
+                    className="flex-1 sm:flex-initial px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold text-center transition shadow-xs whitespace-nowrap"
+                  >
+                    Tiếp tục mua sắm
+                  </Link>
                 </div>
               </div>
             ): (
@@ -689,67 +824,200 @@ export const OrderTrackingPage: React.FC = () => {
               </div>
             )}
 
-            {/* QR Payment Box */}
-            {order.status === 'PENDING_PAYMENT' && (
-              <div className="bg-surface-soft border border-hairline-soft rounded-xl p-5 text-xs space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-ink-deep flex items-center gap-2">
-                    <QrCode size={16} className="text-primary" />
-                    <span>Quét mã VietQR chuyển khoản mô phỏng (Hạn giữ chỗ 30 phút)</span>
-                  </h4>
-                  <span className="font-mono text-xs font-bold text-critical bg-canvas px-2.5 py-0.5 rounded-full border border-hairline-soft flex items-center gap-1">
-                    <Clock size={12} /> Hạn: 30 phút
-                  </span>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
-                  <div className="sm:col-span-4 bg-canvas p-3 rounded-xl border border-hairline-soft text-center">
-                    <img 
-                      src={paymentIntent?.qrContent 
-                        ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(paymentIntent.qrContent)}` 
-                        : `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=NEXTPICK_${order.orderCode}`}
-                      alt="VietQR Demo" 
-                      className="mx-auto w-32 h-32 object-contain"
-                    />
-                    <span className="text-[10px] text-steel block mt-1.5">Quét bằng app Ngân hàng</span>
+            {/* Banner Thông Báo Đã Thanh Toán Thành Công */}
+            {order.paymentStatus === 'PAID' && (
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-400 rounded-2xl p-5 text-emerald-950 shadow-xs animate-in zoom-in-95 duration-200">
+                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md flex-shrink-0">
+                    <CheckCircle2 size={28} />
                   </div>
-
-                  <div className="sm:col-span-8 space-y-2 text-charcoal">
-                    <div>Ngân hàng: <strong className="text-ink-deep">{paymentIntent?.bankName || 'MBBank (Ngân hàng Quân Đội)'}</strong></div>
-                    <div>Số tài khoản: <strong className="font-mono text-sm text-primary">{paymentIntent?.bankAccountNumber || '0987654321'}</strong></div>
-                    <div>Chủ tài khoản: <strong className="text-ink-deep">{paymentIntent?.bankAccountName || 'CÔNG TY NEXTGEN SMART TECH RETAIL'}</strong></div>
-                    <div>Số tiền: <strong className="font-bold text-ink-deep">{formatVND(paymentIntent?.amount || order.totalAmount)}</strong></div>
-                    <div>Nội dung CK: <strong className="font-mono text-ink-deep bg-canvas px-2 py-0.5 rounded border border-hairline-soft">{paymentIntent?.transferContent || order.orderCode}</strong></div>
-                    <p className="text-[11px] text-steel pt-1">
-                      * Sau khi hoàn tất chuyển khoản, vui lòng nhấn nút bên dưới để nhân viên đối soát duyệt đơn.
+                  <div className="space-y-1 text-center sm:text-left flex-1">
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                      <h4 className="font-black text-slate-900 text-sm uppercase tracking-tight">
+                        Thanh toán thành công
+                      </h4>
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        ĐÃ THANH TOÁN
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      NextGen đã xác nhận nhận đủ số tiền <strong className="font-mono text-emerald-700 font-extrabold">{formatVND(order.totalAmount)}</strong> qua hình thức {order.paymentMethod === 'COD' ? 'Tiền mặt khi nhận hàng (COD)' : 'Chuyển khoản VietQR'}. Đơn hàng hiện đang được chuyển sang bộ phận kho để chuẩn bị đóng gói và vận chuyển!
                     </p>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        // API 10.2: Xác nhận thanh toán callback
-                        if (paymentIntent?.transactionRef) {
-                          try {
-                            await paymentService.simulateCallback({
-                              transactionRef: paymentIntent.transactionRef,
-                              success: true,
-                              amount: order.totalAmount,
-                              note: 'Khách hàng xác nhận đã chuyển khoản thành công'
-                            });
-                            fetchOrder(order.orderCode);
-                          } catch (cbErr) {
-                            console.warn('[OrderTrackingPage] simulateCallback error', cbErr);
-                          }
-                        }
-                        showToast("Đã ghi nhận thông báo chuyển khoản! Đang chờ nhân viên đối soát.", 'success');
-                      }}
-                      className="btn-marketing px-4 py-2 rounded-full text-xs font-bold"
-                    >
-                      Tôi đã chuyển khoản thành công
-                    </button>
                   </div>
                 </div>
               </div>
             )}
+
+            {/* QR Payment Box (Chỉ hiển thị khi đơn đang Chờ thanh toán, Chưa thanh toán và là Chuyển khoản) */}
+            {order.status === 'PENDING_PAYMENT' && order.paymentStatus !== 'PAID' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER') && (() => {
+              const bankName = paymentIntent?.bankName || 'Vietcombank (Ngoại Thương Việt Nam)';
+              const bankAccountNo = paymentIntent?.bankAccountNumber || '0123456789';
+              const bankAccountName = paymentIntent?.bankAccountName || 'CÔNG TY NEXTGEN VIỆT NAM';
+              const amountToPay = paymentIntent?.amount || order.totalAmount;
+              const transferContent = paymentIntent?.transferContent || order.orderCode;
+              const qrCodeUrl = paymentIntent?.qrContent 
+                ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(paymentIntent.qrContent)}` 
+                : `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=BANK|${encodeURIComponent(bankName)}|${bankAccountNo}|${encodeURIComponent(transferContent)}|${amountToPay}`;
+
+              return (
+                <div className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 border-2 border-blue-200 rounded-2xl p-5 text-xs space-y-4 shadow-xs animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-blue-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold">
+                        <QrCode size={18} />
+                      </div>
+                      <div>
+                        <h4 className="font-extrabold text-slate-900 text-sm uppercase">
+                          Thanh toán chuyển khoản ngân hàng (VietQR)
+                        </h4>
+                        <span className="text-[11px] text-slate-500">
+                          Quét mã QR hoặc chuyển khoản chính xác theo thông tin bên dưới
+                        </span>
+                      </div>
+                    </div>
+                    {timeLeft.isExpired ? (
+                      <span className="font-mono text-xs font-bold text-rose-700 bg-rose-100 px-3 py-1 rounded-full border border-rose-300 flex items-center gap-1.5 animate-pulse">
+                        <AlertCircle size={13} /> Mã QR đã hết hạn
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs font-bold text-amber-900 bg-amber-100 px-3 py-1 rounded-full border border-amber-300 flex items-center gap-1.5 shadow-xs">
+                        <Clock size={13} className="text-amber-700 animate-spin" style={{ animationDuration: '4s' }} /> 
+                        Thời gian còn lại: <strong className="font-mono text-rose-600 font-black text-sm">{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}</strong>
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-5 items-center">
+                    {/* Cột Trái: Ảnh Mã QR */}
+                    <div className="sm:col-span-5 bg-white p-4 rounded-xl border border-blue-100 text-center shadow-xs flex flex-col items-center">
+                      <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 inline-block relative overflow-hidden">
+                        <img 
+                          src={qrCodeUrl}
+                          alt="VietQR Chuyển khoản" 
+                          className={`w-40 h-40 object-contain mx-auto transition-all ${timeLeft.isExpired ? 'blur-xs opacity-25' : ''}`}
+                        />
+                        {timeLeft.isExpired && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center p-2 text-center bg-white/85 rounded-xl">
+                            <AlertCircle size={26} className="text-rose-600 mb-1" />
+                            <span className="text-[11px] font-bold text-rose-700 leading-tight">Mã QR đã hết hạn</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newDeadline = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+                                if (order) {
+                                  (order as any).paymentDeadline = newDeadline;
+                                  sharedStore.updateOrderPaymentStatus(order.orderId, order.paymentStatus);
+                                  setTimeLeft({ minutes: 15, seconds: 0, isExpired: false });
+                                }
+                              }}
+                              className="mt-2 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-[10px] font-bold shadow-xs transition"
+                            >
+                              Gia hạn mã QR
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-semibold text-blue-700 block mt-2">
+                        Quét bằng ứng dụng Ngân hàng (MB, VCB, Techcombank, v.v.)
+                      </span>
+                      <span className="text-[10px] text-slate-400 block">
+                        Tự động điền đúng số tiền và nội dung đơn hàng
+                      </span>
+                    </div>
+
+                    {/* Cột Phải: Chi tiết tài khoản nhận & Nút xác nhận */}
+                    <div className="sm:col-span-7 space-y-2.5 text-slate-700">
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Ngân hàng thụ hưởng:</span>
+                          <strong className="text-slate-900 font-bold text-xs">{bankName}</strong>
+                        </div>
+                      </div>
+
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Số tài khoản:</span>
+                          <strong className="font-mono text-sm text-blue-700 font-bold tracking-wider">{bankAccountNo}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(bankAccountNo, 'Số tài khoản')}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center gap-1 transition"
+                        >
+                          {copiedField === 'Số tài khoản' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          <span>{copiedField === 'Số tài khoản' ? 'Đã chép' : 'Sao chép'}</span>
+                        </button>
+                      </div>
+
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Chủ tài khoản:</span>
+                          <strong className="text-slate-900 font-bold text-xs">{bankAccountName}</strong>
+                        </div>
+                      </div>
+
+                      <div className="p-2 bg-white rounded-lg border border-slate-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block">Số tiền cần thanh toán:</span>
+                          <strong className="text-emerald-700 font-bold text-sm font-mono">{formatVND(amountToPay)}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(String(amountToPay), 'Số tiền')}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[11px] font-semibold flex items-center gap-1 transition"
+                        >
+                          {copiedField === 'Số tiền' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          <span>{copiedField === 'Số tiền' ? 'Đã chép' : 'Sao chép'}</span>
+                        </button>
+                      </div>
+
+                      <div className="p-2 bg-amber-50 rounded-lg border border-amber-200 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-amber-700 block font-semibold">Nội dung chuyển khoản (bắt buộc):</span>
+                          <strong className="font-mono text-slate-900 font-extrabold text-xs">{transferContent}</strong>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyText(transferContent, 'Nội dung CK')}
+                          className="px-2 py-1 bg-white hover:bg-amber-100 text-amber-900 rounded text-[11px] font-bold border border-amber-300 flex items-center gap-1 transition"
+                        >
+                          {copiedField === 'Nội dung CK' ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                          <span>{copiedField === 'Nội dung CK' ? 'Đã chép' : 'Sao chép'}</span>
+                        </button>
+                      </div>
+
+                      {order.paymentStatus === 'PENDING' ? (
+                        <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-center font-bold text-xs flex items-center justify-center gap-2">
+                          <CheckCircle size={15} className="text-emerald-600" />
+                          <span>Quý khách đã gửi xác nhận chuyển khoản! Đang chờ nhân viên đối soát sao kê.</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={isNotifyingPayment}
+                          onClick={async () => {
+                            setIsNotifyingPayment(true);
+                            try {
+                              await orderService.customerNotifyPayment(order.orderId, 'Khách hàng xác nhận đã chuyển khoản thành công');
+                              await fetchOrder(order.orderCode);
+                              showToast("Đã gửi thông báo xác nhận chuyển khoản! Nhân viên sẽ đối soát và kích hoạt đơn.", 'success');
+                            } catch (err: any) {
+                              showToast(err.message || "Lỗi khi gửi thông báo", 'error');
+                            } finally {
+                              setIsNotifyingPayment(false);
+                            }
+                          }}
+                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-extrabold shadow-sm transition flex items-center justify-center gap-2 cursor-pointer"
+                        >
+                          <CheckCircle size={16} />
+                          <span>{isNotifyingPayment ? 'Đang gửi thông báo...' : 'Tôi đã chuyển khoản thành công'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Kết quả xử lý Đổi trả / Hoàn tiền nếu có */}
             {currentReturnState?.returnStatus && (
@@ -792,7 +1060,19 @@ export const OrderTrackingPage: React.FC = () => {
               <div className="space-y-1">
                 <span className="font-bold text-ink-deep uppercase tracking-wider block text-[11px]">Thanh toán & Giao vận:</span>
                 <div>Hình thức: <strong className="text-ink-deep">{order.paymentMethod === 'COD'? 'Thanh toán tiền mặt khi nhận hàng (COD)': 'Chuyển khoản VietQR'}</strong></div>
-                <div>Trạng thái TT: <span className="font-semibold text-attention">{order.paymentStatus === 'PAID'? 'Đã thanh toán': 'Chưa thanh toán'}</span></div>
+                <div>Trạng thái TT: {order.paymentStatus === 'PAID' ? (
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-xs">
+                    <CheckCircle2 size={12} /> Đã thanh toán (Thành công)
+                  </span>
+                ) : order.paymentStatus === 'PENDING' ? (
+                  <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300 text-xs">
+                    <Clock size={12} /> Đang chờ đối soát (Đã chuyển khoản)
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-300 text-xs">
+                    <AlertCircle size={12} /> Chưa thanh toán
+                  </span>
+                )}</div>
                 {order.carrier && (
                   <div className="text-steel">Đơn vị giao: {order.carrier} (Mã VĐ: <strong className="font-mono text-ink-deep">{order.trackingCode}</strong>)</div>
                 )}

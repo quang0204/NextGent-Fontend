@@ -421,6 +421,53 @@ export const PortalOrdersView: React.FC = () => {
     }
   };
 
+  // Xác nhận đã nhận tiền chuyển khoản (API: POST /api/v1/admin/orders/{id}/confirm-payment)
+  const handleAdminConfirmPayment = async (order: OrderDetail) => {
+    // 1. Optimistic UI Update: Thay đổi state nội bộ ngay lập tức để nút biến mất và nhãn đổi ngay tức thì
+    setOrders(prev => prev.map(o => o.orderId === order.orderId ? {
+      ...o,
+      paymentStatus: 'PAID',
+      status: o.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : o.status
+    } : o));
+
+    if (viewDetailModal && viewDetailModal.orderId === order.orderId) {
+      setViewDetailModal((prev: any) => prev ? {
+        ...prev,
+        paymentStatus: 'PAID',
+        status: prev.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : prev.status
+      } : null);
+    }
+
+    // 2. Cập nhật vào sharedStore (kích hoạt notify để mọi tab/component khác đồng bộ ngay)
+    sharedStore.updateOrderPaymentStatus(
+      order.orderId,
+      'PAID',
+      `Admin xác nhận đã nhận đủ tiền chuyển khoản cho đơn hàng #${order.orderCode}. Chuyển sang Chờ xác nhận.`
+    );
+
+    // 3. Gọi Backend API
+    try {
+      const res = await orderService.adminConfirmPayment(
+        order.orderId,
+        `Admin xác nhận đã nhận đủ tiền chuyển khoản cho đơn hàng #${order.orderCode}`
+      );
+      if (res && res.success) {
+        setBulkActionFeedback(`✓ ${res.message || `Đã xác nhận thanh toán đơn #${order.orderCode} thành công!`}`);
+      } else {
+        setBulkActionFeedback(`✓ Đã xác nhận thanh toán đơn #${order.orderCode}!`);
+      }
+    } catch (err: any) {
+      console.warn('[handleAdminConfirmPayment] API error, already updated local state', err);
+      setBulkActionFeedback(`✓ Đã xác nhận thanh toán đơn #${order.orderCode}!`);
+    }
+
+    setTimeout(() => setBulkActionFeedback(null), 4000);
+    // Reload lại từ DB backend sau 800ms để đảm bảo DB đã commit xong
+    setTimeout(() => {
+      loadAdminOrders();
+    }, 800);
+  };
+
   // Xác nhận hủy đơn hàng an toàn (API 8.4: POST /api/v1/orders/{orderCode}/cancel)
   const handleConfirmCancelOrder = async () => {
     if (!cancelModal) return;
@@ -991,44 +1038,28 @@ export const PortalOrdersView: React.FC = () => {
                             <Eye size={15} />
                           </button>
 
-                          {/* 1. PENDING_PAYMENT: Chờ thanh toán qua mã -> Xác nhận TT hoặc Hủy */}
+                          {/* Nút Xác nhận TT cho đơn Chờ thanh toán hoặc đơn chuyển khoản chưa thanh toán */}
+                          {(order.paymentStatus !== 'PAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                            <button
+                              onClick={() => handleAdminConfirmPayment(order)}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition"
+                              title="Xác nhận khách đã thanh toán thành công qua chuyển khoản"
+                            >
+                              <Check size={12} />
+                              <span>Xác nhận TT</span>
+                            </button>
+                          )}
                           {order.status === 'PENDING_PAYMENT' && (
-                            <>
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await paymentService.simulateCallback({
-                                      transactionRef: (order as any).transactionRef || `PAY${order.orderCode.replace(/\D/g, '')}`,
-                                      success: true,
-                                      amount: order.totalAmount,
-                                      note: `Admin xác nhận thanh toán mã đơn #${order.orderCode}`,
-                                    });
-                                  } catch (e) {
-                                    // fallback if network or backend error
-                                  }
-                                  const res = sharedStore.transitionOrderStatus(order.orderId, 'WAITING_CONFIRMATION');
-                                  if (res.success || true) {
-                                    setBulkActionFeedback(`Đã xác nhận thanh toán mã đơn #${order.orderCode}! Chuyển sang Chờ xác nhận.`);
-                                    setTimeout(() => setBulkActionFeedback(null), 4000);
-                                  }
-                                }}
-                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition"
-                                title="Xác nhận khách đã thanh toán thành công qua mã, chuyển sang Chờ xác nhận"
-                              >
-                                <Check size={12} />
-                                <span>Xác nhận TT</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setCancelModal(order);
-                                  setCancelReason('Hết hạn thanh toán / Khách hủy đơn');
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                                title="Hủy đơn hàng"
-                              >
-                                <XCircle size={15} />
-                              </button>
-                            </>
+                            <button
+                              onClick={() => {
+                                setCancelModal(order);
+                                setCancelReason('Hết hạn thanh toán / Khách hủy đơn');
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                              title="Hủy đơn hàng"
+                            >
+                              <XCircle size={15} />
+                            </button>
                           )}
 
                           {/* 2. WAITING_CONFIRMATION: Chờ xác nhận -> Xác nhận chuyển sang Đã xác nhận */}
@@ -1304,41 +1335,26 @@ export const PortalOrdersView: React.FC = () => {
 
                       {/* Các thao tác hợp lệ theo từng tiến trình */}
                       <div className="flex items-center gap-2">
+                        {(order.paymentStatus !== 'PAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                          <button
+                            onClick={() => handleAdminConfirmPayment(order)}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs transition"
+                            title="Xác nhận khách đã thanh toán thành công qua chuyển khoản"
+                          >
+                            <Check size={14} />
+                            <span>Xác nhận đã nhận tiền</span>
+                          </button>
+                        )}
                         {order.status === 'PENDING_PAYMENT' && (
-                          <>
-                            <button
-                              onClick={async () => {
-                                try {
-                                  await paymentService.simulateCallback({
-                                    transactionRef: (order as any).transactionRef || `PAY${order.orderCode.replace(/\D/g, '')}`,
-                                    success: true,
-                                    amount: order.totalAmount,
-                                    note: `Admin xác nhận thanh toán mã đơn #${order.orderCode}`,
-                                  });
-                                } catch (e) {
-                                  // fallback
-                                }
-                                const res = sharedStore.transitionOrderStatus(order.orderId, 'WAITING_CONFIRMATION');
-                                if (res.success || true) {
-                                  setBulkActionFeedback(`Đã xác nhận thanh toán mã đơn #${order.orderCode}! Chuyển sang Chờ xác nhận.`);
-                                  setTimeout(() => setBulkActionFeedback(null), 4000);
-                                }
-                              }}
-                              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs transition"
-                            >
-                              <Check size={14} />
-                              <span>Xác nhận đã TT</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setCancelModal(order);
-                                setCancelReason('Khách hàng yêu cầu hủy đơn');
-                              }}
-                              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs transition"
-                            >
-                              Hủy đơn
-                            </button>
-                          </>
+                          <button
+                            onClick={() => {
+                              setCancelModal(order);
+                              setCancelReason('Khách hàng yêu cầu hủy đơn');
+                            }}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl font-bold text-xs transition"
+                          >
+                            Hủy đơn
+                          </button>
                         )}
 
                         {order.status === 'WAITING_CONFIRMATION' && (
@@ -1572,6 +1588,19 @@ export const PortalOrdersView: React.FC = () => {
                           <p className="text-[10px] text-amber-600 font-medium mt-1">
                             Thời hạn giữ chỗ thanh toán: {new Date(order.paymentDeadline).toLocaleTimeString('vi-VN')}
                           </p>
+                        )}
+
+                        {order.paymentStatus !== 'PAID' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER') && (
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+                            <span className="text-[11px] text-amber-600 font-medium">Chờ xác nhận tiền vào TK</span>
+                            <button
+                              onClick={() => handleAdminConfirmPayment(order)}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                            >
+                              <Check size={12} />
+                              <span>Xác nhận đã nhận tiền</span>
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>

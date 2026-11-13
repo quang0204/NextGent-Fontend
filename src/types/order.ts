@@ -35,8 +35,8 @@ export interface OrderDetail {
   recipientName: string;
   recipientPhone: string;
   shippingAddress: string;
-  paymentMethod: 'COD' | 'SIMULATED_TRANSFER';
-  paymentStatus: 'UNPAID' | 'PAID' | 'REFUNDED';
+  paymentMethod: 'COD' | 'SIMULATED_TRANSFER' | 'BANK_TRANSFER' | string;
+  paymentStatus: 'UNPAID' | 'PAID' | 'REFUNDED' | 'PENDING' | 'PARTIALLY_PAID' | string;
   paymentDeadline?: string;
   shippingFee: number;
   subtotal: number;
@@ -62,7 +62,7 @@ export interface CreateOrderPayload {
   recipientName: string;
   recipientPhone: string;
   shippingAddress: string;
-  paymentMethod: 'COD' | 'SIMULATED_TRANSFER';
+  paymentMethod: 'COD' | 'SIMULATED_TRANSFER' | 'BANK_TRANSFER' | string;
   note?: string;
   voucherCode?: string;
   items: {

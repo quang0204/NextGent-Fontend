@@ -199,6 +199,15 @@ const notify = () => {
   listeners.forEach(l => l());
 };
 
+// Thiết lập background timer quét đơn hết hạn mỗi 15 giây
+if (typeof window !== 'undefined') {
+  setInterval(() => {
+    try {
+      sharedStore.checkAndCancelExpiredOrders();
+    } catch (_) {}
+  }, 15000);
+}
+
 export const sharedStore = {
   subscribe(listener: Listener) {
     listeners.add(listener);
@@ -456,6 +465,7 @@ export const sharedStore = {
   },
 
   getOrders(): OrderDetail[] {
+    this.checkAndCancelExpiredOrders();
     return orders.map(sanitizeOrderNotes);
   },
 
@@ -486,11 +496,13 @@ export const sharedStore = {
   },
 
   getOrderById(orderId: number): OrderDetail | undefined {
+    this.checkAndCancelExpiredOrders();
     const o = orders.find(ord => ord.orderId === orderId);
     return o ? sanitizeOrderNotes(o) : undefined;
   },
 
   getOrderByCode(code: string): OrderDetail | undefined {
+    this.checkAndCancelExpiredOrders();
     const trimmed = code.trim().toUpperCase().replace('#', '');
     const o = orders.find(ord => ord.orderCode.toUpperCase().includes(trimmed));
     return o ? sanitizeOrderNotes(o) : undefined;
@@ -1341,6 +1353,47 @@ export const sharedStore = {
       paymentDeadline: deadline,
       createdAt: newOrder.createdAt
     };
+  },
+
+  // Tự động kiểm tra và hủy các đơn hàng chờ thanh toán QR đã hết hạn (15 phút), nhả tồn kho
+  checkAndCancelExpiredOrders(): number {
+    const now = Date.now();
+    let count = 0;
+    const expiredList = orders.filter(o => {
+      if (o.status !== 'PENDING_PAYMENT' || o.paymentStatus === 'PAID') return false;
+      const deadline = o.paymentDeadline ? new Date(o.paymentDeadline).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() + 15 * 60 * 1000 : 0);
+      return deadline > 0 && now >= deadline;
+    });
+
+    for (const exp of expiredList) {
+      this.cancelOrder(
+        exp.orderId,
+        'Hết hạn thời gian thanh toán qua mã QR (15 phút) - Hệ thống tự động giải phóng tồn kho giữ chỗ.',
+        'Hệ thống tự động'
+      );
+      count++;
+    }
+    return count;
+  },
+
+  updateOrderPaymentStatus(orderId: number, paymentStatus: 'UNPAID' | 'PAID' | 'REFUNDED' | 'PENDING' | 'PARTIALLY_PAID' | string, note?: string): boolean {
+    const order = orders.find(o => o.orderId === orderId);
+    if (!order) return false;
+    order.paymentStatus = paymentStatus as any;
+    if (paymentStatus === 'PAID' && order.status === 'PENDING_PAYMENT') {
+      order.status = 'WAITING_CONFIRMATION';
+    }
+    order.updatedAt = new Date().toISOString();
+    if (note) {
+      order.statusHistory.unshift({
+        status: order.status,
+        time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }),
+        note
+      });
+    }
+    saveToStorage(STORAGE_KEY_ORDERS, orders);
+    notify();
+    return true;
   },
 
   // NGHIỆP VỤ 2: HỦY ĐƠN HÀNG & GIẢI PHÓNG TỒN GIỮ CHỖ

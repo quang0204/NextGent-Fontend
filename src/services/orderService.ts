@@ -514,4 +514,46 @@ export const orderService = {
   ): Promise<{ success: boolean; message: string }> {
     return returnService.createReturnRequest({ orderId, reason, bankInfo });
   }
+,
+
+  /**
+   * API 8.5: POST /api/v1/orders/{id}/notify-payment
+   * Khách hàng xác nhận đã chuyển khoản thành công
+   */
+  async customerNotifyPayment(orderId: number, note?: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await apiClient.post<{ success: boolean; data: any; message?: string }>(
+        `/orders/${orderId}/notify-payment`,
+        null,
+        { params: { note } }
+      );
+      return res.data;
+    } catch (err: any) {
+      console.warn('[orderService.customerNotifyPayment] failed, updating local store', err);
+      sharedStore.updateOrderPaymentStatus(orderId, 'PENDING');
+      return { success: true, message: 'Đã tiếp nhận thông báo chuyển khoản!' };
+    }
+  },
+
+  /**
+   * API 8.8: POST /api/v1/admin/orders/{id}/confirm-payment
+   * Admin / Staff duyệt xác nhận đã nhận tiền chuyển khoản
+   */
+  async adminConfirmPayment(orderId: number, note?: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await apiClient.post<{ success: boolean; data: any; message?: string }>(
+        `/admin/orders/${orderId}/confirm-payment`,
+        null,
+        { params: { note } }
+      );
+      sharedStore.updateOrderPaymentStatus(orderId, 'PAID');
+      sharedStore.transitionOrderStatus(orderId, 'WAITING_CONFIRMATION');
+      return res.data;
+    } catch (err: any) {
+      console.warn('[orderService.adminConfirmPayment] failed, fallback local store', err);
+      sharedStore.updateOrderPaymentStatus(orderId, 'PAID');
+      sharedStore.transitionOrderStatus(orderId, 'WAITING_CONFIRMATION');
+      return { success: true, message: 'Đã xác nhận thanh toán chuyển khoản thành công!' };
+    }
+  }
 };
