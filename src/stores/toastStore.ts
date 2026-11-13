@@ -17,15 +17,17 @@ interface ToastStore {
 
 export const useToastStore = create<ToastStore>((set) => ({
   toasts: [],
-  showToast: (message, type = 'success', duration = 3000) => {
+  showToast: (message, type = 'success', duration) => {
+    const defaultDuration = (type === 'error' || type === 'warning') ? 5000 : 3000;
+    const finalDuration = duration !== undefined ? duration : defaultDuration;
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-    const newToast: ToastItem = { id, type, message, duration };
+    const newToast: ToastItem = { id, type, message, duration: finalDuration };
     set((state) => ({ toasts: [...state.toasts, newToast] }));
 
-    if (duration > 0) {
+    if (finalDuration > 0) {
       setTimeout(() => {
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
-      }, duration);
+      }, finalDuration);
     }
   },
   removeToast: (id) => {

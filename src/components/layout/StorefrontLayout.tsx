@@ -4,7 +4,6 @@ import { TopNotificationBar } from './TopNotificationBar';
 import { Header } from './Header';
 import { Footer } from './Footer';
 import { MobileBottomNav } from './MobileBottomNav';
-import { ToastContainer } from '../common/ToastContainer';
 
 export const StorefrontLayout: React.FC = () => {
   return (
@@ -18,7 +17,6 @@ export const StorefrontLayout: React.FC = () => {
 
       <Footer />
       <MobileBottomNav />
-      <ToastContainer />
     </div>
   );
 };

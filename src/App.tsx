@@ -21,6 +21,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 
 // Portal Page (Admin & Staff)
 import { AdminPortalPage } from './pages/AdminPortalPage';
+import { ToastContainer } from './components/common/ToastContainer';
 
 export const App: React.FC = () => {
   const fetchMe = useAuthStore((state) => state.fetchMe);
@@ -35,6 +36,7 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
+      <ToastContainer />
       <Routes>
         {/* Storefront Layout with Public Header, Navigation & Footer */}
         <Route element={<StorefrontLayout />}>
