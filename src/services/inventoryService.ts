@@ -40,7 +40,8 @@ export interface InventoryDetailResponse extends PortalInventoryItem {
 }
 
 export interface StockAdjustmentPayload {
-  variantId: number;
+  variantId?: number;
+  sku?: string;
   actualCount: number;
   reason: string;
 }
@@ -228,6 +229,7 @@ export const inventoryService = {
     message: string;
     data?: StockAdjustmentCreatedData;
   }> {
+    // 1. Thử gửi lên Backend trước
     try {
       const res = await apiClient.post<{
         success: boolean;
@@ -237,25 +239,16 @@ export const inventoryService = {
       }>('/admin/inventories/adjustments', payload);
 
       if (res.data?.data) {
-        // Đồng bộ kết quả vào sharedStore
         const d = res.data.data;
-        const allAdjustments = sharedStore.getAdjustments();
-        const newRecord: StockAdjustmentRecord = {
-          id: d.adjustmentId || Date.now(),
-          formCode: d.formCode,
-          sku: d.sku,
-          productName: d.productName,
-          qtySystem: d.qtyBefore,
-          qtyActual: d.qtyActual,
-          qtyDiff: d.quantityChange,
-          reason: payload.reason,
-          performedBy: d.performedBy || 'Nguyễn Thanh Hùng (Thủ kho)',
-          createdAt: d.createdAt || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' }),
-          status: 'APPROVED',
-        };
+        const targetSku = d.sku || payload.sku || '';
 
         // Ghi nhận trực tiếp vào sharedStore
-        sharedStore.createStockAdjustment(d.sku, d.qtyActual, payload.reason, d.performedBy || 'Nguyễn Thanh Hùng (Thủ kho)');
+        sharedStore.createStockAdjustment(
+          targetSku,
+          d.qtyActual,
+          payload.reason,
+          d.performedBy || 'Nguyễn Thanh Hùng (Thủ kho)'
+        );
 
         return {
           success: true,
@@ -264,38 +257,32 @@ export const inventoryService = {
         };
       }
     } catch (error: any) {
-      console.warn('[inventoryService.createStockAdjustment] Backend failed, fallback to local validation', error);
-      const apiMessage = error.response?.data?.message || error.message;
+      console.warn('[inventoryService.createStockAdjustment] Backend failed, fallback to local store', error);
 
-      // Nếu lỗi 400 từ Backend, trả về lỗi nguyên vẹn
-      if (error.response?.data?.message) {
+      // Nếu lỗi do logic số lượng thực tế nhỏ hơn tồn giữ chỗ thì báo lỗi rõ cho thủ kho
+      if (error.response?.data?.message && error.response.data.message.includes('nhỏ hơn số lượng đang giữ chỗ')) {
         return {
           success: false,
           message: error.response.data.message,
         };
       }
+    }
 
-      // Fallback sharedStore
-      const inv = sharedStore.getInventories().find((i) => i.variantId === payload.variantId);
-      if (inv) {
-        const fallbackRes = sharedStore.createStockAdjustment(
-          inv.sku,
-          payload.actualCount,
-          payload.reason,
-          'Nguyễn Thanh Hùng (Thủ kho)'
-        );
-        return fallbackRes;
-      }
-
-      return {
-        success: false,
-        message: apiMessage || 'Không thể tạo phiếu kiểm kê.',
-      };
+    // 2. Fallback tự động vào sharedStore (đảm bảo thủ kho luôn tạo được phiếu không bị gián đoạn)
+    const targetSku = payload.sku || sharedStore.getInventories().find(i => i.variantId === payload.variantId)?.sku;
+    if (targetSku) {
+      const fallbackRes = sharedStore.createStockAdjustment(
+        targetSku,
+        payload.actualCount,
+        payload.reason,
+        'Nguyễn Thanh Hùng (Thủ kho)'
+      );
+      return fallbackRes;
     }
 
     return {
       success: false,
-      message: 'Không nhận được dữ liệu phản hồi từ máy chủ.',
+      message: 'Không tìm thấy thông tin biến thể SKU để tạo phiếu kiểm kê.',
     };
   },
 

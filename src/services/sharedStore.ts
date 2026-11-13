@@ -1855,7 +1855,7 @@ export const sharedStore = {
     reason: string, 
     performedBy = 'Nguyễn Thanh Hùng (Thủ kho)'
   ): { success: boolean; message: string } {
-    const inv = inventories.find(i => i.sku === sku);
+    const inv = inventories.find(i => i.sku.toLowerCase() === sku.toLowerCase());
     if (!inv) return { success: false, message: 'Không tìm thấy SKU trong kho!' };
 
     if (actualCount < inv.reservedQty) {
@@ -1889,7 +1889,7 @@ export const sharedStore = {
     // 2. Cập nhật tồn kho
     const oldOnHand = inv.onHandQty;
     inventories = inventories.map(item => {
-      if (item.sku === sku) {
+      if (item.sku.toLowerCase() === sku.toLowerCase()) {
         const newOnHand = actualCount;
         const newAvail = newOnHand - item.reservedQty;
         return {...item,
@@ -1902,11 +1902,11 @@ export const sharedStore = {
     });
 
     products = products.map(prod => {
-      const hasVariant = prod.variants.some(vr => vr.sku === sku);
+      const hasVariant = prod.variants.some(vr => vr.sku.toLowerCase() === sku.toLowerCase());
       if (hasVariant) {
         return {...prod,
           variants: prod.variants.map(vr => {
-            if (vr.sku === sku) {
+            if (vr.sku.toLowerCase() === sku.toLowerCase()) {
               const newOnHand = actualCount;
               const newAvail = newOnHand - vr.reservedQty;
               return {...vr,

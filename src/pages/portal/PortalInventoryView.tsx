@@ -39,6 +39,7 @@ export const PortalInventoryView: React.FC = () => {
 
   // Modal xem phiếu kiểm kê
   const [viewMb05Record, setViewMb05Record] = useState<StockAdjustmentRecord | null>(null);
+  const [adjustmentFeedback, setAdjustmentFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // API 5.1 & 5.5: Tải danh sách tồn kho biến thể từ Backend
   const loadInventories = useCallback(async () => {
@@ -133,7 +134,10 @@ export const PortalInventoryView: React.FC = () => {
   // Xử lý tạo Phiếu điều chỉnh tồn kho kiểm kê (API 5.3: POST /api/v1/admin/inventories/adjustments)
   const handleCreateAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentInventoryItem) return;
+    if (!currentInventoryItem) {
+      alert('Vui lòng chọn biến thể SKU cần lập phiếu kiểm kê!');
+      return;
+    }
 
     if (actualCount < currentInventoryItem.reservedQty) {
       alert(`Số lượng tồn thực tế (${actualCount}) không được nhỏ hơn số lượng đang giữ chỗ cho khách (${currentInventoryItem.reservedQty})!`);
@@ -141,21 +145,56 @@ export const PortalInventoryView: React.FC = () => {
     }
 
     const fullReason = `${adjReason}${adjDetailedReason ? `: ${adjDetailedReason}` : ''}`;
+    const targetSku = currentInventoryItem.sku;
+    const newOnHand = actualCount;
+    const newAvail = Math.max(0, newOnHand - currentInventoryItem.reservedQty);
+
+    // 1. Optimistic Update: Cập nhật state tồn kho ngay tại chỗ để nhảy số mới lập tức
+    setInventories(prev => prev.map(item => {
+      if (item.sku.toLowerCase() === targetSku.toLowerCase()) {
+        return {
+          ...item,
+          onHandQty: newOnHand,
+          availableQty: newAvail,
+          status: (newAvail <= 0 ? 'OUT_OF_STOCK' : newAvail <= item.minThreshold ? 'LOW_STOCK' : 'IN_STOCK') as any
+        };
+      }
+      return item;
+    }));
+
+    // 2. Gửi request tạo phiếu kiểm kê (gửi backend và lưu vào sharedStore)
     const res = await inventoryService.createStockAdjustment({
       variantId: currentInventoryItem.variantId,
-      actualCount,
+      sku: targetSku,
+      actualCount: newOnHand,
       reason: fullReason,
     });
 
     if (!res.success) {
       alert(res.message);
+      // Rollback nếu có lỗi
+      setInventories([...sharedStore.getInventories()]);
     } else {
-      alert(res.message);
       setAdjDetailedReason('');
-      setActiveTab('adjustment');
+      setAdjustmentFeedback({
+        type: 'success',
+        message: `✓ Đã lập phiếu kiểm kê và cập nhật tồn kho SKU ${targetSku} thành công! Tồn hệ thống mới: ${newOnHand} chiếc (Khả dụng: ${newAvail}).`
+      });
+      setTimeout(() => setAdjustmentFeedback(null), 5000);
+
+      // Cập nhật lại các state từ sharedStore
+      setInventories([...sharedStore.getInventories()]);
       setAdjustments([...sharedStore.getAdjustments()]);
-      loadInventories();
-      loadTransactions();
+      setMovements([...sharedStore.getMovements()]);
+
+      // Đồng bộ actualCount khớp với tồn mới để chênh lệch về 0
+      setActualCount(newOnHand);
+
+      // Hoãn gọi loadInventories để tránh backend ghi đè
+      setTimeout(() => {
+        loadInventories();
+        loadTransactions();
+      }, 1500);
     }
   };
 
@@ -393,6 +432,16 @@ export const PortalInventoryView: React.FC = () => {
             </p>
 
             <form onSubmit={handleCreateAdjustment} className="space-y-3 text-xs">
+              {adjustmentFeedback && (
+                <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 animate-in fade-in duration-200 ${
+                  adjustmentFeedback.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-900' 
+                    : 'bg-rose-50 border-rose-300 text-rose-900'
+                }`}>
+                  <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />
+                  <span>{adjustmentFeedback.message}</span>
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-slate-700 mb-1">Chọn biến thể SKU cần điều chỉnh:</label>
                 <select
@@ -413,20 +462,25 @@ export const PortalInventoryView: React.FC = () => {
               </div>
 
               {currentInventoryItem && (
-                <div className="p-3 bg-slate-50 rounded border border-slate-200 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Tồn hệ thống</span>
-                    <strong className="text-slate-800 text-sm font-bold">{currentInventoryItem.onHandQty}</strong>
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center text-xs">
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/60 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Tồn hệ thống</span>
+                    <strong className="text-slate-900 text-sm font-black font-mono">{currentInventoryItem.onHandQty}</strong>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-amber-600 block">Đang giữ chỗ</span>
-                    <strong className="text-amber-700 text-sm font-bold">{currentInventoryItem.reservedQty}</strong>
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/60 shadow-2xs">
+                    <span className="text-[10px] text-amber-600 block font-medium">Đang giữ chỗ</span>
+                    <strong className="text-amber-700 text-sm font-black font-mono">{currentInventoryItem.reservedQty}</strong>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block">Chênh lệch</span>
-                    <strong className={`text-sm font-bold ${calculatedDiff > 0? 'text-blue-600': calculatedDiff < 0? 'text-rose-600': 'text-slate-600'}`}>
-                      {calculatedDiff > 0? `+${calculatedDiff}`: calculatedDiff}
+                  <div className="bg-white p-2 rounded-lg border border-slate-200/60 shadow-2xs">
+                    <span className="text-[10px] text-slate-400 block font-medium">Chênh lệch</span>
+                    <strong className={`text-sm font-black font-mono ${calculatedDiff > 0 ? 'text-blue-600' : calculatedDiff < 0 ? 'text-rose-600' : 'text-slate-600'}`}>
+                      {calculatedDiff > 0 ? `+${calculatedDiff}` : calculatedDiff}
                     </strong>
+                  </div>
+                  <div className="bg-emerald-50/70 p-2 rounded-lg border border-emerald-200 shadow-2xs">
+                    <span className="text-[10px] text-emerald-700 block font-bold">Tồn mới sau kiểm kê</span>
+                    <strong className="text-emerald-800 text-sm font-black font-mono">{actualCount}</strong>
+                    <span className="text-[9px] text-emerald-600 block">Khả dụng: {Math.max(0, actualCount - currentInventoryItem.reservedQty)}</span>
                   </div>
                 </div>
               )}

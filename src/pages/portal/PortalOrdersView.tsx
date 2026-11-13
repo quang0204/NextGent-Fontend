@@ -94,7 +94,8 @@ const STATUS_PIPELINE: { key: OrderStatus; label: string; badgeClass: string; de
 // Helper hiển thị trạng thái thanh toán
 const PAYMENT_STATUS_MAP: Record<string, { label: string; badgeClass: string }> = {
   PAID: { label: 'Đã thanh toán', badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  UNPAID: { label: 'Chưa thanh toán', badgeClass: 'bg-amber-50 text-amber-700 border-amber-200' },
+  PENDING: { label: 'Đã báo CK (Chờ duyệt)', badgeClass: 'bg-amber-100 text-amber-800 border-amber-300 font-bold' },
+  UNPAID: { label: 'Chưa thanh toán', badgeClass: 'bg-slate-100 text-slate-600 border-slate-200' },
   REFUNDED: { label: 'Đã hoàn tiền', badgeClass: 'bg-purple-50 text-purple-700 border-purple-200' }
 };
 
@@ -1038,16 +1039,26 @@ export const PortalOrdersView: React.FC = () => {
                             <Eye size={15} />
                           </button>
 
-                          {/* Nút Xác nhận TT cho đơn Chờ thanh toán hoặc đơn chuyển khoản chưa thanh toán */}
-                          {(order.paymentStatus !== 'PAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                          {/* Nút Xác nhận TT: CHỈ hiển thị khi khách ĐÃ bấm "Tôi đã chuyển khoản" (paymentStatus === 'PENDING') */}
+                          {(order.paymentStatus === 'PENDING' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
                             <button
                               onClick={() => handleAdminConfirmPayment(order)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition"
-                              title="Xác nhận khách đã thanh toán thành công qua chuyển khoản"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition animate-pulse"
+                              title="Khách hàng đã xác nhận chuyển khoản qua QR! Bấm để duyệt và ghi nhận đã nhận tiền."
                             >
                               <Check size={12} />
                               <span>Xác nhận TT</span>
                             </button>
+                          )}
+                          {/* Khi khách hàng CHƯA bấm chuyển khoản (paymentStatus === 'UNPAID') */}
+                          {(order.paymentStatus === 'UNPAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                            <span 
+                              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-500 border border-slate-200 flex items-center gap-1 cursor-default"
+                              title="Khách hàng đang quét mã QR và chưa nhấn 'Tôi đã chuyển khoản'"
+                            >
+                              <Clock size={10} className="text-amber-500" />
+                              <span>Chờ khách CK</span>
+                            </span>
                           )}
                           {order.status === 'PENDING_PAYMENT' && (
                             <button
@@ -1335,15 +1346,22 @@ export const PortalOrdersView: React.FC = () => {
 
                       {/* Các thao tác hợp lệ theo từng tiến trình */}
                       <div className="flex items-center gap-2">
-                        {(order.paymentStatus !== 'PAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                        {/* Thao tác xác nhận tiền: Chỉ hiện khi khách đã xác nhận chuyển khoản (paymentStatus === 'PENDING') */}
+                        {(order.paymentStatus === 'PENDING' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
                           <button
                             onClick={() => handleAdminConfirmPayment(order)}
-                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-xs flex items-center gap-1 shadow-xs transition"
-                            title="Xác nhận khách đã thanh toán thành công qua chuyển khoản"
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs transition animate-pulse"
+                            title="Khách hàng đã báo chuyển khoản thành công. Bấm để xác nhận tiền đã vào tài khoản!"
                           >
                             <Check size={14} />
                             <span>Xác nhận đã nhận tiền</span>
                           </button>
+                        )}
+                        {(order.paymentStatus === 'UNPAID' && (order.status === 'PENDING_PAYMENT' || order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER')) && (
+                          <span className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium border border-slate-200 flex items-center gap-1.5">
+                            <Clock size={13} className="text-amber-500" />
+                            <span>Chờ khách quét QR & báo CK</span>
+                          </span>
                         )}
                         {order.status === 'PENDING_PAYMENT' && (
                           <button
@@ -1590,16 +1608,25 @@ export const PortalOrdersView: React.FC = () => {
                           </p>
                         )}
 
-                        {order.paymentStatus !== 'PAID' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER') && (
+                        {order.paymentStatus === 'PENDING' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER' || order.status === 'PENDING_PAYMENT') && (
                           <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-                            <span className="text-[11px] text-amber-600 font-medium">Chờ xác nhận tiền vào TK</span>
+                            <span className="text-[11px] text-emerald-700 font-bold flex items-center gap-1">
+                              <Check size={13} className="text-emerald-600" /> Khách đã gửi xác nhận chuyển khoản
+                            </span>
                             <button
                               onClick={() => handleAdminConfirmPayment(order)}
-                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition shadow-xs"
                             >
                               <Check size={12} />
                               <span>Xác nhận đã nhận tiền</span>
                             </button>
+                          </div>
+                        )}
+                        {order.paymentStatus === 'UNPAID' && (order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SIMULATED_TRANSFER' || order.status === 'PENDING_PAYMENT') && (
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                            <span className="flex items-center gap-1">
+                              <Clock size={12} className="text-amber-500" /> Khách chưa bấm "Tôi đã chuyển khoản"
+                            </span>
                           </div>
                         )}
                       </div>
