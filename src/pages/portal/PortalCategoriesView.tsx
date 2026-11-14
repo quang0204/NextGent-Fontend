@@ -16,8 +16,7 @@ import {
   AlertCircle,
   Package,
   Layers,
-  Loader2,
-  UploadCloud
+  Loader2
 } from 'lucide-react';
 
 // Chuyển đổi tên tiếng Việt thành slug chuẩn SEO URL
@@ -66,10 +65,6 @@ export const PortalCategoriesView: React.FC = () => {
   const [slug, setSlug] = useState('');
   const [parentId, setParentId] = useState<number | null>(null);
   const [description, setDescription] = useState('');
-  const [iconUrl, setIconUrl] = useState('');
-  const [iconUploadId, setIconUploadId] = useState<string | null>(null);
-  const [isUploadingIcon, setIsUploadingIcon] = useState(false);
-  const [uploadError, setUploadError] = useState('');
   const [isVisible, setIsVisible] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -115,7 +110,6 @@ export const PortalCategoriesView: React.FC = () => {
               name: root.name,
               slug: generateSlug(root.name),
               description: root.description,
-              iconUrl: '',
               isVisible: root.isVisible,
               productCount: root.productCount || 0,
               children: localCats
@@ -127,7 +121,6 @@ export const PortalCategoriesView: React.FC = () => {
                   name: sub.name,
                   slug: generateSlug(sub.name),
                   description: sub.description,
-                  iconUrl: '',
                   isVisible: sub.isVisible,
                   productCount: sub.productCount || 0,
                   children: []
@@ -153,7 +146,6 @@ export const PortalCategoriesView: React.FC = () => {
           name: root.name,
           slug: generateSlug(root.name),
           description: root.description,
-          iconUrl: '',
           isVisible: root.isVisible,
           productCount: root.productCount || 0,
           children: localCats
@@ -165,7 +157,6 @@ export const PortalCategoriesView: React.FC = () => {
               name: sub.name,
               slug: generateSlug(sub.name),
               description: sub.description,
-              iconUrl: '',
               isVisible: sub.isVisible,
               productCount: sub.productCount || 0,
               children: []
@@ -189,9 +180,6 @@ export const PortalCategoriesView: React.FC = () => {
     setSlug('');
     setParentId(defaultParentId !== undefined ? defaultParentId : null);
     setDescription('');
-    setIconUrl('');
-    setIconUploadId(null);
-    setUploadError('');
     setIsVisible(true);
     setFormError('');
     setShowModal(true);
@@ -204,98 +192,9 @@ export const PortalCategoriesView: React.FC = () => {
     setSlug(cat.slug || generateSlug(cat.name));
     setParentId(cat.parentId || null);
     setDescription(cat.description || '');
-    setIconUrl(cat.iconUrl || '');
-    setIconUploadId(null);
-    setUploadError('');
     setIsVisible(cat.isVisible !== false);
     setFormError('');
     setShowModal(true);
-  };
-
-  // Upload icon trực tiếp lên MinIO theo quy trình Presigned URL & Redis Session
-  const handleIconFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      showToast('Tệp chọn không phải là định dạng hình ảnh hợp lệ (JPG, PNG, WEBP, GIF, SVG)!', 'error');
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      showToast('Kích thước ảnh không được vượt quá 10MB!', 'error');
-      return;
-    }
-
-    setIsUploadingIcon(true);
-    setUploadError('');
-
-    try {
-      // Bước 1: Yêu cầu backend cấp Presigned URL
-      const presignedRes = await categoryService.createPresignedUrls({
-        storageType: 'CATEGORIES',
-        categoryId: editingCategory?.categoryId,
-        files: [{
-          fileName: file.name,
-          contentType: file.type,
-          fileSize: file.size,
-        }],
-      });
-
-      const item = presignedRes.data?.[0];
-      if (!item) {
-        throw new Error('Không thể khởi tạo liên kết tải ảnh lên MinIO');
-      }
-
-      // Bước 2: Tải binary trực tiếp từ trình duyệt lên MinIO bằng HTTP PUT
-      await categoryService.uploadBinaryToMinio(item.uploadUrl, file);
-
-      // Bước 3: Xác nhận tải lên hoàn tất và kiểm tra magic bytes
-      const confirmRes = await categoryService.confirmUpload({
-        uploadId: item.uploadId,
-        objectKey: item.objectKey,
-      });
-
-      const confirmedData = confirmRes.data;
-      setIconUrl(confirmedData.accessUrl || confirmedData.canonicalUrl || confirmedData.imageUrl || '');
-      setIconUploadId(confirmedData.uploadId);
-
-      showToast('Tải lên và xác thực icon danh mục qua MinIO thành công!', 'success');
-
-      // Nếu là Cách A (cập nhật trực tiếp vào categoryId có sẵn), DB đã lưu thẳng -> refresh danh sách
-      if (editingCategory) {
-        await loadCategories();
-      }
-    } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Lỗi tải ảnh lên MinIO!';
-      setUploadError(msg);
-      showToast(msg, 'error');
-    } finally {
-      setIsUploadingIcon(false);
-      e.target.value = '';
-    }
-  };
-
-  // Xóa icon riêng của danh mục
-  const handleRemoveIcon = async () => {
-    if (editingCategory && editingCategory.iconUrl) {
-      if (!window.confirm(`Bạn có chắc chắn muốn xóa icon của danh mục "${editingCategory.name}"?`)) {
-        return;
-      }
-      try {
-        await categoryService.deleteCategoryIcon(editingCategory.categoryId);
-        showToast('Đã xóa icon danh mục thành công!', 'success');
-        setIconUrl('');
-        setIconUploadId(null);
-        await loadCategories();
-      } catch (err: any) {
-        const msg = err.response?.data?.message || err.message || 'Không thể xóa icon danh mục!';
-        showToast(msg, 'error');
-      }
-    } else {
-      setIconUrl('');
-      setIconUploadId(null);
-    }
   };
 
   // Tự động sinh slug khi nhập tên (nếu chưa sửa thủ công)
@@ -319,8 +218,6 @@ export const PortalCategoriesView: React.FC = () => {
       name: name.trim(),
       slug: slug.trim() || generateSlug(name.trim()),
       description: description.trim(),
-      iconUrl: iconUrl.trim(),
-      iconUploadId: iconUploadId || undefined,
       isVisible: isVisible,
     };
 
@@ -358,7 +255,6 @@ export const PortalCategoriesView: React.FC = () => {
         name: cat.name,
         slug: cat.slug,
         description: cat.description,
-        iconUrl: cat.iconUrl,
         isVisible: nextVisible,
       });
       showToast(`Đã ${nextVisible ? 'hiển thị' : 'tạm ẩn'} danh mục "${cat.name}"!`, 'info');
@@ -547,7 +443,7 @@ export const PortalCategoriesView: React.FC = () => {
 
                   return (
                     <tr key={cat.categoryId} className="hover:bg-slate-50/70 transition-colors">
-                      {/* Tên danh mục & icon */}
+                      {/* Tên danh mục */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div 
                           className="flex items-center gap-2.5" 
@@ -556,20 +452,6 @@ export const PortalCategoriesView: React.FC = () => {
                           {!isRoot && (
                             <ChevronRight size={13} className="text-blue-500 flex-shrink-0" />
                           )}
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                            isRoot ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200' : 'bg-slate-100 text-slate-600'
-                          }`}>
-                            {cat.iconUrl ? (
-                              <img 
-                                src={cat.iconUrl} 
-                                alt="" 
-                                className="w-4 h-4 object-contain"
-                                onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                              />
-                            ) : (
-                              <FolderTree size={14} />
-                            )}
-                          </div>
                           <div>
                             <div className="font-bold text-slate-900 flex items-center gap-2">
                               <span>{cat.name}</span>
@@ -757,93 +639,6 @@ export const PortalCategoriesView: React.FC = () => {
                 <p className="text-[10px] text-slate-400 mt-1">
                   Hệ thống tự động ngăn chặn vòng lặp cây khi chọn danh mục cha.
                 </p>
-              </div>
-
-              {/* Icon Danh mục: Tải lên MinIO qua Presigned URL */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
-                  <span>Icon danh mục (MinIO Object Storage)</span>
-                  <span className="text-[10px] text-slate-400 font-normal">PNG, JPG, WEBP, SVG (tối đa 10MB)</span>
-                </label>
-
-                {/* Khung tải file */}
-                <div className="mt-1 border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-4 transition-colors bg-slate-50/50">
-                  <div className="flex flex-col items-center justify-center text-center">
-                    {isUploadingIcon ? (
-                      <div className="py-3 flex flex-col items-center gap-2">
-                        <Loader2 className="animate-spin text-blue-600" size={26} />
-                        <span className="text-xs text-blue-600 font-medium">Đang tải icon trực tiếp lên MinIO & xác thực...</span>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mb-2">
-                          <UploadCloud size={20} />
-                        </div>
-                        <label className="cursor-pointer text-xs font-semibold text-blue-600 hover:text-blue-700 inline-block mb-1">
-                          <span>Nhấp để chọn icon tải lên</span>
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-                            onChange={handleIconFileSelect}
-                            className="hidden"
-                          />
-                        </label>
-                        <p className="text-[11px] text-slate-400">hoặc kéo thả tệp hình ảnh/SVG vào đây</p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {uploadError && (
-                  <p className="text-rose-600 text-[11px] mt-1.5 flex items-center gap-1">
-                    <AlertCircle size={12} /> {uploadError}
-                  </p>
-                )}
-
-                {/* Xem trước Icon & Tùy chọn Xóa */}
-                {iconUrl && (
-                  <div className="mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-12 h-12 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0">
-                        <img
-                          src={iconUrl}
-                          alt="Icon Preview"
-                          className="max-h-full max-w-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-800 truncate">Icon hiện tại</div>
-                        <div className="text-[10px] text-slate-400 truncate max-w-[220px]" title={iconUrl}>
-                          {iconUrl}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleRemoveIcon}
-                      className="px-2.5 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition flex items-center gap-1 font-medium"
-                      title="Xóa icon này"
-                    >
-                      <Trash2 size={13} />
-                      <span>Xóa icon</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* Nhập URL thủ công (fallback) */}
-                <details className="mt-2 text-[11px] text-slate-500">
-                  <summary className="cursor-pointer hover:text-slate-700">Tùy chọn: Nhập liên kết URL bên ngoài</summary>
-                  <input
-                    type="url"
-                    placeholder="https://cdn.nextgen.vn/categories/phone.svg"
-                    value={iconUrl}
-                    onChange={(e) => setIconUrl(e.target.value)}
-                    className="w-full mt-1.5 h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
-                  />
-                </details>
               </div>
 
               <div>

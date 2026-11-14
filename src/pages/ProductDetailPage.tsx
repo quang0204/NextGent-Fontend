@@ -83,9 +83,16 @@ export const ProductDetailPage: React.FC = () => {
 
       if (data) {
         setProduct(data);
-        const initialVariant = data.variants[0];
+        // Ưu tiên chọn biến thể còn hàng đầu tiên để người dùng có thể mua hàng ngay
+        const initialVariant = data.variants.find(v => {
+          const isInactive = v.isActive === false || (v as any).status === 'INACTIVE' || (v as any).status === 'DISCONTINUED';
+          const onHand = v.onHandQty !== undefined ? v.onHandQty : (v.availableQty ?? 0);
+          const reserved = v.reservedQty ?? 0;
+          return !isInactive && Math.max(0, onHand - reserved) > 0;
+        }) || data.variants[0];
+
         setSelectedVariant(initialVariant);
-        setActiveImage(initialVariant.imageUrl || data.thumbnail);
+        setActiveImage(initialVariant?.imageUrl || data.thumbnail);
         setRelatedProducts(related);
       }
       setReviews(revs);
