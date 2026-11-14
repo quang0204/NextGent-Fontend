@@ -181,8 +181,31 @@ let orders: OrderDetail[] = loadInitialOrders();
 let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, PORTAL_VOUCHERS);
 let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, PORTAL_STOCK_MOVEMENTS);
 let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, PORTAL_STOCK_ADJUSTMENTS);
+const loadInitialTickets = (): PortalSupportTicket[] => {
+  const loaded = loadFromStorage<PortalSupportTicket[]>(STORAGE_KEY_TICKETS, []);
+  if (!loaded || loaded.length === 0) {
+    saveToStorage(STORAGE_KEY_TICKETS, PORTAL_TICKETS);
+    return [...PORTAL_TICKETS];
+  }
+  // Đảm bảo các phiếu hỗ trợ mẫu đều có userId tương ứng
+  const existingIds = new Set(loaded.map(t => t.ticketId));
+  const merged = [...loaded];
+  PORTAL_TICKETS.forEach(pt => {
+    if (!existingIds.has(pt.ticketId)) {
+      merged.push(pt);
+    } else {
+      const idx = merged.findIndex(t => t.ticketId === pt.ticketId);
+      if (idx >= 0 && (!merged[idx].userId || merged[idx].status !== pt.status)) {
+        merged[idx] = { ...merged[idx], userId: pt.userId, status: pt.status, reply: pt.reply || merged[idx].reply };
+      }
+    }
+  });
+  saveToStorage(STORAGE_KEY_TICKETS, merged);
+  return merged;
+};
+
 let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDIT_LOGS);
-let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, []);
+let tickets: PortalSupportTicket[] = loadInitialTickets();
 let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
 let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
 let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, []);
@@ -532,6 +555,51 @@ export const sharedStore = {
 
   getTickets(): PortalSupportTicket[] {
     return tickets;
+  },
+
+  addTicket(ticket: PortalSupportTicket): void {
+    const existingIdx = tickets.findIndex(t => t.ticketId === ticket.ticketId);
+    if (existingIdx >= 0) {
+      tickets[existingIdx] = { ...tickets[existingIdx], ...ticket };
+    } else {
+      tickets.unshift(ticket);
+    }
+    saveToStorage(STORAGE_KEY_TICKETS, tickets);
+    notify();
+  },
+
+  updateTicket(ticketId: number, data: Partial<PortalSupportTicket>): void {
+    const idx = tickets.findIndex(t => t.ticketId === ticketId);
+    if (idx >= 0) {
+      tickets[idx] = { ...tickets[idx], ...data };
+      saveToStorage(STORAGE_KEY_TICKETS, tickets);
+      notify();
+    }
+  },
+
+  setTickets(newTickets: PortalSupportTicket[]): void {
+    tickets = newTickets;
+    saveToStorage(STORAGE_KEY_TICKETS, tickets);
+    notify();
+  },
+
+  syncTicketsFromBackend(remoteTickets: PortalSupportTicket[]): void {
+    let changed = false;
+    remoteTickets.forEach(rt => {
+      const idx = tickets.findIndex(t => t.ticketId === rt.ticketId);
+      if (idx >= 0) {
+        if (tickets[idx].status !== rt.status || tickets[idx].reply !== rt.reply) {
+          tickets[idx] = { ...tickets[idx], ...rt };
+          changed = true;
+        }
+      } else {
+        tickets.unshift(rt);
+        changed = true;
+      }
+    });
+    if (changed) {
+      saveToStorage(STORAGE_KEY_TICKETS, tickets);
+    }
   },
 
   getReviews(productId?: number): ProductReview[] {

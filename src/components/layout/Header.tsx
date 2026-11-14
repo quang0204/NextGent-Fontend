@@ -320,6 +320,12 @@ export const Header: React.FC = () => {
                     >
                       Thông báo của bạn
                     </Link>
+                    <Link
+                      to="/account?tab=support"
+                      className="block px-3 py-2 rounded-lg text-ink hover:bg-surface-soft hover:text-ink-deep font-semibold transition"
+                    >
+                      Lịch sử hỗ trợ
+                    </Link>
                     {(user.role === 'STAFF' || user.role === 'ADMIN') && (
                       <Link
                         to="/admin"

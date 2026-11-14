@@ -371,6 +371,7 @@ export const ticketService = {
     message: string;
     ticket?: PortalSupportTicket;
   }> {
+    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
     try {
       const res = await apiClient.post<{
         success: boolean;
@@ -382,24 +383,25 @@ export const ticketService = {
         const d = res.data.data;
         const mappedTicket: PortalSupportTicket = {
           ticketId: d.ticketId,
-          userId: d.userId,
-          customerName: d.customerName,
-          customerEmail: d.customerEmail,
-          customerPhone: d.customerPhone,
-          phone: d.customerPhone || '0912345678',
-          category: d.subject,
-          content: d.description,
-          subject: d.subject,
-          description: d.description,
-          priority: d.priority,
-          status: d.status,
+          userId: d.userId || user.userId,
+          customerName: d.customerName || user.fullName || 'Khách hàng',
+          customerEmail: d.customerEmail || user.email,
+          customerPhone: d.customerPhone || user.phone,
+          phone: d.customerPhone || user.phone || '0912345678',
+          category: d.subject || payload.subject,
+          content: d.description || payload.description,
+          subject: d.subject || payload.subject,
+          description: d.description || payload.description,
+          priority: d.priority || payload.priority || 'MEDIUM',
+          status: d.status || 'OPEN',
           handledById: d.handledById,
           handledByName: d.handledByName,
           resolutionNote: d.resolutionNote,
           resolvedAt: d.resolvedAt,
-          createdAt: d.createdAt,
+          createdAt: d.createdAt || new Date().toISOString(),
           updatedAt: d.updatedAt,
         };
+        sharedStore.addTicket(mappedTicket);
         return {
           success: true,
           message: res.data.message || 'Gửi phiếu hỗ trợ thành công',
@@ -417,10 +419,12 @@ export const ticketService = {
     }
 
     // Fallback
-    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
     const newT: PortalSupportTicket = {
       ticketId: Date.now(),
+      userId: user.userId,
       customerName: user.fullName || 'Khách hàng',
+      customerEmail: user.email,
+      customerPhone: user.phone || '0912345678',
       phone: user.phone || '0912345678',
       category: payload.subject,
       content: payload.description,
@@ -430,11 +434,82 @@ export const ticketService = {
       status: 'OPEN',
       createdAt: new Date().toISOString(),
     };
+    sharedStore.addTicket(newT);
     return {
       success: true,
       message: 'Gửi phiếu hỗ trợ thành công (đã lưu cục bộ)',
       ticket: newT,
     };
+  },
+
+  /**
+   * Lấy danh sách phiếu hỗ trợ theo ID khách hàng (userId) từ Database Backend
+   */
+  async getUserTickets(userIdOrUser?: any): Promise<{ success: boolean; tickets: PortalSupportTicket[] }> {
+    let customerId: number | undefined;
+    if (typeof userIdOrUser === 'number') {
+      customerId = userIdOrUser;
+    } else if (userIdOrUser && typeof userIdOrUser.userId === 'number') {
+      customerId = userIdOrUser.userId;
+    } else {
+      const stored = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      customerId = stored?.userId;
+    }
+
+    if (!customerId) {
+      return { success: true, tickets: [] };
+    }
+
+    // 1. Gọi trực tiếp API Backend GET /api/v1/support-tickets để lấy dữ liệu từ DB
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        message: string;
+        data: any[];
+      }>('/support-tickets', {
+        params: { userId: customerId }
+      });
+
+      if (res.data && Array.isArray(res.data.data)) {
+        const remoteTickets: PortalSupportTicket[] = res.data.data.map((d: any) => ({
+          ticketId: d.ticketId,
+          userId: d.userId || customerId,
+          customerName: d.customerName || 'Khách hàng',
+          customerEmail: d.customerEmail,
+          customerPhone: d.customerPhone,
+          phone: d.customerPhone || '0912345678',
+          category: d.subject || 'Hỗ trợ kỹ thuật',
+          content: d.description || '',
+          subject: d.subject || '',
+          description: d.description || '',
+          priority: d.priority || 'MEDIUM',
+          status: d.status || 'OPEN',
+          handledById: d.handledById,
+          handledByName: d.handledByName,
+          handledBy: d.handledByName,
+          resolutionNote: d.resolutionNote,
+          reply: d.resolutionNote,
+          resolvedAt: d.resolvedAt,
+          createdAt: d.createdAt || new Date().toISOString(),
+          updatedAt: d.updatedAt,
+        }));
+
+        // Đồng bộ lưu vào sharedStore âm thầm
+        sharedStore.syncTicketsFromBackend(remoteTickets);
+
+        // Lọc chính xác theo ID khách hàng
+        const userTickets = remoteTickets.filter(t => Number(t.userId) === Number(customerId));
+        return { success: true, tickets: userTickets };
+      }
+    } catch (err) {
+      console.warn('[ticketService.getUserTickets] API /support-tickets error, falling back to local store', err);
+    }
+
+    // 2. Fallback nếu API lỗi hoặc offline
+    const all = sharedStore.getTickets();
+    const userTickets = all.filter(t => Number(t.userId) === Number(customerId));
+
+    return { success: true, tickets: userTickets };
   },
 
   /**
@@ -559,6 +634,7 @@ export const ticketService = {
           createdAt: d.createdAt,
           updatedAt: d.updatedAt,
         };
+        sharedStore.updateTicket(d.ticketId, mappedTicket);
         return {
           success: true,
           message: res.data.message || 'Cập nhật phiếu hỗ trợ thành công',
@@ -576,15 +652,17 @@ export const ticketService = {
     }
 
     // Fallback: update local
+    sharedStore.updateTicket(id, {
+      status: (payload.status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED') as any,
+      reply: payload.resolutionNote,
+      resolutionNote: payload.resolutionNote,
+      handledBy: 'Trần Thị CSKH (STAFF)',
+      handledByName: 'Trần Thị CSKH (STAFF)',
+      handledAt: new Date().toISOString(),
+      resolvedAt: new Date().toISOString()
+    });
     const tickets = sharedStore.getTickets();
     const t = tickets.find((item) => item.ticketId === id);
-    if (t) {
-      t.status = (payload.status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED') as any;
-      t.reply = payload.resolutionNote;
-      t.resolutionNote = payload.resolutionNote;
-      t.handledBy = 'Trần Thị CSKH (STAFF)';
-      t.handledAt = new Date().toISOString();
-    }
     return {
       success: true,
       message: 'Cập nhật phiếu hỗ trợ thành công (lưu cục bộ)',

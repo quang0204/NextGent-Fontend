@@ -25,8 +25,10 @@ import {
   RotateCcw,
   Clock,
   Smartphone,
-  Loader2
+  Loader2,
+  Headphones
 } from 'lucide-react';
+import { SupportHistoryView } from '../components/account/SupportHistoryView';
 
 export const AccountPage: React.FC = () => {
   const { 
@@ -46,10 +48,29 @@ export const AccountPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab');
-  const validTabs = ['profile', 'addresses', 'password'];
-  const [activeTab, setActiveTab] = useState<'profile' | 'addresses' | 'password'>(
-    urlTab && validTabs.includes(urlTab) ? (urlTab as any) : 'profile'
+  const validTabs = ['profile', 'addresses', 'password', 'support'];
+  const [activeTab, setActiveTab] = useState<'profile' | 'addresses' | 'password' | 'support'>(
+    urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (window.location.pathname === '/support-history' ? 'support' : 'profile')
   );
+
+  const [supportCount, setSupportCount] = useState(0);
+
+  useEffect(() => {
+    const updateCount = () => {
+      const all = sharedStore.getTickets();
+      if (!user || !user.userId) {
+        setSupportCount(0);
+        return;
+      }
+      // Lọc chính xác theo ID khách hàng (userId)
+      const myTickets = all.filter(t => Number(t.userId) === Number(user.userId));
+      setSupportCount(myTickets.length);
+    };
+
+    updateCount();
+    const unsub = sharedStore.subscribe(updateCount);
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -57,12 +78,16 @@ export const AccountPage: React.FC = () => {
       navigate('/orders', { replace: true });
       return;
     }
+    if (window.location.pathname === '/support-history') {
+      setActiveTab('support');
+      return;
+    }
     if (tabParam && validTabs.includes(tabParam) && tabParam !== activeTab) {
       setActiveTab(tabParam as any);
     }
   }, [searchParams, navigate]);
 
-  const handleSelectTab = (tab: 'profile' | 'addresses' | 'password') => {
+  const handleSelectTab = (tab: 'profile' | 'addresses' | 'password' | 'support') => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -570,6 +595,25 @@ export const AccountPage: React.FC = () => {
 
 
           <button
+            onClick={() => handleSelectTab('support')}
+            className={`w-full text-left px-4 py-3 rounded-full flex items-center justify-between transition-all ${
+              activeTab === 'support' ? 'bg-ink-deep text-canvas font-bold shadow-xs' : 'text-charcoal hover:bg-surface-soft'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Headphones size={15} />
+              <span>Lịch sử hỗ trợ</span>
+            </div>
+            {supportCount > 0 && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+                activeTab === 'support' ? 'bg-canvas text-ink-deep' : 'bg-surface-soft text-charcoal'
+              }`}>
+                {supportCount}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => { handleSelectTab('password'); setPasswordFeedback(null); }}
             className={`w-full text-left px-4 py-3 rounded-full flex items-center gap-2.5 transition-all ${
               activeTab === 'password'? 'bg-ink-deep text-canvas font-bold shadow-xs': 'text-charcoal hover:bg-surface-soft'
@@ -1025,6 +1069,11 @@ export const AccountPage: React.FC = () => {
                 </div>
               </form>
             </div>
+          )}
+
+          {/* TAB 4: SUPPORT HISTORY */}
+          {activeTab === 'support' && (
+            <SupportHistoryView />
           )}
 
         </div>

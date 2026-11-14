@@ -128,7 +128,7 @@ export const PortalReviewsTicketsView: React.FC = () => {
 
     try {
       await ticketService.updateAdminTicket(ticketId, {
-        status: status === 'RESOLVED' ? 'RESOLVED' : 'CLOSED',
+        status: status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED',
         resolutionNote: ticketReplyText.trim(),
       });
     } catch (err) {

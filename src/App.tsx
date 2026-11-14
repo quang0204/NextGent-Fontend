@@ -51,6 +51,7 @@ export const App: React.FC = () => {
           <Route path="/wishlist" element={<WishlistPage />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/account" element={<AccountPage />} />
+          <Route path="/support-history" element={<AccountPage />} />
           <Route path="/faq" element={<FaqSupportPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           
