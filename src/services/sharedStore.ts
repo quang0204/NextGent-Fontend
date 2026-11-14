@@ -185,7 +185,7 @@ let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDI
 let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, []);
 let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
 let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
-let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, []);
+let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, PORTAL_BRANDS);
 let shipments: PortalShipment[] = loadInitialShipments();
 let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, PORTAL_RETURN_REQUESTS);
 let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, PORTAL_FAQS);
@@ -415,14 +415,26 @@ export const sharedStore = {
     }));
 
     saveToStorage(STORAGE_KEY_BRANDS, portalBrands);
+    notify();
 
   },
 
 
 
   getBrands(category?: string): Brand[] {
+    const sourceBrands: Brand[] = portalBrands.length > 0
+      ? portalBrands
+          .filter(b => b.isVisible !== false)
+          .map(b => ({
+            brandId: b.brandId,
+            name: b.name,
+            slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+            logoUrl: b.logoUrl,
+          }))
+      : BRANDS;
+
     if (!category || category === 'all') {
-      return BRANDS;
+      return sourceBrands;
     }
 
     const lowerCat = category.toLowerCase();
@@ -443,20 +455,9 @@ export const sharedStore = {
 
     const brandsInProducts = new Set(filtered.map(p => p.brandName.toLowerCase().trim()));
 
-    // Danh sách hãng tương ứng từng ngành hàng
-    const categoryBrandSlugs: Record<string, string[]> = {
-      phone: ['apple', 'samsung', 'xiaomi', 'oppo', 'vivo', 'realme'],
-      laptop: ['apple', 'asus', 'dell', 'hp', 'lenovo'],
-      tablet: ['apple', 'samsung', 'xiaomi', 'lenovo'],
-      accessory: ['apple', 'sony', 'anker', 'jbl', 'samsung'],
-      sale: Array.from(brandsInProducts),
-    };
-
-    const targetList = categoryBrandSlugs[lowerCat] || Array.from(brandsInProducts);
-    return BRANDS.filter(b => 
-      targetList.includes(b.slug.toLowerCase()) || 
-      targetList.includes(b.name.toLowerCase()) || 
-      brandsInProducts.has(b.name.toLowerCase().trim())
+    return sourceBrands.filter(b =>
+      brandsInProducts.has(b.name.toLowerCase().trim()) ||
+      brandsInProducts.has(b.slug.toLowerCase().trim())
     );
   },
 

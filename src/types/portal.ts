@@ -119,10 +119,12 @@ export interface PortalCategory {
 export interface PortalBrandItem {
   brandId: number;
   name: string;
+  slug?: string;
   logoUrl?: string;
   description: string;
   isVisible: boolean;
   productCount?: number;
+  createdAt?: string;
 }
 
 // Bảng Return_Requests (Bảng 21 Database)
