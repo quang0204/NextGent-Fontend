@@ -5,6 +5,7 @@ export type OrderStatus =
   | 'PREPARING'              // Đang chuẩn bị hàng
   | 'PICKED_UP'              // Đã lấy hàng (Bưu tá đã lấy hàng từ kho)
   | 'SHIPPING'               // Đang giao (Đã xuất kho)
+  | 'RETURNING'              // Đang hoàn về (Giao thất bại)
   | 'COMPLETED'              // Hoàn tất (Doanh thu thuần)
   | 'CANCELLED';             // Đã hủy (Giải phóng kho)
 

@@ -256,6 +256,8 @@ export const PortalShipmentsView: React.FC = () => {
         return <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold">Đã lấy hàng</span>;
       case 'SHIPPING':
         return <span className="px-2 py-0.5 bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-md text-[10px] font-bold">Đang giao hàng</span>;
+      case 'RETURNING':
+        return <span className="px-2 py-0.5 bg-orange-50 text-orange-700 border border-orange-200 rounded-md text-[10px] font-bold">Đang hoàn về</span>;
       case 'COMPLETED':
         return <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">Hoàn tất</span>;
       case 'CANCELLED':
@@ -603,9 +605,6 @@ export const PortalShipmentsView: React.FC = () => {
                 onChange={(e) => {
                   const s = e.target.value as ShipmentStatus;
                   setNewStatus(s);
-                  if ((s === 'DELIVERY_FAILED' || s === 'FAILED' || s === 'PICKUP_FAILED') && !failReason) {
-                    setFailReason('Shipper đã liên hệ 3 lần trong 2 ngày nhưng số thuê bao không liên lạc được');
-                  }
                 }}
                 className="w-full h-10 px-3 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-semibold focus:border-blue-600 focus:outline-none"
               >
@@ -613,7 +612,7 @@ export const PortalShipmentsView: React.FC = () => {
                 <option value="PICKED_UP">2. Đã lấy hàng (⚡ Đồng bộ Đơn hàng: Đã lấy hàng)</option>
                 <option value="IN_TRANSIT">3. Đang giao hàng (⚡ Đồng bộ Đơn hàng: Đang giao hàng)</option>
                 <option value="DELIVERED">4. Giao thành công (⚡ Đồng bộ Đơn hàng: Hoàn tất & Thu COD)</option>
-                <option value="DELIVERY_FAILED">5. Giao thất bại (⚡ Đồng bộ Đơn hàng: Đã hủy & Hoàn kho)</option>
+                <option value="DELIVERY_FAILED">5. Giao thất bại (⚡ Đồng bộ Đơn hàng: Đang hoàn về)</option>
               </select>
             </div>
 

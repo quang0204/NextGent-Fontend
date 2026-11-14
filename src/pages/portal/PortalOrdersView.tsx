@@ -79,6 +79,12 @@ const STATUS_PIPELINE: { key: OrderStatus; label: string; badgeClass: string; de
     desc: 'Bưu tá đang giao kiện hàng tới địa chỉ người nhận'
   },
   { 
+    key: 'RETURNING', 
+    label: 'Đang hoàn về', 
+    badgeClass: 'bg-orange-50 text-orange-700 border-orange-200',
+    desc: 'Giao hàng thất bại, kiện hàng đang được bưu tá hoàn về kho'
+  },
+  { 
     key: 'COMPLETED', 
     label: 'Hoàn tất (Chốt DT)', 
     badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',

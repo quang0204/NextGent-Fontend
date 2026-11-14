@@ -143,6 +143,12 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
         bg: 'bg-cyan-50 text-cyan-700 border-cyan-200',
         dot: 'bg-cyan-500'
       };
+    case 'RETURNING':
+      return {
+        label: 'Đang hoàn về',
+        bg: 'bg-orange-50 text-orange-700 border-orange-200',
+        dot: 'bg-orange-500'
+      };
     case 'COMPLETED':
       return {
         label: 'Giao thành công',
