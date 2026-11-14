@@ -205,7 +205,7 @@ const mapApiProductToFrontend = (it: any): Product => {
       `Hiệu năng: ${it.specs?.[1]?.items?.[0]?.specValue || 'Chip cao cấp'}`
     ],
     isInstallment0: it.isInstallment0 ?? true,
-    isFlashSale: it.isFlashSale ?? Boolean(it.promotion || (it.discountPercent && it.discountPercent > 0)),
+    isFlashSale: it.isFlashSale ?? Boolean(it.promotion),
     soldCount: it.soldCount ?? 0,
   };
 };

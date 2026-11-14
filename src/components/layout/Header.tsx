@@ -137,7 +137,7 @@ export const Header: React.FC = () => {
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowSuggestions(false);
             }}
-            placeholder="Tìm kiếm: điện thoại giá rẻ, laptop gaming, iPhone 15..."
+            placeholder="Bạn muốn mua gì hôm nay?"
             className="w-full h-10 pl-11 pr-28 bg-surface-soft hover:bg-hairline-soft/30 focus:bg-canvas text-sm text-ink placeholder:text-steel rounded-full border border-hairline-soft focus:border-fb-blue focus:outline-none transition-all"
           />
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-steel" />

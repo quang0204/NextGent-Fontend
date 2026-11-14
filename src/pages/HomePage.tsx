@@ -44,8 +44,9 @@ export const HomePage: React.FC = () => {
         promotionService.getActivePromotions().catch(() => []),
       ]);
       let mergedProducts = [...allProducts];
+      // Backend fallback trả best-seller (không có promotion) khi không có chiến dịch đang chạy -> bỏ qua
       if (featuredFlashSale && featuredFlashSale.length > 0) {
-        featuredFlashSale.forEach(fp => {
+        featuredFlashSale.filter(fp => fp.isFlashSale).forEach(fp => {
           const idx = mergedProducts.findIndex(p => p.productId === fp.productId);
           if (idx !== -1) {
             mergedProducts[idx] = { ...mergedProducts[idx], isFlashSale: true };
