@@ -88,8 +88,7 @@ apiClient.interceptors.response.use(
     // Bỏ qua nếu lỗi 401 xảy ra ở chính endpoint refresh-token hoặc các bước login
     const isAuthEndpoint = 
       requestUrl.includes('/auth/refresh-token') ||
-      requestUrl.includes('/auth/login-initiate') ||
-      requestUrl.includes('/auth/login-verify-otp');
+      requestUrl.includes('/auth/login');
 
     if (status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       if (isRefreshing) {
