@@ -73,7 +73,6 @@ export interface Category {
   name: string;
   slug?: string;
   description?: string;
-  iconUrl?: string;
   count?: number;
   isVisible?: boolean;
   variantSchema?: VariantSchemaField[];
