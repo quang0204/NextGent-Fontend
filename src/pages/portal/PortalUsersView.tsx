@@ -285,43 +285,15 @@ export const PortalUsersView: React.FC = () => {
           status: target.status,
           lockReason: target.lockReason,
           createdAt: target.createdAt,
-          addresses: [
-            {
-              addressId: 3,
-              recipientName: target.fullName,
-              phone: target.phone,
-              province: 'Đà Nẵng',
-              district: 'Hải Châu',
-              ward: 'Phường Nam Dương',
-              addressLine: 'Số 88 đường Nguyễn Văn Linh, Phường Nam Dương, Hải Châu, Đà Nẵng',
-              isDefault: true,
-            }
-          ],
+          addresses: [],
           shoppingSummary: {
-            totalOrders: target.totalOrders || 1,
-            completedOrders: target.totalOrders || 1,
+            totalOrders: target.totalOrders || 0,
+            completedOrders: target.totalOrders || 0,
             cancelledOrders: 0,
-            lifetimeValue: (target.totalOrders || 1) * 31990000,
+            lifetimeValue: 0,
           },
-          recentOrders: target.totalOrders > 0 ? [
-            {
-              orderId: 2,
-              orderCode: 'DH-20261020-102',
-              totalAmount: 31990000,
-              status: 'DELIVERED',
-              createdAt: '2026-10-20T09:15:00',
-            }
-          ] : [],
-          auditLogs: [
-            {
-              logId: 12,
-              action: 'UPDATE_PROFILE',
-              entityName: 'Users',
-              oldValue: `{"fullName":"${target.fullName}"}`,
-              newValue: `{"fullName":"${target.fullName}"}`,
-              createdAt: target.createdAt,
-            }
-          ],
+          recentOrders: [],
+          auditLogs: [],
         });
       }
     } finally {

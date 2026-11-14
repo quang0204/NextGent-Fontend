@@ -44,8 +44,8 @@ export const PortalDashboardView: React.FC = () => {
   const completedOrders = orders.filter(o => o.status === 'COMPLETED');
   const grossRevenue = paymentSummary?.totalCollected ?? completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
 
-  // Giảm trừ do đổi trả (mô phỏng từ các đơn hoàn tiền sau hoàn tất hoặc API 10.4)
-  const returnDeduction = paymentSummary?.totalRefunded ?? 4500000; 
+  // Giảm trừ do đổi trả (từ API 10.4)
+  const returnDeduction = paymentSummary?.totalRefunded ?? 0; 
   const netRevenue = Math.max(0, grossRevenue - returnDeduction);
 
   const lowStockItems = inventories.filter(i => i.availableQty <= i.minThreshold);

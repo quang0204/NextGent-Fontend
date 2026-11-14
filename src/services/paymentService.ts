@@ -333,7 +333,7 @@ export const paymentService = {
 
     const totalCollected = paidOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     const totalPending = pendingOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-    const totalRefunded = 45000000;
+    const totalRefunded = 0;
 
     const bankCollected = paidOrders
       .filter((o) => o.paymentMethod === 'SIMULATED_TRANSFER' || (o.paymentMethod as any) === 'BANK_TRANSFER')

@@ -50,29 +50,40 @@ const STORAGE_KEY_RETURNS = 'ng_db_returns_v2';
 const STORAGE_KEY_FAQS = 'ng_db_faqs_v2';
 const STORAGE_KEY_PROMOTIONS = 'ng_db_promotions_v2';
 
-const loadFromStorage = <T>(key: string, defaultValue: T): T => {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return defaultValue;
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error(`Error loading key ${key}`, err);
-    return defaultValue;
-  }
-};
+const LEGACY_STORAGE_KEYS = [
+  STORAGE_KEY_PRODUCTS,
+  STORAGE_KEY_INVENTORY,
+  STORAGE_KEY_ORDERS,
+  STORAGE_KEY_VOUCHERS,
+  STORAGE_KEY_MOVEMENTS,
+  STORAGE_KEY_ADJUSTMENTS,
+  STORAGE_KEY_AUDIT,
+  STORAGE_KEY_TICKETS,
+  STORAGE_KEY_REVIEWS,
+  STORAGE_KEY_CATEGORIES,
+  STORAGE_KEY_BRANDS,
+  STORAGE_KEY_SHIPMENTS,
+  STORAGE_KEY_RETURNS,
+  STORAGE_KEY_FAQS,
+  STORAGE_KEY_PROMOTIONS,
+];
 
-const saveToStorage = (key: string, data: any) => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (err) {
-    console.error(`Error saving key ${key}`, err);
+if (typeof window !== 'undefined') {
+  for (const key of LEGACY_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
   }
-};
+}
 
-// Vệ sinh và chuẩn hóa dữ liệu biến thể sản phẩm (đảm bảo không bao giờ phát sinh giá 0 đ hoặc null/undefined)
+const loadFromStorage = <T>(_key: string, defaultValue: T): T => defaultValue;
+
+const saveToStorage = (_key: string, _data: any) => {};
+
+// Vệ sinh và chuẩn hóa dữ liệu biến thể sản phẩm
 const sanitizeProducts = (loadedProds: Product[]): Product[] => {
   if (!Array.isArray(loadedProds) || loadedProds.length === 0) {
-    return MOCK_PRODUCTS;
+    return [];
   }
 
   return loadedProds.filter(Boolean).map(p => {
@@ -208,7 +219,7 @@ let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDI
 let tickets: PortalSupportTicket[] = loadInitialTickets();
 let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
 let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
-let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, []);
+let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, PORTAL_BRANDS);
 let shipments: PortalShipment[] = loadInitialShipments();
 let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, PORTAL_RETURN_REQUESTS);
 let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, PORTAL_FAQS);
@@ -221,15 +232,6 @@ const listeners: Set<Listener> = new Set();
 const notify = () => {
   listeners.forEach(l => l());
 };
-
-// Thiết lập background timer quét đơn hết hạn mỗi 15 giây
-if (typeof window !== 'undefined') {
-  setInterval(() => {
-    try {
-      sharedStore.checkAndCancelExpiredOrders();
-    } catch (_) {}
-  }, 15000);
-}
 
 export const sharedStore = {
   subscribe(listener: Listener) {
@@ -438,14 +440,26 @@ export const sharedStore = {
     }));
 
     saveToStorage(STORAGE_KEY_BRANDS, portalBrands);
+    notify();
 
   },
 
 
 
   getBrands(category?: string): Brand[] {
+    const sourceBrands: Brand[] = portalBrands.length > 0
+      ? portalBrands
+          .filter(b => b.isVisible !== false)
+          .map(b => ({
+            brandId: b.brandId,
+            name: b.name,
+            slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+            logoUrl: b.logoUrl,
+          }))
+      : BRANDS;
+
     if (!category || category === 'all') {
-      return BRANDS;
+      return sourceBrands;
     }
 
     const lowerCat = category.toLowerCase();
@@ -466,20 +480,9 @@ export const sharedStore = {
 
     const brandsInProducts = new Set(filtered.map(p => p.brandName.toLowerCase().trim()));
 
-    // Danh sách hãng tương ứng từng ngành hàng
-    const categoryBrandSlugs: Record<string, string[]> = {
-      phone: ['apple', 'samsung', 'xiaomi', 'oppo', 'vivo', 'realme'],
-      laptop: ['apple', 'asus', 'dell', 'hp', 'lenovo'],
-      tablet: ['apple', 'samsung', 'xiaomi', 'lenovo'],
-      accessory: ['apple', 'sony', 'anker', 'jbl', 'samsung'],
-      sale: Array.from(brandsInProducts),
-    };
-
-    const targetList = categoryBrandSlugs[lowerCat] || Array.from(brandsInProducts);
-    return BRANDS.filter(b => 
-      targetList.includes(b.slug.toLowerCase()) || 
-      targetList.includes(b.name.toLowerCase()) || 
-      brandsInProducts.has(b.name.toLowerCase().trim())
+    return sourceBrands.filter(b =>
+      brandsInProducts.has(b.name.toLowerCase().trim()) ||
+      brandsInProducts.has(b.slug.toLowerCase().trim())
     );
   },
 
@@ -488,44 +491,28 @@ export const sharedStore = {
   },
 
   getOrders(): OrderDetail[] {
-    this.checkAndCancelExpiredOrders();
     return orders.map(sanitizeOrderNotes);
   },
 
-
-
   syncExternalOrders(remoteOrders: OrderDetail[]) {
-
     if (!Array.isArray(remoteOrders)) return;
-
     for (const ro of remoteOrders) {
-
       const idx = orders.findIndex(o => Number(o.orderId) === Number(ro.orderId) || o.orderCode === ro.orderCode);
-
       if (idx !== -1) {
-
         orders[idx] = { ...orders[idx], ...ro };
-
       } else {
-
         orders.unshift(ro);
-
       }
-
     }
-
     saveToStorage(STORAGE_KEY_ORDERS, orders);
-
   },
 
   getOrderById(orderId: number): OrderDetail | undefined {
-    this.checkAndCancelExpiredOrders();
     const o = orders.find(ord => ord.orderId === orderId);
     return o ? sanitizeOrderNotes(o) : undefined;
   },
 
   getOrderByCode(code: string): OrderDetail | undefined {
-    this.checkAndCancelExpiredOrders();
     const trimmed = code.trim().toUpperCase().replace('#', '');
     const o = orders.find(ord => ord.orderCode.toUpperCase().includes(trimmed));
     return o ? sanitizeOrderNotes(o) : undefined;
@@ -605,8 +592,53 @@ export const sharedStore = {
   getReviews(productId?: number): ProductReview[] {
     if (productId) {
       return reviews.filter(r => r.productId === productId);
+  isReviewHidden(reviewId: number): boolean {
+    return reviews.some(r => Number(r.reviewId) === Number(reviewId) && r.status === 'HIDDEN');
+  },
+
+  getReviews(productId?: number, includeHidden = false): ProductReview[] {
+    const normalized = reviews.map(r => ({
+      ...r,
+      status: r.status === 'HIDDEN' ? 'HIDDEN' : 'PUBLISHED',
+    }));
+    const byProduct = productId
+      ? normalized.filter(r => Number(r.productId) === Number(productId))
+      : normalized;
+    return includeHidden ? byProduct : byProduct.filter(r => r.status !== 'HIDDEN');
+  },
+
+  updateReviewStatus(
+    reviewId: number,
+    status: 'PUBLISHED' | 'HIDDEN',
+    reviewSnapshot?: ProductReview
+  ): ProductReview | null {
+    const id = Number(reviewId);
+    const idx = reviews.findIndex(r => Number(r.reviewId) === id);
+    let updated: ProductReview | null = null;
+    if (idx !== -1) {
+      reviews[idx] = { ...reviews[idx], status };
+      updated = reviews[idx];
+    } else if (reviewSnapshot) {
+      updated = { ...reviewSnapshot, status };
+      reviews = [updated, ...reviews];
     }
-    return reviews;
+    saveToStorage(STORAGE_KEY_REVIEWS, reviews);
+    notify();
+    return updated;
+  },
+
+  replyReview(reviewId: number, replyText: string): ProductReview | null {
+    const idx = reviews.findIndex(r => Number(r.reviewId) === Number(reviewId));
+    if (idx === -1) return null;
+    reviews[idx] = {
+      ...reviews[idx],
+      storeReply: replyText,
+      reply: replyText,
+      repliedAt: new Date().toISOString(),
+    };
+    saveToStorage(STORAGE_KEY_REVIEWS, reviews);
+    notify();
+    return reviews[idx];
   },
 
   // ================= BẢNG 3: CATEGORIES =================
@@ -1437,20 +1469,20 @@ export const sharedStore = {
     };
   },
 
-  // Tự động kiểm tra và hủy các đơn hàng chờ thanh toán QR đã hết hạn (15 phút), nhả tồn kho
+  // Tự động kiểm tra và hủy các đơn hàng chờ thanh toán QR đã hết hạn (30 phút), nhả tồn kho
   checkAndCancelExpiredOrders(): number {
     const now = Date.now();
     let count = 0;
     const expiredList = orders.filter(o => {
       if (o.status !== 'PENDING_PAYMENT' || o.paymentStatus === 'PAID') return false;
-      const deadline = o.paymentDeadline ? new Date(o.paymentDeadline).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() + 15 * 60 * 1000 : 0);
+      const deadline = o.paymentDeadline ? new Date(o.paymentDeadline).getTime() : (o.createdAt ? new Date(o.createdAt).getTime() + 30 * 60 * 1000 : 0);
       return deadline > 0 && now >= deadline;
     });
 
     for (const exp of expiredList) {
       this.cancelOrder(
         exp.orderId,
-        'Hết hạn thời gian thanh toán qua mã QR (15 phút) - Hệ thống tự động giải phóng tồn kho giữ chỗ.',
+        'Hết hạn thời gian thanh toán qua mã QR (30 phút) - Hệ thống tự động giải phóng tồn kho giữ chỗ.',
         'Hệ thống tự động'
       );
       count++;

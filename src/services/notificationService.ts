@@ -3,29 +3,25 @@ import { NotificationItem } from '../types/notification';
 
 const STORAGE_NOTIF_KEY = 'ng_db_notifications_v2';
 
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem(STORAGE_NOTIF_KEY);
+  } catch {}
+}
+
 const emitNotificationEvent = () => {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('notification:updated'));
   }
 };
 
-const getStoredNotifications = (): NotificationItem[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_NOTIF_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-};
+let memoryNotifications: NotificationItem[] = [];
+
+const getStoredNotifications = (): NotificationItem[] => memoryNotifications;
 
 const saveNotifications = (items: NotificationItem[]) => {
-  try {
-    localStorage.setItem(STORAGE_NOTIF_KEY, JSON.stringify(items));
-    emitNotificationEvent();
-  } catch (err) {
-    console.error('Error saving notifications', err);
-  }
+  memoryNotifications = items;
+  emitNotificationEvent();
 };
 
 export interface NotificationFetchResult {
@@ -71,77 +67,9 @@ export const notificationService = {
       // Backend not yet returning notifications or endpoint unavailable
     }
 
-    // Fallback: Đồng bộ theo dữ liệu người dùng tại client
-    const all = getStoredNotifications();
-    let userNotifs = all.filter((n) => !n.userId || Number(n.userId) === Number(userId));
-
-    // Nếu người dùng chưa có thông báo nào, tự động khởi tạo các thông báo chào mừng & đơn hàng sẵn có
-    if (userNotifs.length === 0) {
-      const initialItems: NotificationItem[] = [
-        {
-          notificationId: Date.now() - 3600000 * 2,
-          userId,
-          title: 'Chào mừng bạn đến với NextGen Smart Tech',
-          content: 'Tài khoản của bạn đã được kích hoạt thành công. Khám phá hệ sinh thái thiết bị di động, máy tính bảng và phụ kiện chính hãng.',
-          type: 'SYSTEM',
-          isRead: false,
-          createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-        },
-        {
-          notificationId: Date.now() - 3600000,
-          userId,
-          title: 'Siêu sale công nghệ — Ưu đãi FREESHIP30',
-          content: 'Nhận ngay ưu đãi miễn phí vận chuyển 30.000đ khi nhập mã FREESHIP30 tại bước thanh toán.',
-          type: 'PROMO',
-          isRead: false,
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-        },
-      ];
-
-      // Đọc các đơn hàng thực tế đang có để tạo thông báo tương ứng
-      try {
-        const ordersRaw = localStorage.getItem('ng_db_orders_v2');
-        if (ordersRaw) {
-          const orders = JSON.parse(ordersRaw);
-          if (Array.isArray(orders)) {
-            orders.slice(0, 3).forEach((ord: any, idx: number) => {
-              const statusText = 
-                ord.status === 'COMPLETED' ? 'Giao hàng thành công' :
-                ord.status === 'SHIPPING' ? 'Đang trên đường giao hàng' :
-                ord.status === 'PREPARING' ? 'Đang chuẩn bị kiện hàng' :
-                ord.status === 'CONFIRMED' ? 'Đã được xác nhận' :
-                'Đặt hàng thành công';
-
-              initialItems.unshift({
-                notificationId: Date.now() + idx + 1,
-                userId,
-                orderId: ord.orderId,
-                orderCode: ord.orderCode,
-                title: `Đơn hàng #${ord.orderCode} - ${statusText}`,
-                content: ord.statusHistory?.[0]?.note || `Đơn hàng #${ord.orderCode} hiện đang ở trạng thái: ${statusText}.`,
-                type: 'ORDER',
-                isRead: false,
-                createdAt: ord.createdAt || new Date().toISOString(),
-              });
-            });
-          }
-        }
-      } catch {
-        // Bỏ qua lỗi đọc đơn hàng
-      }
-
-      const merged = [...initialItems, ...all];
-      saveNotifications(merged);
-      userNotifs = initialItems;
-    }
-
-    const sorted = userNotifs.sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-
     return {
-      items: sorted,
-      unreadCount: sorted.filter((n) => !n.isRead).length,
+      items: [],
+      unreadCount: 0,
     };
   },
 

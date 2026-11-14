@@ -95,10 +95,22 @@ export const ProductDetailPage: React.FC = () => {
         setActiveImage(initialVariant?.imageUrl || data.thumbnail);
         setRelatedProducts(related);
       }
-      setReviews(revs);
+      setReviews(
+        revs.filter(r => r.status !== 'HIDDEN' && !sharedStore.isReviewHidden(r.reviewId))
+      );
       setIsLoading(false);
     };
     fetchDetail();
+
+    const unsub = sharedStore.subscribe(() => {
+      const prodId = id ? parseInt(id, 10) : 1;
+      setReviews(prev =>
+        (prev.length > 0 ? prev : sharedStore.getReviews(prodId, false)).filter(
+          r => r.status !== 'HIDDEN' && !sharedStore.isReviewHidden(r.reviewId)
+        )
+      );
+    });
+    return () => unsub();
   }, [id]);
 
   useEffect(() => {
@@ -321,7 +333,15 @@ export const ProductDetailPage: React.FC = () => {
             {product.name} {selectedVariant.romGb && selectedVariant.romGb > 0 ? (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`) : ''}
           </h1>
           <div className="flex items-center gap-3 mt-1.5 text-xs text-steel">
-            <RatingStars rating={product.rating} reviewCount={reviews.length || product.reviewCount} size={14} />
+            <RatingStars
+              rating={
+                reviews.length > 0
+                  ? Number((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1))
+                  : product.rating
+              }
+              reviewCount={reviews.length}
+              size={14}
+            />
             <span className="text-hairline">|</span>
             <span>Mã SKU: <strong className="font-mono text-ink font-medium">{selectedVariant.sku}</strong></span>
           </div>

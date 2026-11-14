@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { sharedStore } from '../../services/sharedStore';
 import { productService } from '../../services/productService';
 import { categoryService } from '../../services/categoryService';
+import { brandService } from '../../services/brandService';
 import { inventoryService } from '../../services/inventoryService';
 import { Product, Brand, ProductVariant, ProductSpecGroup, VariantSchemaField } from '../../types/product';
 import { variantSchemaService } from '../../services/variantSchemaService';
@@ -56,9 +57,6 @@ interface DraftVariant {
 }
 
 export const PortalProductsView: React.FC = () => {
-  const { showToast } = useToastStore();
-  const [activeSubTab, setActiveSubTab] = useState<'products' | 'categories' | 'brands'>('products');
-
   const [products, setProducts] = useState<Product[]>(sharedStore.getProducts());
   const [brands, setBrands] = useState<Brand[]>(sharedStore.getBrands());
   const [categories, setCategories] = useState<any[]>([]);
@@ -208,8 +206,11 @@ export const PortalProductsView: React.FC = () => {
   useEffect(() => {
     const fetchLiveCategories = async () => {
       try {
-        const res = await categoryService.getCategories(true);
-        if (res.data && Array.isArray(res.data)) {
+        const res: any = await categoryService.getCategories(true);
+        const rawCats = Array.isArray(res)
+          ? res
+          : (Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : null));
+        if (rawCats) {
           const list: Array<{ id: number; name: string; count: number; isVisible: boolean }> = [];
           const traverse = (nodes: any[]) => {
             for (const n of nodes) {
@@ -224,7 +225,7 @@ export const PortalProductsView: React.FC = () => {
               }
             }
           };
-          traverse(res.data);
+          traverse(rawCats);
           if (list.length > 0) {
             setCategories(list);
             setNewCategory(prev => (list.some(c => c.name === prev) ? prev : list[0].name));
@@ -238,7 +239,42 @@ export const PortalProductsView: React.FC = () => {
       }
     };
 
+    const fetchLiveBrands = async () => {
+      try {
+        const res: any = await brandService.getBrands(true);
+        const rawBrands = Array.isArray(res)
+          ? res
+          : (Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : null));
+        if (rawBrands && rawBrands.length > 0) {
+          sharedStore.syncExternalBrands(rawBrands);
+          const mappedBrands: Brand[] = rawBrands.map((b: any) => ({
+            brandId: b.brandId,
+            name: b.name,
+            slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+            logoUrl: b.logoUrl,
+          }));
+          setBrands(mappedBrands);
+          setNewBrand(prev => (mappedBrands.some(b => b.name === prev) ? prev : mappedBrands[0].name));
+          return;
+        }
+      } catch {
+        // Fallback to portalBrands in sharedStore
+      }
+      const localPortalBrands = sharedStore.getPortalBrands();
+      if (localPortalBrands.length > 0) {
+        const mapped: Brand[] = localPortalBrands.map(b => ({
+          brandId: b.brandId,
+          name: b.name,
+          slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+          logoUrl: b.logoUrl,
+        }));
+        setBrands(mapped);
+        setNewBrand(prev => (mapped.some(b => b.name === prev) ? prev : mapped[0].name));
+      }
+    };
+
     fetchLiveCategories();
+    fetchLiveBrands();
 
     productService.getProducts().then(prods => {
       if (prods && prods.length > 0) {
@@ -248,31 +284,24 @@ export const PortalProductsView: React.FC = () => {
 
     const unsubscribe = sharedStore.subscribe(() => {
       setProducts([...sharedStore.getProducts()]);
+      const latestPortalBrands = sharedStore.getPortalBrands();
+      if (latestPortalBrands.length > 0) {
+        setBrands(
+          latestPortalBrands.map(b => ({
+            brandId: b.brandId,
+            name: b.name,
+            slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
+            logoUrl: b.logoUrl,
+          }))
+        );
+      }
+      const latestCats = sharedStore.getCategories();
+      if (latestCats.length > 0) {
+        setCategories(latestCats.map(c => ({ id: c.categoryId, name: c.name, count: c.productCount || 0, isVisible: c.isVisible })));
+      }
     });
     return () => unsubscribe();
   }, []);
-
-  // Xóa danh mục với kiểm tra ràng buộc toàn vẹn dữ liệu
-  const handleDeleteCategory = (catName: string) => {
-    const hasProducts = (products || []).some(p => p && (p.categoryName || '').toLowerCase() === (catName || '').toLowerCase());
-    if (hasProducts) {
-      showToast(`HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${catName}" vì đang có sản phẩm liên kết! Vui lòng di chuyển hoặc xóa các sản phẩm trực thuộc trước.`, 'error', 6000);
-      return;
-    }
-    setCategories(categories.filter(c => c.name !== catName));
-    showToast(`Đã xóa danh mục "${catName}".`, 'success');
-  };
-
-  // Xóa thương hiệu với kiểm tra ràng buộc
-  const handleDeleteBrand = (brandName: string) => {
-    const hasProducts = (products || []).some(p => p && (p.brandName || '').toLowerCase() === (brandName || '').toLowerCase());
-    if (hasProducts) {
-      showToast(`CẢNH BÁO RÀNG BUỘC: Không thể xóa thương hiệu "${brandName}" vì đang có sản phẩm kinh doanh thuộc thương hiệu này! Hãy chuyển sản phẩm sang thương hiệu khác trước.`, 'error', 6000);
-      return;
-    }
-    setBrands(brands.filter(b => b.name !== brandName));
-    showToast(`Đã xóa thương hiệu "${brandName}".`, 'success');
-  };
 
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
   const handleCreateProduct = (e: React.FormEvent) => {
@@ -1088,48 +1117,8 @@ export const PortalProductsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Sub Tabs Modern Pills */}
-      <div className="flex bg-slate-200/60 p-1 rounded-2xl text-xs font-bold text-slate-600 max-w-md shadow-inner">
-        <button
-          onClick={() => setActiveSubTab('products')}
-          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-            activeSubTab === 'products'? 'bg-white text-slate-900 shadow-xs': 'hover:text-slate-900'
-          }`}
-        >
-          <span>Sản phẩm & SKU</span>
-          <span className="px-1.5 py-0.2 rounded-md font-mono text-[10px] bg-slate-100 text-slate-600">
-            {products.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('categories')}
-          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-            activeSubTab === 'categories'? 'bg-white text-slate-900 shadow-xs': 'hover:text-slate-900'
-          }`}
-        >
-          <span>Danh mục</span>
-          <span className="px-1.5 py-0.2 rounded-md font-mono text-[10px] bg-slate-100 text-slate-600">
-            {categories.length}
-          </span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab('brands')}
-          className={`flex-1 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 ${
-            activeSubTab === 'brands'? 'bg-white text-slate-900 shadow-xs': 'hover:text-slate-900'
-          }`}
-        >
-          <span>Thương hiệu</span>
-          <span className="px-1.5 py-0.2 rounded-md font-mono text-[10px] bg-slate-100 text-slate-600">
-            {brands.length}
-          </span>
-        </button>
-      </div>
-
-      {/* SUB-TAB 1: QUẢN LÝ SẢN PHẨM & BIẾN THỂ */}
-      {activeSubTab === 'products' && (
-        <div className="space-y-4">
+      {/* QUẢN LÝ SẢN PHẨM & BIẾN THỂ */}
+      <div className="space-y-4">
           
           <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="w-full sm:w-80 relative">
@@ -1316,88 +1305,7 @@ export const PortalProductsView: React.FC = () => {
             />
           </div>
 
-        </div>
-      )}
-
-      {/* SUB-TAB 2: QUẢN LÝ DANH MỤC */}
-      {activeSubTab === 'categories' && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 uppercase">
-                Danh mục sản phẩm phân cấp
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Ràng buộc toàn vẹn: Không cho phép xóa danh mục nếu đang có sản phẩm liên kết
-              </p>
-            </div>
-          </div>
-
-          <div className="divide-y divide-slate-100">
-            {categories.map(c => {
-              const currentCount = (products || []).filter(p => p && (p.categoryName || '').toLowerCase() === (c.name || '').toLowerCase()).length;
-
-              return (
-                <div key={c.id} className="py-3 flex items-center justify-between text-xs">
-                  <div>
-                    <strong className="text-slate-900 block text-sm">{c.name}</strong>
-                    <span className="text-slate-400 text-[11px]">Đang có <strong>{currentCount}</strong> sản phẩm trực thuộc</span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleDeleteCategory(c.name)}
-                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded transition"
-                      title="Xóa danh mục"
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 3: QUẢN LÝ THƯƠNG HIỆU */}
-      {activeSubTab === 'brands' && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 uppercase">
-                Thương hiệu sản phẩm
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Kiểm soát ràng buộc toàn vẹn khi ẩn hoặc xóa thương hiệu đang kinh doanh
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {brands.map(b => {
-              const prodCount = (products || []).filter(p => p && (p.brandName || '').toLowerCase() === (b.name || '').toLowerCase()).length;
-
-              return (
-                <div key={b.brandId} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                  <div>
-                    <strong className="text-slate-900 block text-xs">{b.name}</strong>
-                    <span className="text-[10px] text-slate-400">{prodCount} sản phẩm</span>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteBrand(b.name)}
-                    className="p-1 text-slate-400 hover:text-rose-600 rounded"
-                    title="Xóa thương hiệu"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      </div>
 
       {/* MODAL THÊM SẢN PHẨM MỚI KÈM ĐA BIẾN THỂ, ẢNH & THÔNG SỐ */}
       {showAddModal && (

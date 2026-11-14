@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiClient, getStoredUser } from './apiClient';
 import { sharedStore } from './sharedStore';
 import { ProductReview } from '../types/review';
 import { PortalSupportTicket, PortalFaqItem } from '../types/portal';
@@ -23,7 +23,37 @@ export interface CreateReviewPayload {
   orderItemId: number;
   rating: number;
   comment: string;
+  /** uploadId của ảnh đánh giá đã tải lên MinIO và đã confirm (tối đa 5). */
+  uploadIds?: string[];
 }
+
+/** Backend trả link ảnh đánh giá trong trường `imageUrls` (giữ `images` cho dữ liệu cũ). */
+const pickReviewImages = (it: any): string[] => {
+  const list = it?.imageUrls ?? it?.images ?? [];
+  return Array.isArray(list) ? list.filter((u: unknown): u is string => typeof u === 'string' && !!u) : [];
+};
+
+const mapApiReview = (it: any, fallback?: Partial<ProductReview>): ProductReview => ({
+  reviewId: it.reviewId,
+  orderItemId: it.orderItemId,
+  productId: it.productId,
+  productName: it.productName,
+  variantName: it.variantName,
+  userName: it.customerName || it.userName || fallback?.userName || 'Khách hàng',
+  customerName: it.customerName,
+  userPhoneMasked: it.customerPhone || fallback?.userPhoneMasked || '098****321',
+  rating: it.rating,
+  comment: it.comment,
+  storeReply: it.reply || it.storeReply,
+  reply: it.reply,
+  repliedAt: it.repliedAt,
+  images: pickReviewImages(it),
+  createdAt: it.createdAt,
+  updatedAt: it.updatedAt,
+  isBuyerVerified: it.isVerifiedPurchase ?? true,
+  isVerifiedPurchase: it.isVerifiedPurchase ?? true,
+  status: it.status === 'HIDDEN' || sharedStore.isReviewHidden(it.reviewId) ? 'HIDDEN' : 'PUBLISHED',
+});
 
 export interface AdminReviewsQuery {
   page?: number;
@@ -109,37 +139,30 @@ export const reviewService = {
 
       if (res.data?.data) {
         const d = res.data.data;
-        const mappedItems: ProductReview[] = (d.items || []).map((it) => ({
-          reviewId: it.reviewId,
-          orderItemId: it.orderItemId,
-          productId: it.productId,
-          productName: it.productName,
-          variantName: it.variantName,
-          userName: it.customerName || it.userName || 'Khách hàng',
-          customerName: it.customerName,
-          userPhoneMasked: it.customerPhone || '098****321',
-          rating: it.rating,
-          comment: it.comment,
-          storeReply: it.reply || it.storeReply,
-          reply: it.reply,
-          repliedAt: it.repliedAt,
-          images: it.images || [],
-          createdAt: it.createdAt,
-          updatedAt: it.updatedAt,
-          isBuyerVerified: it.isVerifiedPurchase ?? true,
-          isVerifiedPurchase: it.isVerifiedPurchase ?? true,
-          status: it.status || 'APPROVED',
-        }));
+        const rawItems: any[] = d.items || [];
+        const mappedItems: ProductReview[] = rawItems
+          .filter((it) => it.status !== 'HIDDEN' && !sharedStore.isReviewHidden(it.reviewId))
+          .map((it) => mapApiReview(it));
+
+        const removedCount = rawItems.length - mappedItems.length;
+        const totalReviews = Math.max(0, (d.totalReviews ?? rawItems.length) - removedCount);
+        const avg = removedCount > 0 && mappedItems.length > 0
+          ? Number((mappedItems.reduce((sum, r) => sum + r.rating, 0) / mappedItems.length).toFixed(1))
+          : (d.averageRating || 5);
 
         return {
           items: mappedItems,
-          totalReviews: d.totalReviews || mappedItems.length,
-          averageRating: d.averageRating || 5,
-          pageInfo: d.pageInfo || {
+          totalReviews,
+          averageRating: avg,
+          pageInfo: d.pageInfo ? {
+            ...d.pageInfo,
+            totalElements: totalReviews,
+            totalPages: Math.ceil((totalReviews || 1) / size),
+          } : {
             page,
             size,
-            totalPages: Math.ceil((d.totalReviews || mappedItems.length) / size),
-            totalElements: d.totalReviews || mappedItems.length,
+            totalPages: Math.ceil((totalReviews || 1) / size),
+            totalElements: totalReviews,
             hasNext: false,
           },
         };
@@ -169,6 +192,67 @@ export const reviewService = {
   },
 
   /**
+   * Tải ảnh đánh giá lên MinIO trước khi gọi API 12.2:
+   * 1) POST /storage/presigned-urls (storageType = REVIEWS)
+   * 2) PUT từng ảnh lên uploadUrl
+   * 3) POST /storage/confirm cho từng ảnh
+   * Trả về danh sách uploadId để gửi kèm khi tạo đánh giá.
+   */
+  async uploadReviewImages(files: File[]): Promise<string[]> {
+    if (files.length === 0) return [];
+
+    const presignedRes = await apiClient.post<{ success: boolean; message?: string; data: any[] }>(
+      '/storage/presigned-urls',
+      {
+        storageType: 'REVIEWS',
+        files: files.map((f) => ({
+          fileName: f.name || `review-${Date.now()}.jpg`,
+          contentType: f.type,
+          fileSize: f.size,
+        })),
+      }
+    );
+    const items = presignedRes.data?.data || [];
+    if (items.length !== files.length) {
+      throw new Error('Không nhận đủ liên kết tải ảnh từ máy chủ.');
+    }
+
+    const uploadIds: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const item = items[i];
+      if (!item?.uploadUrl || !item?.uploadId) {
+        throw new Error('Máy chủ trả về liên kết tải ảnh không hợp lệ.');
+      }
+
+      let putRes: Response;
+      try {
+        putRes = await fetch(item.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': files[i].type || 'application/octet-stream' },
+          body: files[i],
+        });
+      } catch (err) {
+        // Lỗi mạng / MinIO tắt / trình duyệt chặn (CORS, tiện ích chặn quảng cáo): fetch ném "Failed to fetch"
+        console.warn('[reviewService.uploadReviewImages] PUT lên MinIO lỗi', item.uploadUrl?.split('?')[0], err);
+        throw new Error(
+          `Không kết nối được máy chủ lưu ảnh (${new URL(item.uploadUrl).origin}) để tải "${files[i].name}". Vui lòng thử lại.`
+        );
+      }
+      if (!putRes.ok) {
+        console.warn('[reviewService.uploadReviewImages] MinIO từ chối', putRes.status, await putRes.text().catch(() => ''));
+        throw new Error(`Tải ảnh "${files[i].name}" lên thất bại (HTTP ${putRes.status}).`);
+      }
+
+      await apiClient.post('/storage/confirm', {
+        uploadId: item.uploadId,
+        objectKey: item.objectKey,
+      });
+      uploadIds.push(item.uploadId);
+    }
+    return uploadIds;
+  },
+
+  /**
    * API 12.2: POST /api/v1/reviews
    * Gửi đánh giá cho sản phẩm đã mua (Client - Auth)
    */
@@ -185,29 +269,10 @@ export const reviewService = {
       }>('/reviews', payload);
 
       if (res.data?.data) {
-        const d = res.data.data;
-        const mappedReview: ProductReview = {
-          reviewId: d.reviewId,
-          orderItemId: d.orderItemId,
-          productId: d.productId,
-          productName: d.productName,
-          variantName: d.variantName,
-          userName: d.customerName || 'Khách hàng',
-          userPhoneMasked: '098****321',
-          rating: d.rating,
-          comment: d.comment,
-          storeReply: d.reply,
-          reply: d.reply,
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-          isBuyerVerified: d.isVerifiedPurchase ?? true,
-          isVerifiedPurchase: d.isVerifiedPurchase ?? true,
-          status: d.status || 'APPROVED',
-        };
         return {
           success: true,
           message: res.data.message || 'Gửi đánh giá thành công',
-          review: mappedReview,
+          review: mapApiReview(res.data.data),
         };
       }
     } catch (err: any) {
@@ -218,10 +283,18 @@ export const reviewService = {
           message: err.response.data.message,
         };
       }
+      // Đã tải ảnh lên MinIO mà không gọi được máy chủ: không lưu "giả" vào dữ liệu mẫu trên máy
+      // (sẽ báo thành công nhưng mất ảnh và không có trong hệ thống thật).
+      if (payload.uploadIds && payload.uploadIds.length > 0) {
+        return {
+          success: false,
+          message: 'Không kết nối được máy chủ để gửi đánh giá. Vui lòng thử lại.',
+        };
+      }
     }
 
     // Fallback sang sharedStore
-    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const user = getStoredUser();
     const localResult = sharedStore.submitReview({
       orderItemId: payload.orderItemId,
       productId: 0,
@@ -249,28 +322,8 @@ export const reviewService = {
 
       if (res.data?.data) {
         const d = res.data.data;
-        const mappedItems: ProductReview[] = (d.items || []).map((it) => ({
-          reviewId: it.reviewId,
-          orderItemId: it.orderItemId,
-          productId: it.productId,
-          productName: it.productName,
-          userName: it.customerName || it.userName || 'Khách hàng',
-          customerName: it.customerName,
-          userPhoneMasked: it.customerPhone || '098****321',
-          rating: it.rating,
-          comment: it.comment,
-          storeReply: it.reply || it.storeReply,
-          reply: it.reply,
-          repliedAt: it.repliedAt,
-          createdAt: it.createdAt,
-          updatedAt: it.updatedAt,
-          isBuyerVerified: it.isVerifiedPurchase ?? true,
-          isVerifiedPurchase: it.isVerifiedPurchase ?? true,
-          status: it.status || 'APPROVED',
-        }));
-
         return {
-          items: mappedItems,
+          items: (d.items || []).map((it) => mapApiReview(it)),
           pageInfo: d.pageInfo,
         };
       }
@@ -278,9 +331,13 @@ export const reviewService = {
       console.warn('[reviewService.getAdminReviews] Fallback to sharedStore', err);
     }
 
-    // Fallback sang sharedStore
-    const all = sharedStore.getReviews();
+    // Fallback sang sharedStore (bao gồm cả đánh giá đã ẩn để quản trị)
+    const all = sharedStore.getReviews(undefined, true);
     let filtered = [...all];
+    if (query.status) {
+      const target = query.status === 'HIDDEN' ? 'HIDDEN' : 'PUBLISHED';
+      filtered = filtered.filter((r) => (r.status === 'HIDDEN' ? 'HIDDEN' : 'PUBLISHED') === target);
+    }
     if (query.rating) {
       filtered = filtered.filter((r) => r.rating === query.rating);
     }
@@ -315,6 +372,7 @@ export const reviewService = {
    * Cửa hàng phản hồi đánh giá (Portal - STAFF / ADMIN)
    */
   async replyAdminReview(id: number, replyText: string): Promise<ProductReview | null> {
+    const localUpdated = sharedStore.replyReview(id, replyText);
     try {
       const res = await apiClient.put<{
         success: boolean;
@@ -323,40 +381,39 @@ export const reviewService = {
       }>(`/admin/reviews/${id}/reply`, { reply: replyText });
 
       if (res.data?.data) {
-        const d = res.data.data;
-        return {
-          reviewId: d.reviewId,
-          orderItemId: d.orderItemId,
-          productId: d.productId,
-          productName: d.productName,
-          userName: d.customerName || 'Khách hàng',
-          userPhoneMasked: '098****321',
-          rating: d.rating,
-          comment: d.comment,
-          storeReply: d.reply,
-          reply: d.reply,
-          repliedAt: d.repliedAt,
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-          isBuyerVerified: d.isVerifiedPurchase ?? true,
-          isVerifiedPurchase: d.isVerifiedPurchase ?? true,
-          status: d.status || 'APPROVED',
-        };
+        return mapApiReview(res.data.data);
       }
     } catch (err) {
       console.warn('[reviewService.replyAdminReview] Fallback to sharedStore', err);
     }
+    return localUpdated;
+  },
 
-    // Fallback: cập nhật local trong sharedStore
-    const all = sharedStore.getReviews();
-    const rev = all.find((r) => r.reviewId === id);
-    if (rev) {
-      rev.storeReply = replyText;
-      rev.reply = replyText;
-      rev.repliedAt = new Date().toISOString();
-      return rev;
+  /**
+   * API 12.3 Phụ: PATCH /api/v1/admin/reviews/{id}/status
+   * Ẩn / Hiện đánh giá trên trang sản phẩm (Portal - STAFF / ADMIN)
+   */
+  async updateAdminReviewStatus(
+    id: number,
+    status: 'PUBLISHED' | 'HIDDEN',
+    reviewSnapshot?: ProductReview
+  ): Promise<ProductReview | null> {
+    const localUpdated = sharedStore.updateReviewStatus(id, status, reviewSnapshot);
+    try {
+      const apiStatus = status === 'HIDDEN' ? 'HIDDEN' : 'VISIBLE';
+      const res = await apiClient.patch<{
+        success: boolean;
+        message: string;
+        data: any;
+      }>(`/admin/reviews/${id}/status`, { status: apiStatus });
+
+      if (res.data?.data) {
+        return mapApiReview(res.data.data, reviewSnapshot);
+      }
+    } catch (err) {
+      console.warn('[reviewService.updateAdminReviewStatus] Fallback to sharedStore', err);
     }
-    return null;
+    return localUpdated;
   },
 };
 
@@ -419,6 +476,7 @@ export const ticketService = {
     }
 
     // Fallback
+    const user = getStoredUser();
     const newT: PortalSupportTicket = {
       ticketId: Date.now(),
       userId: user.userId,

@@ -35,13 +35,21 @@ export const PortalReviewsTicketsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'REVIEWS' | 'TICKETS'>('REVIEWS');
 
   // Reviews State
-  const [reviews, setReviews] = useState<ModeratedReview[]>(
-    sharedStore.getReviews().map(r => ({...r, status: 'PUBLISHED' }))
+  const [reviews, setReviews] = useState<ModeratedReview[]>(() =>
+    sharedStore.getReviews(undefined, true).map(r => ({
+      ...r,
+      status: r.status === 'HIDDEN' || sharedStore.isReviewHidden(r.reviewId) ? 'HIDDEN' : 'PUBLISHED',
+    }))
   );
 
   React.useEffect(() => {
     const unsub = sharedStore.subscribe(() => {
-      setReviews(sharedStore.getReviews().map(r => ({...r, status: 'PUBLISHED' })));
+      setReviews(prev =>
+        (prev.length > 0 ? prev : sharedStore.getReviews(undefined, true)).map(r => ({
+          ...r,
+          status: sharedStore.isReviewHidden(r.reviewId) || r.status === 'HIDDEN' ? 'HIDDEN' : 'PUBLISHED',
+        }))
+      );
       setTickets([...sharedStore.getTickets()]);
     });
     return () => unsub();
@@ -87,15 +95,21 @@ export const PortalReviewsTicketsView: React.FC = () => {
   };
 
   // Moderation Handlers
-  const handleToggleReviewStatus = (reviewId: number) => {
-    setReviews(prev => prev.map(r => {
-      if (r.reviewId === reviewId) {
-        const nextStatus = r.status === 'PUBLISHED'? 'HIDDEN': 'PUBLISHED';
-        showToast(nextStatus === 'HIDDEN'? 'Đã ẩn đánh giá khỏi giao diện người dùng': 'Đã công khai đánh giá lên sản phẩm');
-        return {...r, status: nextStatus };
-      }
-      return r;
-    }));
+  const handleToggleReviewStatus = async (reviewId: number) => {
+    const target = reviews.find(r => Number(r.reviewId) === Number(reviewId));
+    const currentStatus = target?.status === 'HIDDEN' || sharedStore.isReviewHidden(reviewId) ? 'HIDDEN' : 'PUBLISHED';
+    const nextStatus: 'PUBLISHED' | 'HIDDEN' = currentStatus === 'PUBLISHED' ? 'HIDDEN' : 'PUBLISHED';
+
+    setReviews(prev =>
+      prev.map(r => (Number(r.reviewId) === Number(reviewId) ? { ...r, status: nextStatus } : r))
+    );
+    showToast(
+      nextStatus === 'HIDDEN'
+        ? 'Đã ẩn đánh giá khỏi giao diện người dùng'
+        : 'Đã công khai đánh giá lên sản phẩm'
+    );
+
+    await reviewService.updateAdminReviewStatus(reviewId, nextStatus, target);
   };
 
   const handleSendStoreReply = async (reviewId: number) => {
@@ -352,6 +366,21 @@ export const PortalReviewsTicketsView: React.FC = () => {
                   <div className="mt-3 text-xs text-slate-700 bg-slate-50 p-3 rounded border border-slate-100 leading-relaxed">
                     "{r.comment}"
                   </div>
+
+                  {/* Ảnh khách gửi kèm (API 12.3 trả về imageUrls) */}
+                  {r.images && r.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {r.images.map((img, i) => (
+                        <a key={img} href={img} target="_blank" rel="noopener noreferrer" title="Xem ảnh gốc">
+                          <img
+                            src={img}
+                            alt={`Ảnh đánh giá ${i + 1}`}
+                            className="w-16 h-16 object-cover rounded border border-slate-200 hover:opacity-90 transition"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Existing Store Reply */}
                   {r.storeReply && replyingReviewId!== r.reviewId && (

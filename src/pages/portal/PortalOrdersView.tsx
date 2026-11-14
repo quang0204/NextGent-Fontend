@@ -474,8 +474,9 @@ export const PortalOrdersView: React.FC = () => {
     if (!cancelModal) return;
     const finalReason = customCancelReason.trim()? customCancelReason.trim(): cancelReason;
 
-    await orderService.cancelOrder(cancelModal.orderCode, finalReason, 'Quản trị viên (Admin)');
-    const ok = sharedStore.cancelOrder(cancelModal.orderId, finalReason, 'Quản trị viên (Admin)');
+    const ok =
+      (await orderService.cancelOrder(cancelModal.orderCode, finalReason, 'Quản trị viên (Admin)')) ||
+      sharedStore.cancelOrder(cancelModal.orderId, finalReason, 'Quản trị viên (Admin)');
     if (ok) {
       setBulkActionFeedback(`✓ Đã hủy đơn hàng #${cancelModal.orderCode} và giải phóng tồn kho thành công!`);
       setTimeout(() => setBulkActionFeedback(null), 3500);

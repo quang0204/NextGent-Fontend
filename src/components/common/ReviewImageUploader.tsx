@@ -1,21 +1,42 @@
-import React, { useRef } from 'react';
-import { Camera, X, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Camera, X, AlertCircle } from 'lucide-react';
+
+/** Một ảnh đánh giá đã chọn: file gốc (để tải lên MinIO) + link xem trước. */
+export interface ReviewImageFile {
+  file: File;
+  previewUrl: string;
+}
 
 export interface ReviewImageUploaderProps {
-  images: string[];
-  onChange: (images: string[]) => void;
+  images: ReviewImageFile[];
+  onChange: (images: ReviewImageFile[]) => void;
   maxImages?: number;
+  maxSizeMB?: number;
   disabled?: boolean;
 }
+
+/** Khớp backend: ảnh đánh giá chỉ nhận JPEG, PNG, WEBP, GIF. */
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 export const ReviewImageUploader: React.FC<ReviewImageUploaderProps> = ({
   images,
   onChange,
-  maxImages = 3,
+  maxImages = 5,
+  maxSizeMB = 5,
   disabled = false
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+
+  // Giải phóng link xem trước khi ảnh bị gỡ khỏi danh sách (xóa ảnh / reset form).
+  const previewUrlsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const current = images.map(img => img.previewUrl);
+    previewUrlsRef.current
+      .filter(url => !current.includes(url))
+      .forEach(url => URL.revokeObjectURL(url));
+    previewUrlsRef.current = current;
+  }, [images]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setErrorMsg(null);
@@ -29,39 +50,23 @@ export const ReviewImageUploader: React.FC<ReviewImageUploaderProps> = ({
     }
 
     const selectedFiles = Array.from(files).slice(0, remainingSlots);
-    const newImages: string[] = [];
-    let processedCount = 0;
+    const newImages: ReviewImageFile[] = [];
 
     selectedFiles.forEach((file) => {
-      // Kiểm tra dung lượng file (tối đa 3MB)
-      if (file.size > 3 * 1024 * 1024) {
-        setErrorMsg(`Hình "${file.name}" vượt quá dung lượng cho phép (tối đa 3MB/ảnh).`);
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        setErrorMsg(`Tệp "${file.name}" không hợp lệ. Chỉ nhận ảnh JPG, PNG, WEBP, GIF.`);
         return;
       }
-
-      if (!file.type.startsWith('image/')) {
-        setErrorMsg(`Tệp "${file.name}" không phải là định dạng hình ảnh hợp lệ.`);
+      if (file.size > maxSizeMB * 1024 * 1024) {
+        setErrorMsg(`Hình "${file.name}" vượt quá dung lượng cho phép (tối đa ${maxSizeMB}MB/ảnh).`);
         return;
       }
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          newImages.push(event.target.result as string);
-        }
-        processedCount++;
-        if (processedCount === selectedFiles.length) {
-          onChange([...images, ...newImages]);
-        }
-      };
-      reader.onerror = () => {
-        processedCount++;
-        if (processedCount === selectedFiles.length) {
-          onChange([...images, ...newImages]);
-        }
-      };
-      reader.readAsDataURL(file);
+      newImages.push({ file, previewUrl: URL.createObjectURL(file) });
     });
+
+    if (newImages.length > 0) {
+      onChange([...images, ...newImages]);
+    }
 
     // Reset input
     if (fileInputRef.current) {
@@ -97,7 +102,7 @@ export const ReviewImageUploader: React.FC<ReviewImageUploaderProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept={ACCEPTED_TYPES.join(',')}
         multiple
         disabled={disabled || images.length >= maxImages}
         onChange={handleFileChange}
@@ -106,13 +111,13 @@ export const ReviewImageUploader: React.FC<ReviewImageUploaderProps> = ({
 
       {/* Previews and Add Button */}
       <div className="flex flex-wrap gap-2.5 items-center">
-        {images.map((imgUrl, idx) => (
+        {images.map((img, idx) => (
           <div
-            key={idx}
+            key={img.previewUrl}
             className="relative w-20 h-20 rounded-xl border border-hairline-soft overflow-hidden group shadow-xs bg-surface-soft"
           >
             <img
-              src={imgUrl}
+              src={img.previewUrl}
               alt={`Ảnh đánh giá ${idx + 1}`}
               className="w-full h-full object-cover"
             />
@@ -148,7 +153,7 @@ export const ReviewImageUploader: React.FC<ReviewImageUploaderProps> = ({
       </div>
 
       <p className="text-[10px] text-steel">
-        * Tối đa {maxImages} ảnh chụp thật ngoại quan hoặc hóa đơn mở hộp máy (Định dạng JPG, PNG, tối đa 3MB/ảnh).
+        * Tối đa {maxImages} ảnh chụp thật ngoại quan hoặc hóa đơn mở hộp máy (Định dạng JPG, PNG, WEBP, GIF, tối đa {maxSizeMB}MB/ảnh).
       </p>
     </div>
   );

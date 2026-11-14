@@ -59,23 +59,35 @@ export const PortalBrandsView: React.FC = () => {
   const loadBrands = useCallback(async () => {
     setIsLoading(true);
     try {
-      const res = await brandService.getBrands(true);
-      if (res.data && Array.isArray(res.data)) {
-        setBrands(res.data);
+      const res: any = await brandService.getBrands(true);
+      const rawData = Array.isArray(res)
+        ? res
+        : (Array.isArray(res?.data)
+            ? res.data
+            : (Array.isArray(res?.data?.data) ? res.data.data : null));
+      if (rawData) {
+        setBrands(rawData);
+        sharedStore.syncExternalBrands(rawData);
       }
     } catch (err) {
       console.warn('API getBrands error, falling back to local store', err);
       const localBrands = sharedStore.getPortalBrands();
+      const allProducts = sharedStore.getProducts();
       setBrands(
-        localBrands.map(b => ({
-          brandId: b.brandId,
-          name: b.name,
-          slug: generateSlug(b.name),
-          logoUrl: b.logoUrl,
-          description: b.description,
-          isVisible: b.isVisible,
-          totalProducts: b.productCount || 0
-        }))
+        localBrands.map(b => {
+          const actualCount = allProducts.filter(
+            p => (p.brandName || '').trim().toLowerCase() === (b.name || '').trim().toLowerCase()
+          ).length;
+          return {
+            brandId: b.brandId,
+            name: b.name,
+            slug: b.slug || generateSlug(b.name),
+            logoUrl: b.logoUrl,
+            description: b.description,
+            isVisible: b.isVisible,
+            totalProducts: actualCount || b.productCount || 0
+          };
+        })
       );
     } finally {
       setIsLoading(false);
