@@ -71,6 +71,7 @@ export interface ValidVoucherItem {
   usageLimit: number;
   usedCount: number;
   remainingCount: number;
+  startAt?: string;
   expiredAt: string;
 }
 
@@ -492,7 +493,15 @@ export const promotionService = {
       console.warn('[promotionService.getValidVouchers] Backend failed or offline, fallback to sharedStore', error);
     }
 
-    const localVouchers = sharedStore.getVouchers().filter((v) => v.isActive);
+    const nowMs = Date.now();
+    const localVouchers = sharedStore.getVouchers().filter((v) => {
+      if (!v.isActive) return false;
+      const startMs = v.startAt ? new Date(v.startAt).getTime() : NaN;
+      const endMs = v.expiredAt ? new Date(v.expiredAt).getTime() : NaN;
+      if (Number.isFinite(startMs) && nowMs < startMs) return false;
+      if (Number.isFinite(endMs) && nowMs > endMs) return false;
+      return true;
+    });
     return localVouchers.map((v) => ({
       voucherId: v.voucherId,
       code: v.code,
@@ -503,6 +512,7 @@ export const promotionService = {
       usageLimit: v.usageLimit,
       usedCount: v.usedCount,
       remainingCount: Math.max(0, v.usageLimit - v.usedCount),
+      startAt: v.startAt,
       expiredAt: v.expiredAt,
     }));
   },
@@ -555,6 +565,19 @@ export const promotionService = {
     if (!v.isActive) {
       return { success: false, message: 'Mã voucher này hiện đang tạm khóa hoặc chưa kích hoạt!' };
     }
+    const nowMs = Date.now();
+    if (v.startAt) {
+      const startMs = new Date(v.startAt).getTime();
+      if (Number.isFinite(startMs) && nowMs < startMs) {
+        return { success: false, message: `Mã voucher "${v.code}" chưa đến thời gian có hiệu lực!` };
+      }
+    }
+    if (v.expiredAt) {
+      const endMs = new Date(v.expiredAt).getTime();
+      if (Number.isFinite(endMs) && nowMs > endMs) {
+        return { success: false, message: `Mã voucher "${v.code}" đã hết hạn sử dụng!` };
+      }
+    }
     if (v.usedCount >= v.usageLimit) {
       return { success: false, message: 'Mã voucher này đã hết lượt sử dụng!' };
     }
@@ -569,9 +592,10 @@ export const promotionService = {
     const isPercent = v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE';
     if (isPercent) {
       discount = Math.round((subtotal * v.discountValue) / 100);
-      if (v.maxDiscount) {
+      if (v.maxDiscount && v.maxDiscount > 0) {
         discount = Math.min(discount, v.maxDiscount);
       }
+      discount = Math.min(discount, subtotal);
     } else {
       discount = Math.min(v.discountValue, subtotal);
     }
@@ -582,7 +606,7 @@ export const promotionService = {
       data: {
         voucherId: v.voucherId,
         code: v.code,
-        discountType: v.discountType,
+        discountType: isPercent ? 'PERCENT' : 'FIXED',
         discountValue: v.discountValue,
         discountAmount: discount,
         originalSubtotal: subtotal,
@@ -602,7 +626,7 @@ export const promotionService = {
     status?: string;
   }): Promise<AdminVouchersPageResponse> {
     const page = params?.page || 1;
-    const size = params?.size || 10;
+    const size = params?.size || 50;
     const keyword = params?.keyword || undefined;
     const status = params?.status || 'ALL';
 
@@ -620,6 +644,22 @@ export const promotionService = {
       });
 
       if (res.data?.data?.content) {
+        const mapped: PortalVoucher[] = res.data.data.content.map((v) => ({
+          voucherId: v.voucherId,
+          code: v.code,
+          discountType: v.discountType === 'PERCENT' || v.discountType === 'PERCENTAGE' ? 'PERCENT' : 'FIXED',
+          discountValue: Number(v.discountValue || 0),
+          maxDiscount: v.maxDiscount ? Number(v.maxDiscount) : undefined,
+          minOrderValue: Number(v.minOrderValue || 0),
+          usageLimit: Number(v.usageLimit || 1),
+          usedCount: Number(v.usedCount || 0),
+          startAt: v.startAt || '',
+          expiredAt: v.expiredAt || '',
+          isActive: Boolean(v.isActive),
+        }));
+        if (!keyword && status === 'ALL' && mapped.length > 0) {
+          sharedStore.setVouchers(mapped);
+        }
         return res.data.data;
       }
     } catch (error) {
@@ -660,32 +700,36 @@ export const promotionService = {
     message: string;
     data?: any;
   }> {
+    const normalizedType: 'FIXED' | 'PERCENT' =
+      payload.discountType === 'PERCENT' || payload.discountType === 'PERCENTAGE' ? 'PERCENT' : 'FIXED';
+
     try {
       const res = await apiClient.post<{
         success: boolean;
         message: string;
         data: any;
-      }>('/admin/vouchers', payload);
+      }>('/admin/vouchers', {
+        ...payload,
+        discountType: normalizedType,
+      });
 
       if (res.data?.data) {
-        // Sync to sharedStore
         const d = res.data.data;
         const newV: PortalVoucher = {
           voucherId: d.voucherId || Date.now(),
-          code: d.code,
-          discountType: payload.discountType === 'PERCENT' ? 'PERCENT' : 'FIXED',
-          discountValue: payload.discountValue,
-          maxDiscount: payload.maxDiscount || undefined,
-          minOrderValue: payload.minOrderValue,
-          usageLimit: payload.usageLimit,
+          code: d.code || payload.code.trim().toUpperCase(),
+          discountType: normalizedType,
+          discountValue: Number(payload.discountValue),
+          maxDiscount: normalizedType === 'PERCENT' && payload.maxDiscount ? Number(payload.maxDiscount) : undefined,
+          minOrderValue: Number(payload.minOrderValue),
+          usageLimit: Number(payload.usageLimit),
           usedCount: d.usedCount || 0,
-          startAt: payload.startAt || new Date().toISOString().split('T')[0],
-          expiredAt: payload.expiredAt,
+          startAt: d.startAt || payload.startAt || new Date().toISOString(),
+          expiredAt: d.expiredAt || payload.expiredAt,
           isActive: payload.isActive ?? true,
         };
-        const all = sharedStore.getVouchers();
-        const updated = [newV, ...all];
-        localStorage.setItem('np_vouchers_v2', JSON.stringify(updated));
+        const all = sharedStore.getVouchers().filter((v) => v.code !== newV.code);
+        sharedStore.setVouchers([newV, ...all]);
 
         return {
           success: true,
@@ -716,18 +760,17 @@ export const promotionService = {
     const newV: PortalVoucher = {
       voucherId: Date.now(),
       code: cleanCode,
-      discountType: payload.discountType === 'PERCENT' ? 'PERCENT' : 'FIXED',
-      discountValue: payload.discountValue,
-      maxDiscount: payload.maxDiscount || undefined,
-      minOrderValue: payload.minOrderValue,
-      usageLimit: payload.usageLimit,
+      discountType: normalizedType,
+      discountValue: Number(payload.discountValue),
+      maxDiscount: normalizedType === 'PERCENT' && payload.maxDiscount ? Number(payload.maxDiscount) : undefined,
+      minOrderValue: Number(payload.minOrderValue),
+      usageLimit: Number(payload.usageLimit),
       usedCount: 0,
-      startAt: payload.startAt || new Date().toISOString().split('T')[0],
+      startAt: payload.startAt || new Date().toISOString(),
       expiredAt: payload.expiredAt,
       isActive: payload.isActive ?? true,
     };
-    const updated = [newV, ...all];
-    localStorage.setItem('np_vouchers_v2', JSON.stringify(updated));
+    sharedStore.setVouchers([newV, ...all]);
 
     return {
       success: true,
@@ -752,6 +795,10 @@ export const promotionService = {
         data: any;
       }>(`/admin/vouchers/${id}/toggle`);
 
+      const all = sharedStore.getVouchers();
+      const updated = all.map((v) => (v.voucherId === id ? { ...v, isActive: !v.isActive } : v));
+      sharedStore.setVouchers(updated);
+
       return {
         success: res.data?.success ?? true,
         message: res.data?.message || 'Thay đổi trạng thái kích hoạt Voucher thành công!',
@@ -761,7 +808,7 @@ export const promotionService = {
       console.warn(`[promotionService.toggleVoucherStatus] Backend failed for voucher ${id}, fallback to local store`, error);
       const all = sharedStore.getVouchers();
       const updated = all.map((v) => (v.voucherId === id ? { ...v, isActive: !v.isActive } : v));
-      localStorage.setItem('np_vouchers_v2', JSON.stringify(updated));
+      sharedStore.setVouchers(updated);
       return {
         success: true,
         message: 'Đã thay đổi trạng thái kích hoạt Voucher.',
