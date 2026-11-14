@@ -140,14 +140,6 @@ export const PortalShipmentsView: React.FC = () => {
     } catch (err: any) {
       const msg = err?.response?.data?.message || err.message || 'Lỗi khi cập nhật trạng thái vận đơn';
       showNotification(`Lỗi: ${msg}`);
-      // Vẫn cập nhật local fallback
-      sharedStore.updateShipmentStatus(
-        editingShipment.shipmentId,
-        newStatus,
-        isFailStatus ? failReason : undefined,
-        'Điều phối viên giao vận',
-        editingShipment
-      );
     }
 
       setShipments([...sharedStore.getShipments()]);
