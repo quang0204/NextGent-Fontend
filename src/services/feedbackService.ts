@@ -428,7 +428,7 @@ export const ticketService = {
     message: string;
     ticket?: PortalSupportTicket;
   }> {
-    const user = JSON.parse(localStorage.getItem('auth_user') || '{}');
+    const user = getStoredUser();
     try {
       const res = await apiClient.post<{
         success: boolean;
@@ -476,7 +476,6 @@ export const ticketService = {
     }
 
     // Fallback
-    const user = getStoredUser();
     const newT: PortalSupportTicket = {
       ticketId: Date.now(),
       userId: user.userId,
@@ -510,7 +509,7 @@ export const ticketService = {
     } else if (userIdOrUser && typeof userIdOrUser.userId === 'number') {
       customerId = userIdOrUser.userId;
     } else {
-      const stored = JSON.parse(localStorage.getItem('auth_user') || 'null');
+      const stored = getStoredUser();
       customerId = stored?.userId;
     }
 

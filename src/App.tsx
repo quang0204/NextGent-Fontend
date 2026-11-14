@@ -33,27 +33,6 @@ export const App: React.FC = () => {
   return (
     <BrowserRouter>
       <ToastContainer />
-      <Routes>
-        {/* Storefront Layout with Public Header, Navigation & Footer */}
-        <Route element={<StorefrontLayout />}>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/products" element={<ProductListPage />} />
-          <Route path="/product/:id" element={<ProductDetailPage />} />
-          <Route path="/cart" element={<CartPage />} />
-          <Route path="/checkout" element={<CheckoutPage />} />
-          <Route path="/orders" element={<OrderTrackingPage />} />
-          <Route path="/order-tracking" element={<OrderTrackingPage />} />
-          <Route path="/compare" element={<ComparePage />} />
-          <Route path="/wishlist" element={<WishlistPage />} />
-          <Route path="/auth" element={<AuthPage />} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="/support-history" element={<AccountPage />} />
-          <Route path="/faq" element={<FaqSupportPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
-          
-          {/* 404 Route */}
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
       <Suspense
         fallback={
           <div className="min-h-[60vh] flex items-center justify-center text-xs font-medium text-steel">
@@ -75,6 +54,7 @@ export const App: React.FC = () => {
             <Route path="/wishlist" element={<WishlistPage />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/support-history" element={<AccountPage />} />
             <Route path="/faq" element={<FaqSupportPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
 

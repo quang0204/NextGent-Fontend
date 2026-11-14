@@ -192,31 +192,8 @@ let orders: OrderDetail[] = loadInitialOrders();
 let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, PORTAL_VOUCHERS);
 let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, PORTAL_STOCK_MOVEMENTS);
 let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, PORTAL_STOCK_ADJUSTMENTS);
-const loadInitialTickets = (): PortalSupportTicket[] => {
-  const loaded = loadFromStorage<PortalSupportTicket[]>(STORAGE_KEY_TICKETS, []);
-  if (!loaded || loaded.length === 0) {
-    saveToStorage(STORAGE_KEY_TICKETS, PORTAL_TICKETS);
-    return [...PORTAL_TICKETS];
-  }
-  // Đảm bảo các phiếu hỗ trợ mẫu đều có userId tương ứng
-  const existingIds = new Set(loaded.map(t => t.ticketId));
-  const merged = [...loaded];
-  PORTAL_TICKETS.forEach(pt => {
-    if (!existingIds.has(pt.ticketId)) {
-      merged.push(pt);
-    } else {
-      const idx = merged.findIndex(t => t.ticketId === pt.ticketId);
-      if (idx >= 0 && (!merged[idx].userId || merged[idx].status !== pt.status)) {
-        merged[idx] = { ...merged[idx], userId: pt.userId, status: pt.status, reply: pt.reply || merged[idx].reply };
-      }
-    }
-  });
-  saveToStorage(STORAGE_KEY_TICKETS, merged);
-  return merged;
-};
-
 let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDIT_LOGS);
-let tickets: PortalSupportTicket[] = loadInitialTickets();
+let tickets: PortalSupportTicket[] = [];
 let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
 let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
 let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, PORTAL_BRANDS);
@@ -589,9 +566,6 @@ export const sharedStore = {
     }
   },
 
-  getReviews(productId?: number): ProductReview[] {
-    if (productId) {
-      return reviews.filter(r => r.productId === productId);
   isReviewHidden(reviewId: number): boolean {
     return reviews.some(r => Number(r.reviewId) === Number(reviewId) && r.status === 'HIDDEN');
   },
