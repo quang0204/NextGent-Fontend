@@ -3,6 +3,7 @@ import { sharedStore, cleanLogNote } from '../../services/sharedStore';
 import { inventoryService } from '../../services/inventoryService';
 import { orderService } from '../../services/orderService';
 import { paymentService } from '../../services/paymentService';
+import { returnService } from '../../services/returnService';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../../types/order';
 import { PortalShipment, PortalReturnRequest } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
@@ -424,49 +425,41 @@ export const PortalOrdersView: React.FC = () => {
 
   // Xác nhận đã nhận tiền chuyển khoản (API: POST /api/v1/admin/orders/{id}/confirm-payment)
   const handleAdminConfirmPayment = async (order: OrderDetail) => {
-    // 1. Optimistic UI Update: Thay đổi state nội bộ ngay lập tức để nút biến mất và nhãn đổi ngay tức thì
-    setOrders(prev => prev.map(o => o.orderId === order.orderId ? {
-      ...o,
-      paymentStatus: 'PAID',
-      status: o.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : o.status
-    } : o));
-
-    if (viewDetailModal && viewDetailModal.orderId === order.orderId) {
-      setViewDetailModal((prev: any) => prev ? {
-        ...prev,
-        paymentStatus: 'PAID',
-        status: prev.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : prev.status
-      } : null);
-    }
-
-    // 2. Cập nhật vào sharedStore (kích hoạt notify để mọi tab/component khác đồng bộ ngay)
-    sharedStore.updateOrderPaymentStatus(
-      order.orderId,
-      'PAID',
-      `Admin xác nhận đã nhận đủ tiền chuyển khoản cho đơn hàng #${order.orderCode}. Chuyển sang Chờ xác nhận.`
-    );
-
-    // 3. Gọi Backend API
     try {
       const res = await orderService.adminConfirmPayment(
         order.orderId,
         `Admin xác nhận đã nhận đủ tiền chuyển khoản cho đơn hàng #${order.orderCode}`
       );
-      if (res && res.success) {
-        setBulkActionFeedback(`✓ ${res.message || `Đã xác nhận thanh toán đơn #${order.orderCode} thành công!`}`);
-      } else {
-        setBulkActionFeedback(`✓ Đã xác nhận thanh toán đơn #${order.orderCode}!`);
+      if (!res || !res.success) {
+        alert(res?.message || `Không thể xác nhận thanh toán đơn #${order.orderCode}.`);
+        return;
       }
-    } catch (err: any) {
-      console.warn('[handleAdminConfirmPayment] API error, already updated local state', err);
-      setBulkActionFeedback(`✓ Đã xác nhận thanh toán đơn #${order.orderCode}!`);
-    }
 
-    setTimeout(() => setBulkActionFeedback(null), 4000);
-    // Reload lại từ DB backend sau 800ms để đảm bảo DB đã commit xong
-    setTimeout(() => {
+      setOrders(prev => prev.map(o => o.orderId === order.orderId ? {
+        ...o,
+        paymentStatus: 'PAID',
+        status: o.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : o.status
+      } : o));
+
+      if (viewDetailModal && viewDetailModal.orderId === order.orderId) {
+        setViewDetailModal((prev: any) => prev ? {
+          ...prev,
+          paymentStatus: 'PAID',
+          status: prev.status === 'PENDING_PAYMENT' ? 'WAITING_CONFIRMATION' : prev.status
+        } : null);
+      }
+
+      sharedStore.updateOrderPaymentStatus(
+        order.orderId,
+        'PAID',
+        `Admin xác nhận đã nhận đủ tiền chuyển khoản cho đơn hàng #${order.orderCode}. Chuyển sang Chờ xác nhận.`
+      );
+      setBulkActionFeedback(`✓ ${res.message || `Đã xác nhận thanh toán đơn #${order.orderCode} thành công!`}`);
+      setTimeout(() => setBulkActionFeedback(null), 4000);
       loadAdminOrders();
-    }, 800);
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || `Lỗi khi xác nhận thanh toán đơn #${order.orderCode}.`);
+    }
   };
 
   // Xác nhận hủy đơn hàng an toàn (API 8.4: POST /api/v1/orders/{orderCode}/cancel)
@@ -489,20 +482,33 @@ export const PortalOrdersView: React.FC = () => {
   };
 
   // Ký duyệt hoàn kho
-  const handleConfirmMb04 = () => {
+  const handleConfirmMb04 = async () => {
     if (!mb04Modal) return;
     const isRestock = mb04SealCondition === 'INTACT';
-    const ok = sharedStore.processReturnRestock(
-      mb04Modal.orderId,
-      isRestock,
-      mb04Reason,
-      'Nguyễn Thanh Hùng (Thủ kho)'
-    );
-    if (ok) {
-      setBulkActionFeedback(`✓ Đã lập phiếu hoàn kho và ${isRestock? 'nhập lại tồn kho bán lẻ': 'chuyển kho cách ly thanh lý'} thành công!`);
-      setTimeout(() => setBulkActionFeedback(null), 4000);
+    const returnId = (mb04Modal as any).returnId;
+    if (!returnId) {
+      alert('Đơn hàng chưa có yêu cầu đổi trả (returnId) trên hệ thống để lập phiếu hoàn kho MB04.');
+      return;
     }
-    setMb04Modal(null);
+    try {
+      await returnService.inspectReturn(returnId, {
+        status: isRestock ? 'APPROVED' : 'REJECTED',
+        inspectionResult: mb04Reason || (isRestock ? 'Máy nguyên seal, đủ điều kiện nhập kho bán lẻ' : 'Rách seal / hư hỏng hộp'),
+        refundAmount: isRestock ? Number(mb04Modal.totalAmount || 0) : 0,
+        restockItems: isRestock
+          ? (mb04Modal.items || [])
+              .filter(i => i.variantId)
+              .map(i => ({ variantId: Number(i.variantId), quantity: Number(i.quantity || 1) }))
+          : undefined,
+        rejectReason: isRestock ? undefined : (mb04Reason || 'Rách seal / hư hỏng hộp'),
+      });
+      setBulkActionFeedback(`✓ Đã lập phiếu hoàn kho và ${isRestock ? 'nhập lại tồn kho bán lẻ' : 'từ chối nhập kho'} thành công!`);
+      setTimeout(() => setBulkActionFeedback(null), 4000);
+      loadAdminOrders();
+      setMb04Modal(null);
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Lỗi khi ký duyệt hoàn kho MB04.');
+    }
   };
 
   // Duyệt hàng loạt theo trạng thái đích

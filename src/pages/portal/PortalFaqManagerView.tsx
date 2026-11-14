@@ -33,22 +33,20 @@ export const PortalFaqManagerView: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    faqService.getFaqs().then(groups => {
-      if (groups && groups.length > 0) {
-        const flatItems = groups.flatMap(g => g.items);
-        if (flatItems.length > 0) {
-          setFaqs(flatItems);
+  const loadFaqs = () => {
+    faqService.getAdminFaqs().then(items => {
+      setFaqs(items);
+    }).catch(() => {
+      faqService.getFaqs().then(groups => {
+        if (groups && groups.length > 0) {
+          setFaqs(groups.flatMap(g => g.items));
         }
-      }
-    }).catch(() => {});
-  }, []);
+      }).catch(() => {});
+    });
+  };
 
   useEffect(() => {
-    const unsub = sharedStore.subscribe(() => {
-      setFaqs([...sharedStore.getFaqs()]);
-    });
-    return () => unsub();
+    loadFaqs();
   }, []);
 
   const showNotification = (msg: string) => {
@@ -91,42 +89,88 @@ export const PortalFaqManagerView: React.FC = () => {
       return;
     }
 
-    if (editingFaq) {
-      sharedStore.updateFaq(editingFaq.faqId, {
-        topic,
-        question: question.trim(),
-        answer: answer.trim(),
-        isVisible
-      });
-      showNotification('Đã cập nhật câu hỏi FAQ thành công!');
-    } else {
-      try {
-        await faqService.createAdminFaq({
+    try {
+      if (editingFaq) {
+        await faqService.updateAdminFaq(editingFaq.faqId, {
+          question: question.trim(),
+          answer: answer.trim(),
+          category: topic,
+          displayOrder: editingFaq.sortOrder ?? 1,
+          isActive: isVisible,
+        });
+        showNotification('Đã cập nhật câu hỏi FAQ thành công!');
+      } else {
+        const res = await faqService.createAdminFaq({
           question: question.trim(),
           answer: answer.trim(),
           category: topic,
           displayOrder: faqs.length + 1,
           isActive: isVisible,
         });
-      } catch (err) {
-        sharedStore.addFaq({
-          topic,
-          question: question.trim(),
-          answer: answer.trim(),
-          isVisible,
-          sortOrder: faqs.length + 1
-        });
+        if (!res.success) {
+          setFormError(res.message || 'Không thể thêm FAQ!');
+          return;
+        }
+        showNotification('Đã thêm câu hỏi FAQ mới!');
       }
-      showNotification('Đã thêm câu hỏi FAQ mới!');
+      loadFaqs();
+      setShowModal(false);
+    } catch (err: any) {
+      setFormError(err?.response?.data?.message || err?.message || 'Lỗi khi lưu FAQ lên máy chủ!');
     }
-
-    setShowModal(false);
   };
 
-  const handleDeleteFaq = (faqId: number) => {
-    if (window.confirm('Bạn có chắc chắn muốn xóa câu hỏi này?')) {
-      sharedStore.deleteFaq(faqId);
+  const handleDeleteFaq = async (faqId: number) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa câu hỏi này?')) return;
+    try {
+      await faqService.deleteAdminFaq(faqId);
+      loadFaqs();
       showNotification('Đã xóa câu hỏi FAQ thành công!');
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Không thể xóa FAQ.');
+    }
+  };
+
+  const handleToggleVisibility = async (faq: PortalFaqItem) => {
+    try {
+      await faqService.updateAdminFaq(faq.faqId, {
+        question: faq.question,
+        answer: faq.answer,
+        category: faq.topic,
+        displayOrder: faq.sortOrder ?? 1,
+        isActive: !faq.isVisible,
+      });
+      loadFaqs();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Không thể đổi trạng thái hiển thị FAQ.');
+    }
+  };
+
+  const handleReorderFaq = async (idx: number, direction: 'UP' | 'DOWN') => {
+    const targetIdx = direction === 'UP' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= filtered.length) return;
+    const current = filtered[idx];
+    const swapWith = filtered[targetIdx];
+    try {
+      await Promise.all([
+        faqService.updateAdminFaq(current.faqId, {
+          question: current.question,
+          answer: current.answer,
+          category: current.topic,
+          displayOrder: swapWith.sortOrder ?? targetIdx + 1,
+          isActive: current.isVisible,
+        }),
+        faqService.updateAdminFaq(swapWith.faqId, {
+          question: swapWith.question,
+          answer: swapWith.answer,
+          category: swapWith.topic,
+          displayOrder: current.sortOrder ?? idx + 1,
+          isActive: swapWith.isVisible,
+        }),
+      ]);
+      loadFaqs();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Không thể sắp xếp lại FAQ.');
     }
   };
 
@@ -220,7 +264,7 @@ export const PortalFaqManagerView: React.FC = () => {
 
                 <div className="flex items-center gap-1.5 self-end sm:self-auto">
                   <button
-                    onClick={() => sharedStore.reorderFaq(faq.faqId, 'UP')}
+                    onClick={() => handleReorderFaq(idx, 'UP')}
                     disabled={idx === 0}
                     className="p-1 text-steel hover:text-ink disabled:opacity-30 rounded hover:bg-surface-soft"
                     title="Đẩy lên trước"
@@ -228,7 +272,7 @@ export const PortalFaqManagerView: React.FC = () => {
                     <ArrowUp size={13} />
                   </button>
                   <button
-                    onClick={() => sharedStore.reorderFaq(faq.faqId, 'DOWN')}
+                    onClick={() => handleReorderFaq(idx, 'DOWN')}
                     disabled={idx === filtered.length - 1}
                     className="p-1 text-steel hover:text-ink disabled:opacity-30 rounded hover:bg-surface-soft"
                     title="Hạ xuống sau"
@@ -239,7 +283,7 @@ export const PortalFaqManagerView: React.FC = () => {
                   <span className="text-hairline mx-1">|</span>
 
                   <button
-                    onClick={() => sharedStore.toggleFaqVisibility(faq.faqId)}
+                    onClick={() => handleToggleVisibility(faq)}
                     className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       faq.isVisible? 'bg-success/10 text-success border border-success/30': 'bg-surface-soft text-steel border border-hairline-soft'
                     }`}

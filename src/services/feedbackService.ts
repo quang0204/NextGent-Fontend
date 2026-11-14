@@ -869,4 +869,49 @@ export const faqService = {
       faq: localFaq,
     };
   },
+
+  async getAdminFaqs(): Promise<PortalFaqItem[]> {
+    const res = await apiClient.get<{ success: boolean; data: any[] }>('/admin/faqs');
+    return (res.data?.data || []).map((d: any) => ({
+      faqId: d.faqId,
+      topic: d.category || 'Khác',
+      category: d.category || 'Khác',
+      question: d.question,
+      answer: d.answer,
+      isVisible: d.isActive !== false,
+      isActive: d.isActive !== false,
+      sortOrder: d.displayOrder ?? 0,
+      displayOrder: d.displayOrder ?? 0,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    }));
+  },
+
+  async updateAdminFaq(id: number, payload: CreateFaqPayload): Promise<PortalFaqItem> {
+    const res = await apiClient.put<{ success: boolean; data: any }>(`/admin/faqs/${id}`, {
+      question: payload.question,
+      answer: payload.answer,
+      category: payload.category,
+      displayOrder: payload.displayOrder ?? 1,
+      isActive: payload.isActive ?? true,
+    });
+    const d = res.data?.data;
+    return {
+      faqId: d.faqId,
+      topic: d.category || 'Khác',
+      category: d.category || 'Khác',
+      question: d.question,
+      answer: d.answer,
+      isVisible: d.isActive !== false,
+      isActive: d.isActive !== false,
+      sortOrder: d.displayOrder ?? 0,
+      displayOrder: d.displayOrder ?? 0,
+      createdAt: d.createdAt,
+      updatedAt: d.updatedAt,
+    };
+  },
+
+  async deleteAdminFaq(id: number): Promise<void> {
+    await apiClient.delete(`/admin/faqs/${id}`);
+  },
 };

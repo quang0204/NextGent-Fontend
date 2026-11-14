@@ -784,6 +784,10 @@ export const promotionService = {
       };
     }
   },
+
+  async deletePromotion(id: number): Promise<void> {
+    await apiClient.delete(`/admin/promotions/${id}`);
+  },
 };
 
 /** Tính giờ:phút:giây còn lại tới endAt (mặc định cuối ngày nếu chưa có endAt hợp lệ). */

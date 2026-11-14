@@ -255,6 +255,8 @@ export const CheckoutPage: React.FC = () => {
           recipientPhone: cleanPhone,
           shippingAddress: fullShippingAddress,
           paymentMethod: paymentMethod,
+          shippingMethod: shippingMethod,
+          expectedTotalAmount: totalAmount,
           note: note.trim(),
           voucherCode: appliedVoucher || undefined,
           items: checkoutItems.map(i => ({ variantId: i.variantId, quantity: i.quantity }))

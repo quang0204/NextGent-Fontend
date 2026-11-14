@@ -207,9 +207,14 @@ export const PortalPromotionsView: React.FC = () => {
     loadPromotions();
   };
 
-  const handleDeletePromotion = (id: number, name: string) => {
-    if (window.confirm(`Bạn có chắc chắn muốn xóa chiến dịch khuyến mãi "${name}"?`)) {
+  const handleDeletePromotion = async (id: number, name: string) => {
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa chiến dịch khuyến mãi "${name}"?`)) return;
+    try {
+      await promotionService.deletePromotion(id);
       sharedStore.deletePromotion(id);
+      loadPromotions();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Không thể xóa chiến dịch khuyến mãi.');
     }
   };
 
