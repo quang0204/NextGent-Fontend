@@ -225,7 +225,7 @@ export const OrderTrackingPage: React.FC = () => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   const loadReviewedItems = () => {
-    const revs = sharedStore.getReviews();
+    const revs = sharedStore.getReviews(undefined, true);
     const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
     setReviewedOrderItemIds(ids);
   };
@@ -283,7 +283,7 @@ export const OrderTrackingPage: React.FC = () => {
         deadlineMs = new Date(order.paymentDeadline).getTime();
       } else {
         const createdMs = order.createdAt ? new Date(order.createdAt).getTime() : Date.now();
-        deadlineMs = createdMs + 15 * 60 * 1000;
+        deadlineMs = createdMs + 30 * 60 * 1000;
       }
 
       const diffSec = Math.floor((deadlineMs - Date.now()) / 1000);
@@ -303,10 +303,10 @@ export const OrderTrackingPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [order?.paymentDeadline, order?.createdAt, order?.paymentStatus, order?.paymentMethod, order?.status]);
 
-  // Tự động hủy đơn hàng và nhả tồn kho khi QR hết hiệu lực (15 phút)
+  // Tự động hủy đơn hàng và nhả tồn kho khi QR hết hiệu lực (30 phút)
   useEffect(() => {
     if (timeLeft.isExpired && order && order.status === 'PENDING_PAYMENT' && order.paymentStatus !== 'PAID') {
-      const cancelReasonText = 'Mã QR hết hiệu lực thanh toán (Quá thời hạn giữ chỗ 15 phút) - Hệ thống tự động hủy đơn và nhả tồn kho';
+      const cancelReasonText = 'Mã QR hết hiệu lực thanh toán (Quá thời hạn giữ chỗ 30 phút) - Hệ thống tự động hủy đơn và nhả tồn kho';
       
       // 1. Gọi backend hủy đơn và nhả tồn kho
       orderService.cancelOrder(order.orderCode, cancelReasonText, 'Hệ thống tự động').catch(() => {});

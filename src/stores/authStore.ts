@@ -170,13 +170,41 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     isLoading: false,
     error: null,
 
-    // API 1: Khởi tạo đăng nhập
+    // API 1: Đăng nhập trực tiếp (Tài khoản + Mật khẩu)
     initiateLogin: async (identity: string, password: string) => {
       set({ isLoading: true, error: null });
       try {
         const res = await authService.loginInitiate({ identity, password });
         set({ isLoading: false });
         if (!res.data) throw new Error(res.message || 'Lỗi gửi yêu cầu đăng nhập');
+
+        const { user: userDto, accessToken, refreshToken: newRefreshToken } = res.data;
+        const profile: UserProfile = {
+          userId: userDto.userId,
+          fullName: userDto.fullName,
+          email: userDto.email,
+          phone: userDto.phone,
+          role: userDto.role,
+          status: userDto.status,
+          addresses: [],
+        };
+
+        localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(profile));
+        localStorage.setItem(STORAGE_ACCESS_TOKEN_KEY, accessToken);
+        if (newRefreshToken) {
+          localStorage.setItem(STORAGE_REFRESH_TOKEN_KEY, newRefreshToken);
+        }
+
+        set({
+          user: profile,
+          token: accessToken,
+          refreshToken: newRefreshToken || null,
+          isAuthenticated: true,
+        });
+
+        useCartStore.getState().syncOnLogin(profile.userId);
+        useWishlistStore.getState().switchUser(profile.userId);
+
         return res.data;
       } catch (err: any) {
         set({ isLoading: false, error: err.message || 'Lỗi đăng nhập' });

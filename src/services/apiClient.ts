@@ -1,11 +1,18 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 // Backend context path chuẩn: http://localhost:8080/nextgen/api/v1
-export const API_BASE_URL = 
-  import.meta.env.VITE_API_BASE_URL || 
-  (typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:8080/nextgen/api/v1'
-    : 'http://localhost:8080/nextgen/api/v1');
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/nextgen/api/v1';
+
+export function getStoredUser(): { userId?: number; fullName?: string; phone?: string; email?: string; role?: string } {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem('nextpick_user_v2') || localStorage.getItem('auth_user');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

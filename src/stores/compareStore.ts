@@ -9,7 +9,7 @@ interface CompareStore {
 }
 
 export const useCompareStore = create<CompareStore>((set, get) => ({
-  productIds: [1, 2], // mặc định so sánh mẫu iPhone 15 PM và Galaxy S24 Ultra
+  productIds: [],
 
   addToCompare: (productId: number) => {
     const current = get().productIds;

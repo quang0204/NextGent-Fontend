@@ -121,50 +121,19 @@ export interface CreateVoucherPayload {
 }
 
 
-const DB_PROMO_VARIANTS_MAP: Record<number, PortalPromotionVariant[]> = {
-  1: [
-    { promoVariantId: 1, promotionId: 1, variantId: 1, productId: 1, productName: 'iPhone 16 Pro Max', sku: 'IP16PM-256-DESERT', color: 'Titan Sa Mạc', romGb: 256, listPrice: 34990000, promoPrice: 33990000 },
-    { promoVariantId: 2, promotionId: 1, variantId: 5, productId: 3, productName: 'Samsung Galaxy S24 Ultra', sku: 'S24U-256-GRAY', color: 'Xám Titan', romGb: 256, listPrice: 31990000, promoPrice: 29990000 },
-    { promoVariantId: 3, promotionId: 1, variantId: 9, productId: 7, productName: 'Tai nghe Sony WH-1000XM5', sku: 'SONY-XM5-BLACK', color: 'Đen Nhám', romGb: 0, listPrice: 8490000, promoPrice: 7990000 },
-    { promoVariantId: 4, promotionId: 1, variantId: 101, productId: 10, productName: 'iPhone 15 Pro Max', sku: 'IP15PM-256-TI', color: 'Titan Tự Nhiên', romGb: 256, listPrice: 29990000, promoPrice: 28990000 }
-  ],
-  2: [
-    { promoVariantId: 5, promotionId: 2, variantId: 11, productId: 9, productName: 'Củ sạc Anker GaNPrime 65W', sku: 'ANKER-GAN-65W-BLK', color: 'Đen Nhám', romGb: 0, listPrice: 1250000, promoPrice: 1130000 }
-  ],
-  3: [
-    { promoVariantId: 6, promotionId: 3, variantId: 7, productId: 5, productName: 'iPad Air M2 11 inch', sku: 'IPADAIR-M2-128-GRAY', color: 'Xám Không Gian', romGb: 128, listPrice: 16990000, promoPrice: 15290000 },
-    { promoVariantId: 7, promotionId: 3, variantId: 8, productId: 6, productName: 'MacBook Pro 14 M3 Pro', sku: 'MBP14-M3P-512-BLACK', color: 'Đen Không Gian', romGb: 512, listPrice: 49990000, promoPrice: 44990000 },
-    { promoVariantId: 8, promotionId: 3, variantId: 9, productId: 7, productName: 'Tai nghe Sony WH-1000XM5', sku: 'SONY-XM5-BLACK', color: 'Đen Nhám', romGb: 0, listPrice: 8490000, promoPrice: 7640000 },
-    { promoVariantId: 9, promotionId: 3, variantId: 10, productId: 8, productName: 'Loa Marshall Emberton II', sku: 'MARSHALL-EMB2-BRASS', color: 'Black and Brass', romGb: 0, listPrice: 3590000, promoPrice: 3230000 }
-  ]
-};
+const DB_PROMO_VARIANTS_MAP: Record<number, PortalPromotionVariant[]> = {};
+
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('ng_promo_variants_cache');
+  } catch {}
+}
 
 function getCachedPromoVariants(promoId: number): PortalPromotionVariant[] {
-  try {
-    const raw = typeof window !== 'undefined' ? localStorage.getItem('ng_promo_variants_cache') : null;
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed[promoId]) && parsed[promoId].length > 0) {
-        return parsed[promoId];
-      }
-    }
-  } catch (e) {
-    // ignore
-  }
   return DB_PROMO_VARIANTS_MAP[promoId] || [];
 }
 
-function saveCachedPromoVariants(promoId: number, variants: PortalPromotionVariant[]) {
-  try {
-    if (typeof window === 'undefined') return;
-    const raw = localStorage.getItem('ng_promo_variants_cache');
-    const parsed = raw ? JSON.parse(raw) : {};
-    parsed[promoId] = variants;
-    localStorage.setItem('ng_promo_variants_cache', JSON.stringify(parsed));
-  } catch (e) {
-    // ignore
-  }
-}
+function saveCachedPromoVariants(_promoId: number, _variants: PortalPromotionVariant[]) {}
 
 function enrichPromoVariants(promoId: number, variants: any[]): PortalPromotionVariant[] {
   const allProds = sharedStore.getProducts();
