@@ -284,56 +284,96 @@ export const productService = {
    * Danh sách sản phẩm kèm bộ lọc đa tiêu chí
    */
   async getProducts(params?: ProductFilterParams): Promise<Product[]> {
-    const categoryIdMap: Record<string, number> = {
-      phone: 1,
-      tablet: 2,
-      laptop: 3,
-      accessory: 4,
+    const classifyProductCategory = (p: Product): 'phone' | 'laptop' | 'tablet' | 'accessory' => {
+      const pName = (p.name || '').toLowerCase();
+      const cName = (p.categoryName || '').toLowerCase();
+      const catId = Number(p.categoryId || 0);
+      const hasRom = Array.isArray(p.variants) && p.variants.some(v => (v.romGb || 0) >= 32);
+
+      // 1. Nhận diện chính xác theo tên sản phẩm (chống lệch danh mục do dữ liệu test cũ)
+      if (
+        pName.includes('tai nghe') || pName.includes('airpods') || pName.includes('earbuds') ||
+        pName.includes('củ sạc') || pName.includes('sạc dự phòng') || pName.includes('pin dự phòng') ||
+        pName.includes('cáp') || pName.includes('dây sạc') || pName.includes('loa ') ||
+        pName.includes('loa bluetooth') || pName.includes('ốp lưng') || pName.includes('bao da') ||
+        pName.includes('kính cường lực') || pName.includes('magsafe') || pName.includes('anker') ||
+        pName.includes('marshall') || pName.includes('chuột') || pName.includes('bàn phím') ||
+        pName.includes('adapter') || pName.includes('hub ') || pName.includes('phụ kiện')
+      ) {
+        return 'accessory';
+      }
+
+      if (
+        pName.includes('laptop') || pName.includes('lap top') || pName.includes('macbook') ||
+        pName.includes('mac book') || pName.includes('thinkpad') || pName.includes('zenbook') ||
+        pName.includes('vivobook') || pName.includes('legion') || pName.includes('ideapad') ||
+        pName.includes('rog ') || pName.includes('tuf ') || pName.includes('máy tính xách tay')
+      ) {
+        return 'laptop';
+      }
+
+      if (
+        pName.includes('ipad') || pName.includes('i pad') || pName.includes('galaxy tab') ||
+        pName.includes('samsung tab') || pName.includes('xiaomi pad') || pName.includes('redmi pad') ||
+        pName.includes('matepad') || pName.includes('máy tính bảng') || pName.includes('tablet')
+      ) {
+        return 'tablet';
+      }
+
+      if (
+        pName.includes('iphone') || pName.includes('i phone') || pName.includes('điện thoại') ||
+        pName.includes('smartphone') || pName.includes('galaxy s') || pName.includes('galaxy z') ||
+        pName.includes('galaxy a') || pName.includes('redmi note') || pName.includes('xiaomi 1') ||
+        pName.includes('oppo') || pName.includes('vivo') || pName.includes('realme') || pName.includes('pixel')
+      ) {
+        return 'phone';
+      }
+
+      // 2. Nhận diện theo tên danh mục hoặc ID danh mục
+      if (
+        catId === 4 || catId === 12 || catId === 13 || catId === 14 ||
+        cName.includes('phụ kiện') || cName.includes('âm thanh') || cName.includes('tai nghe') ||
+        cName.includes('sạc') || cName.includes('cáp') || cName.includes('loa')
+      ) {
+        return hasRom ? 'phone' : 'accessory';
+      }
+
+      if (
+        catId === 3 || catId === 10 || catId === 11 ||
+        cName.includes('laptop') || cName.includes('macbook') || cName.includes('pc') || cName.includes('máy tính xách tay')
+      ) {
+        return 'laptop';
+      }
+
+      if (
+        catId === 2 || catId === 8 || catId === 9 ||
+        cName.includes('máy tính bảng') || cName.includes('tablet') || cName.includes('ipad')
+      ) {
+        return 'tablet';
+      }
+
+      return 'phone';
     };
 
     const matchesCategory = (p: Product, catKey?: string) => {
       if (!catKey || catKey === 'all') return true;
-      const cName = (p.categoryName || '').toLowerCase();
-      const pName = (p.name || '').toLowerCase();
-      const catId = p.categoryId;
-
-      if (catKey === 'phone') {
-        return catId === 1 || catId === 5 || catId === 6 || catId === 7 ||
-               cName.includes('điện thoại') || cName.includes('smartphone') || cName.includes('iphone') ||
-               pName.includes('iphone') || pName.includes('galaxy s') || pName.includes('galaxy z') || pName.includes('xiaomi') || pName.includes('oppo');
+      if (catKey === 'phone' || catKey === 'laptop' || catKey === 'tablet' || catKey === 'accessory') {
+        return classifyProductCategory(p) === catKey;
       }
-      if (catKey === 'laptop') {
-        return catId === 3 || catId === 10 || catId === 11 ||
-               cName.includes('laptop') || cName.includes('macbook') || cName.includes('máy tính xách tay') ||
-               pName.includes('macbook') || pName.includes('rog') || pName.includes('laptop') || pName.includes('thinkpad') || pName.includes('zenbook');
-      }
-      if (catKey === 'tablet') {
-        return catId === 2 || catId === 8 || catId === 9 ||
-               cName.includes('máy tính bảng') || cName.includes('tablet') || cName.includes('ipad') ||
-               pName.includes('ipad') || pName.includes('tab');
-      }
-      if (catKey === 'accessory') {
-        return catId === 4 || catId === 12 || catId === 13 || catId === 14 ||
-               cName.includes('phụ kiện') || cName.includes('tai nghe') || cName.includes('sạc') || cName.includes('cáp') || cName.includes('loa') ||
-               pName.includes('airpods') || pName.includes('sạc') || pName.includes('cáp') || pName.includes('tai nghe') || pName.includes('củ sạc') || pName.includes('loa');
-      }
-      return cName.includes(catKey.toLowerCase());
+      return (p.categoryName || '').toLowerCase().includes(catKey.toLowerCase());
     };
 
     let fetchedProducts: Product[] | null = null;
 
     try {
+      // Backend giới hạn pageSize <= 50 mỗi trang; tải toàn bộ để lọc danh mục chính xác
       const queryParams: any = {
-        page: params?.page || 1,
-        limit: params?.limit || 100,
+        page: 1,
+        limit: 50,
       };
       if (params?.search) queryParams.search = params.search;
       if (params?.brandId) queryParams.brandId = params.brandId;
-      if (params?.categoryId) {
-        queryParams.categoryId = params.categoryId;
-      } else if (params?.category && categoryIdMap[params.category]) {
-        queryParams.categoryId = categoryIdMap[params.category];
-      }
+      if (params?.categoryId) queryParams.categoryId = params.categoryId;
       if (params?.minPrice !== undefined) queryParams.minPrice = params.minPrice;
       if (params?.maxPrice !== undefined) queryParams.maxPrice = params.maxPrice;
       if (params?.ram) queryParams.ram = params.ram;
@@ -344,7 +384,7 @@ export const productService = {
       const response = await apiClient.get<any>('/products', { params: queryParams });
       if (response.data?.data) {
         const items = response.data.data.items || response.data.data;
-        if (Array.isArray(items) && items.length > 0) {
+        if (Array.isArray(items)) {
           const prods = await Promise.all(
             items.map(async (it: any) => {
               try {
@@ -361,7 +401,9 @@ export const productService = {
             })
           );
           const withPromos = await applyActivePromotionsToProducts(prods);
-          sharedStore.setProducts(withPromos);
+          if (!params?.search && !params?.categoryId && !params?.brandId && params?.minPrice === undefined && params?.maxPrice === undefined) {
+            sharedStore.setProducts(withPromos);
+          }
           fetchedProducts = withPromos;
         }
       }
@@ -369,7 +411,7 @@ export const productService = {
       console.warn('[productService.getProducts] Fallback to sharedStore', err);
     }
 
-    let results = fetchedProducts ? [...fetchedProducts] : [...sharedStore.getProducts()];
+    let results = fetchedProducts !== null ? [...fetchedProducts] : [...sharedStore.getProducts()];
 
     // 1. Lọc danh mục
     if (params?.category && params.category !== 'all') {

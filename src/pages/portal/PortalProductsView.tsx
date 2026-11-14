@@ -248,10 +248,6 @@ export const PortalProductsView: React.FC = () => {
 
     const unsubscribe = sharedStore.subscribe(() => {
       setProducts([...sharedStore.getProducts()]);
-      const localCats = sharedStore.getCategories();
-      if (localCats.length > 0) {
-        setCategories(localCats.map(c => ({ id: c.categoryId, name: c.name, count: c.productCount || 0, isVisible: c.isVisible })));
-      }
     });
     return () => unsubscribe();
   }, []);

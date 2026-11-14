@@ -344,7 +344,7 @@ export const PORTAL_CATEGORIES: PortalCategory[] = [
   {
     categoryId: 1,
     parentId: null,
-    name: 'Điện thoại',
+    name: 'Điện thoại di động',
     description: 'Thiết bị di động thông minh, flagship và tầm trung',
     isVisible: true,
     sortOrder: 1,
@@ -362,46 +362,109 @@ export const PORTAL_CATEGORIES: PortalCategory[] = [
   {
     categoryId: 3,
     parentId: null,
-    name: 'Phụ kiện',
-    description: 'Củ sạc nhanh, cáp sạc, ốp lưng, tai nghe chính hãng',
+    name: 'Laptop & PC',
+    description: 'Máy tính xách tay văn phòng, đồ họa và Gaming',
     isVisible: true,
     sortOrder: 3,
-    productCount: 1
+    productCount: 2
   },
   {
     categoryId: 4,
+    parentId: null,
+    name: 'Phụ kiện & Âm thanh',
+    description: 'Củ sạc nhanh, cáp sạc, ốp lưng, tai nghe, loa chính hãng',
+    isVisible: true,
+    sortOrder: 4,
+    productCount: 3
+  },
+  {
+    categoryId: 5,
     parentId: 1,
-    name: 'iPhone (iOS)',
+    name: 'iPhone (Apple)',
     description: 'Dòng điện thoại cao cấp của Apple',
     isVisible: true,
     sortOrder: 1,
     productCount: 6
   },
   {
-    categoryId: 5,
+    categoryId: 6,
     parentId: 1,
-    name: 'Android Flagship',
-    description: 'Các mẫu smartphone Android cao cấp nhất',
+    name: 'Samsung Galaxy',
+    description: 'Các mẫu smartphone Samsung Galaxy cao cấp nhất',
     isVisible: true,
     sortOrder: 2,
-    productCount: 4
+    productCount: 3
   },
   {
-    categoryId: 6,
+    categoryId: 7,
+    parentId: 1,
+    name: 'Xiaomi',
+    description: 'Điện thoại Xiaomi chính hãng cấu hình cao',
+    isVisible: true,
+    sortOrder: 3,
+    productCount: 1
+  },
+  {
+    categoryId: 8,
     parentId: 2,
-    name: 'Apple iPad',
+    name: 'iPad',
     description: 'iPad Pro, iPad Air, iPad Gen',
     isVisible: true,
     sortOrder: 1,
     productCount: 1
   },
   {
-    categoryId: 7,
+    categoryId: 9,
+    parentId: 2,
+    name: 'Samsung Tab',
+    description: 'Máy tính bảng Samsung Galaxy Tab',
+    isVisible: true,
+    sortOrder: 2,
+    productCount: 0
+  },
+  {
+    categoryId: 10,
     parentId: 3,
-    name: 'Củ sạc & Cáp truyền dữ liệu',
-    description: 'Phụ kiện nguồn sạc chuẩn PD/GaN',
+    name: 'MacBook',
+    description: 'MacBook Air, MacBook Pro chip Apple Silicon',
     isVisible: true,
     sortOrder: 1,
+    productCount: 1
+  },
+  {
+    categoryId: 11,
+    parentId: 3,
+    name: 'Laptop Gaming Asus ROG',
+    description: 'Laptop chơi game hiệu năng cao Asus ROG',
+    isVisible: true,
+    sortOrder: 2,
+    productCount: 1
+  },
+  {
+    categoryId: 12,
+    parentId: 4,
+    name: 'Tai nghe Chống ồn',
+    description: 'Tai nghe không dây chống ồn chủ động ANC',
+    isVisible: true,
+    sortOrder: 1,
+    productCount: 1
+  },
+  {
+    categoryId: 13,
+    parentId: 4,
+    name: 'Loa Bluetooth Di động',
+    description: 'Loa không dây di động âm thanh cao cấp',
+    isVisible: true,
+    sortOrder: 2,
+    productCount: 1
+  },
+  {
+    categoryId: 14,
+    parentId: 4,
+    name: 'Củ sạc & Cáp GaN',
+    description: 'Phụ kiện nguồn sạc chuẩn PD/GaN',
+    isVisible: true,
+    sortOrder: 3,
     productCount: 1
   }
 ];

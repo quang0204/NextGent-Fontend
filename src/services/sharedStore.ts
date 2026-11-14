@@ -34,7 +34,7 @@ import {
 import { notificationService } from './notificationService';
 
 // Khóa lưu trữ LocalStorage để đồng bộ xuyên suốt
-const STORAGE_KEY_PRODUCTS = 'ng_db_products_v2';
+const STORAGE_KEY_PRODUCTS = 'ng_db_products_v3';
 const STORAGE_KEY_INVENTORY = 'ng_db_inventory_v2';
 const STORAGE_KEY_ORDERS = 'ng_db_orders_v2';
 const STORAGE_KEY_VOUCHERS = 'ng_db_vouchers_v2';
@@ -43,7 +43,7 @@ const STORAGE_KEY_ADJUSTMENTS = 'ng_db_adjustments_v2';
 const STORAGE_KEY_AUDIT = 'ng_db_audit_v2';
 const STORAGE_KEY_TICKETS = 'ng_db_tickets_v2';
 const STORAGE_KEY_REVIEWS = 'ng_db_reviews_v2';
-const STORAGE_KEY_CATEGORIES = 'ng_db_categories_v2';
+const STORAGE_KEY_CATEGORIES = 'ng_db_categories_v3';
 const STORAGE_KEY_BRANDS = 'ng_db_brands_v2';
 const STORAGE_KEY_SHIPMENTS = 'ng_db_shipments_v2';
 const STORAGE_KEY_RETURNS = 'ng_db_returns_v2';
