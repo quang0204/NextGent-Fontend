@@ -30,8 +30,6 @@ export const AuthPage: React.FC = () => {
 
   const { 
     initiateLogin,
-    verifyLoginOtp,
-    resendLoginOtp,
     initiateRegister,
     verifyRegisterOtp,
     resendRegisterOtp,
@@ -51,17 +49,10 @@ export const AuthPage: React.FC = () => {
   const [lockReason, setLockReason] = useState<string | null>(null);
 
   // -------------------------------------------------------------
-  // API 1, 2, 3: Login State
+  // API 1: Login State
   // -------------------------------------------------------------
   const [loginIdentity, setLoginIdentity] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  const [loginOtp, setLoginOtp] = useState('');
-  const [isOtpSent, setIsOtpSent] = useState(false);
-  const [loginSessionToken, setLoginSessionToken] = useState('');
-  const [loginTargetMasked, setLoginTargetMasked] = useState('');
-  const [loginChannel, setLoginChannel] = useState<'PHONE' | 'EMAIL'>('EMAIL');
-  const [loginCountdown, setLoginCountdown] = useState(0); // cooldown 60s
-  const [loginExpiresIn, setLoginExpiresIn] = useState(0); // TTL 120s
 
   // -------------------------------------------------------------
   // API 4, 5, 6: Register State
@@ -93,18 +84,6 @@ export const AuthPage: React.FC = () => {
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
   const [forgotSuccessMsg, setForgotSuccessMsg] = useState('');
-
-  // Đếm ngược cho Login OTP
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (isOtpSent && (loginCountdown > 0 || loginExpiresIn > 0)) {
-      timer = setInterval(() => {
-        setLoginCountdown((prev) => (prev > 0 ? prev - 1 : 0));
-        setLoginExpiresIn((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isOtpSent, loginCountdown, loginExpiresIn]);
 
   // Đếm ngược cho Register OTP
   useEffect(() => {
@@ -146,10 +125,8 @@ export const AuthPage: React.FC = () => {
     setActiveTab(tab);
     setErrorMsg('');
     setLockReason(null);
-    setIsOtpSent(false);
     setIsRegOtpStep(false);
     setForgotStep('REQUEST');
-    setLoginCountdown(0);
     setRegCountdown(0);
     setForgotCountdown(0);
     const params: Record<string, string> = {};
@@ -220,51 +197,6 @@ export const AuthPage: React.FC = () => {
       } else {
         setErrorMsg(err.message || 'Tài khoản hoặc mật khẩu không chính xác.');
       }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --------------------------------------------------------------------------
-  // API 2: POST /api/v1/auth/login-verify-otp
-  // --------------------------------------------------------------------------
-  const handleVerifyLoginOtp = async (e?: React.FormEvent, directOtp?: string) => {
-    if (e) e.preventDefault();
-    setErrorMsg('');
-    const code = directOtp || loginOtp;
-
-    if (!code || code.length !== 6) {
-      setErrorMsg('Vui lòng nhập đầy đủ 6 số OTP.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await verifyLoginOtp(loginSessionToken, code);
-      showToast('Đăng nhập thành công!', 'success');
-      navigate(redirect);
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Mã OTP không chính xác hoặc đã quá thời hạn 120 giây.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --------------------------------------------------------------------------
-  // API 3: POST /api/v1/auth/login-resend-otp
-  // --------------------------------------------------------------------------
-  const handleResendLoginOtp = async () => {
-    if (loginCountdown > 0) return;
-    setErrorMsg('');
-    setLoading(true);
-    try {
-      const data = await resendLoginOtp(loginSessionToken);
-      setLoginCountdown(data.cooldownSeconds || 60);
-      setLoginExpiresIn(data.expiresInSeconds || 120);
-      setLoginOtp('');
-      showToast('Mã OTP mới đã được gửi lại thành công.', 'info');
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Không thể gửi lại mã OTP lúc này.');
     } finally {
       setLoading(false);
     }

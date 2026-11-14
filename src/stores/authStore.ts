@@ -55,8 +55,7 @@ interface AuthStore {
   fetchProfile: () => Promise<UserProfile | null>;
   fetchAddresses: () => Promise<UserAddress[]>;
 
-  // Legacy & Storefront Helper Actions
-  switchRole: (role: 'CUSTOMER' | 'STAFF' | 'ADMIN') => void;
+  // Storefront Helper Actions
   updateProfile: (fullName: string, email: string, phone?: string) => void;
   addAddress: (address: Omit<UserAddress, 'addressId'>) => void;
   updateAddress: (addressId: number, address: Partial<UserAddress>) => void;
@@ -68,72 +67,6 @@ interface AuthStore {
 const STORAGE_USER_KEY = 'nextpick_user_v2';
 const STORAGE_ACCESS_TOKEN_KEY = 'access_token';
 const STORAGE_REFRESH_TOKEN_KEY = 'refresh_token';
-
-export const SAMPLE_USERS: Record<'CUSTOMER' | 'STAFF' | 'ADMIN', UserProfile> = {
-  CUSTOMER: {
-    userId: 5,
-    fullName: 'Hoàng Minh Khôi',
-    email: 'khoi.hoang@gmail.com',
-    phone: '0971234567',
-    role: 'CUSTOMER',
-    status: 'ACTIVE',
-    createdAt: '2026-01-15T08:30:00Z',
-    addresses: [
-      {
-        addressId: 3,
-        recipientName: 'Hoàng Minh Khôi',
-        phone: '0971234567',
-        province: 'Đà Nẵng',
-        district: 'Hải Châu',
-        ward: 'Phường Nam Dương',
-        addressLine: 'Số 88 đường Nguyễn Văn Linh, Phường Nam Dương, Hải Châu, Đà Nẵng',
-        isDefault: true,
-      },
-    ],
-  },
-  STAFF: {
-    userId: 102,
-    fullName: 'Thắng Staff',
-    email: 'staff.thang@nextgen.vn',
-    phone: '0912345678',
-    role: 'STAFF',
-    status: 'ACTIVE',
-    createdAt: '2026-01-10T08:00:00Z',
-    addresses: [
-      {
-        addressId: 2,
-        recipientName: 'Thắng Staff (Kho Vận)',
-        phone: '0912345678',
-        province: 'Hà Nội',
-        district: 'Quận Cầu Giấy',
-        ward: 'Phường Dịch Vọng Hậu',
-        addressLine: 'Kho hàng NextGen Smart Tech, Lô B11, Phố Duy Tân',
-        isDefault: true,
-      },
-    ],
-  },
-  ADMIN: {
-    userId: 1,
-    fullName: 'Trịnh Văn Quang (Admin)',
-    email: 'trinhvanquang02042004@gmail.com',
-    phone: '0977889900',
-    role: 'ADMIN',
-    status: 'ACTIVE',
-    createdAt: '2026-01-01T00:00:00Z',
-    addresses: [
-      {
-        addressId: 1,
-        recipientName: 'Trịnh Văn Quang (Trụ sở)',
-        phone: '0977889900',
-        province: 'Hà Nội',
-        district: 'Quận Hai Bà Trưng',
-        ward: 'Phường Bách Khoa',
-        addressLine: 'Trụ sở NextGen Smart Tech, Tầng 8, Tháp A',
-        isDefault: true,
-      },
-    ],
-  },
-};
 
 const getStoredUser = (): UserProfile | null => {
   try {
@@ -228,7 +161,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           phone: userDto.phone,
           role: userDto.role,
           status: userDto.status,
-          addresses: SAMPLE_USERS[userDto.role]?.addresses || [],
+          addresses: [],
         };
 
         localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(profile));
@@ -517,17 +450,6 @@ export const useAuthStore = create<AuthStore>((set, get) => {
       return get().user?.addresses || [];
     },
 
-    // Legacy Helpers cho Storefront & Admin Demo
-    switchRole: (role) => {
-      const u = SAMPLE_USERS[role];
-      const token = `mock_jwt_${role.toLowerCase()}_token`;
-      localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(u));
-      localStorage.setItem(STORAGE_ACCESS_TOKEN_KEY, token);
-      set({ user: u, token, isAuthenticated: true });
-      useCartStore.getState().switchUser(u.userId);
-      useWishlistStore.getState().switchUser(u.userId);
-    },
-
     updateProfile: (fullName: string, email: string, phone?: string) => {
       const u = get().user;
       if (u) {
@@ -641,13 +563,6 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           message: res.message || 'Đổi mật khẩu thành công. Vui lòng ghi nhớ mật khẩu mới của bạn.',
         };
       } catch (err: any) {
-        // Fallback mô phỏng nếu Backend chưa bật
-        if (err.statusCode === 500 && (err.message?.includes('Network Error') || err.message?.includes('kết nối'))) {
-          if (newPass.trim() === currentPass.trim()) {
-            return { success: false, message: 'Mật khẩu mới không được trùng với mật khẩu hiện tại.' };
-          }
-          return { success: true, message: 'Đổi mật khẩu thành công. Vui lòng ghi nhớ mật khẩu mới của bạn.' };
-        }
         return {
           success: false,
           message: err.message || 'Đổi mật khẩu thất bại. Vui lòng kiểm tra lại.',
