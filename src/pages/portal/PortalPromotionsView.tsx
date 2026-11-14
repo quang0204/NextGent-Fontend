@@ -40,9 +40,36 @@ export const PortalPromotionsView: React.FC = () => {
 
   // Form add voucher
   const [code, setCode] = useState('');
+  const [discountType, setDiscountType] = useState<'FIXED' | 'PERCENT'>('FIXED');
   const [discountValue, setDiscountValue] = useState<number>(100000);
+  const [maxDiscount, setMaxDiscount] = useState<number>(500000);
   const [minOrderValue, setMinOrderValue] = useState<number>(5000000);
   const [usageLimit, setUsageLimit] = useState<number>(200);
+  const [voucherStartAt, setVoucherStartAt] = useState<string>(() => {
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
+  const [voucherExpiredAt, setVoucherExpiredAt] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  });
+  const [voucherError, setVoucherError] = useState<string | null>(null);
+
+  const formatDateTimeDisplay = (raw?: string) => {
+    if (!raw) return '—';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw.replace('T', ' ').replace('Z', '');
+    return d.toLocaleString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
 
   // API 6.2: GET /api/v1/admin/promotions
   const loadPromotions = useCallback(async () => {
@@ -106,29 +133,63 @@ export const PortalPromotionsView: React.FC = () => {
   // API 6.8: POST /api/v1/admin/vouchers
   const handleAddVoucher = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!code.trim()) return;
+    setVoucherError(null);
+    if (!code.trim()) {
+      setVoucherError('Vui lòng nhập mã Voucher.');
+      return;
+    }
+
+    if (!voucherStartAt || !voucherExpiredAt) {
+      setVoucherError('Vui lòng chọn đầy đủ ngày bắt đầu và ngày kết thúc cho Voucher.');
+      return;
+    }
+
+    const startDateObj = new Date(voucherStartAt);
+    const endDateObj = new Date(voucherExpiredAt);
+    if (Number.isNaN(startDateObj.getTime()) || Number.isNaN(endDateObj.getTime())) {
+      setVoucherError('Định dạng ngày bắt đầu hoặc ngày kết thúc không hợp lệ.');
+      return;
+    }
+    if (startDateObj >= endDateObj) {
+      setVoucherError('Ngày kết thúc phải sau ngày bắt đầu!');
+      return;
+    }
+
+    if (discountType === 'PERCENT') {
+      if (discountValue <= 0 || discountValue > 100) {
+        setVoucherError('Mức giảm theo phần trăm (%) phải từ 1% đến 100%.');
+        return;
+      }
+    } else {
+      if (discountValue < 1000) {
+        setVoucherError('Mức giảm tiền mặt phải từ 1.000đ trở lên.');
+        return;
+      }
+    }
 
     const cleanCode = code.trim().toUpperCase();
     const res = await promotionService.createVoucher({
       code: cleanCode,
-      discountType: 'FIXED',
-      discountValue: discountValue,
-      minOrderValue: minOrderValue,
-      usageLimit: usageLimit,
-      startAt: new Date().toISOString(),
-      expiredAt: '2026-12-31T23:59:59Z',
+      discountType,
+      discountValue,
+      maxDiscount: discountType === 'PERCENT' && maxDiscount > 0 ? maxDiscount : null,
+      minOrderValue,
+      usageLimit,
+      startAt: startDateObj.toISOString(),
+      expiredAt: endDateObj.toISOString(),
       isActive: true,
     });
 
     if (!res.success) {
-      alert(res.message);
+      setVoucherError(res.message);
       return;
     }
 
     setCode('');
+    setVoucherError(null);
     setShowAddVoucherModal(false);
     loadVouchers();
-    alert(`Đã khởi tạo mã Voucher ${cleanCode} thành công! Khách hàng có thể áp dụng ngay tại giỏ hàng.`);
+    alert(`Đã khởi tạo mã Voucher ${cleanCode} thành công! Khách hàng có thể áp dụng tại giỏ hàng.`);
   };
 
   // API 6.9: PATCH /api/v1/admin/vouchers/{id}/toggle
@@ -372,44 +433,69 @@ export const PortalPromotionsView: React.FC = () => {
               Chưa có mã giảm giá nào.
             </div>
           ) : (
-            paginatedVouchers.map(v => (
-              <div 
-                key={v.voucherId} 
-                className={`p-4 rounded-xl border relative transition-all ${
-                  v.isActive? 'border-hairline-soft bg-canvas hover:shadow-sm': 'border-hairline-soft bg-surface-soft opacity-60'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-sm font-bold text-ink-deep bg-surface-soft px-2.5 py-0.5 rounded-full border border-hairline-soft">
-                    {v.code}
-                  </span>
+            paginatedVouchers.map(v => {
+              const isPercent = v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE';
+              return (
+                <div 
+                  key={v.voucherId} 
+                  className={`p-4 rounded-xl border relative transition-all ${
+                    v.isActive? 'border-hairline-soft bg-canvas hover:shadow-sm': 'border-hairline-soft bg-surface-soft opacity-60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2 gap-2">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-mono text-sm font-bold text-ink-deep bg-surface-soft px-2.5 py-0.5 rounded-full border border-hairline-soft">
+                        {v.code}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        isPercent
+                          ? 'bg-primary/10 text-primary border-primary/30'
+                          : 'bg-attention/10 text-attention border-attention/30'
+                      }`}>
+                        {isPercent ? 'Giảm %' : 'Giảm tiền'}
+                      </span>
+                    </div>
 
-                  <button
-                    onClick={() => handleToggleVoucher(v.voucherId)}
-                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition ${
-                      v.isActive? 'bg-success/10 text-success border border-success/30 hover:bg-critical/10 hover:text-critical': 'bg-surface-soft text-steel border border-hairline-soft hover:bg-success/10 hover:text-success'
-                    }`}
-                  >
-                    {v.isActive? 'ĐANG KÍCH HOẠT': 'TẠM TẮT'}
-                  </button>
-                </div>
+                    <button
+                      onClick={() => handleToggleVoucher(v.voucherId)}
+                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full transition shrink-0 ${
+                        v.isActive? 'bg-success/10 text-success border border-success/30 hover:bg-critical/10 hover:text-critical': 'bg-surface-soft text-steel border border-hairline-soft hover:bg-success/10 hover:text-success'
+                      }`}
+                    >
+                      {v.isActive? 'ĐANG KÍCH HOẠT': 'TẠM TẮT'}
+                    </button>
+                  </div>
 
-                <div className="space-y-1 text-xs">
-                  <div className="font-bold text-charcoal">
-                    Mức giảm: <span className="text-ink-deep font-bold">{formatVND(v.discountValue)}</span>
-                  </div>
-                  <div className="text-steel text-[11px]">
-                    Đơn tối thiểu: <strong>{formatVND(v.minOrderValue)}</strong>
-                  </div>
-                  <div className="text-steel text-[11px]">
-                    Lượt dùng: <strong className="text-charcoal">{v.usedCount}</strong> / {v.usageLimit} lượt
-                  </div>
-                  <div className="text-steel text-[10px] font-mono pt-1">
-                    Hiệu lực đến: {v.expiredAt}
+                  <div className="space-y-1 text-xs">
+                    <div className="font-bold text-charcoal">
+                      Mức giảm:{' '}
+                      <span className="text-ink-deep font-bold">
+                        {isPercent ? `${v.discountValue}%` : formatVND(v.discountValue)}
+                      </span>
+                      {isPercent && v.maxDiscount ? (
+                        <span className="text-[11px] font-normal text-steel"> (Tối đa {formatVND(v.maxDiscount)})</span>
+                      ) : null}
+                    </div>
+                    <div className="text-steel text-[11px]">
+                      Đơn tối thiểu: <strong>{formatVND(v.minOrderValue)}</strong>
+                    </div>
+                    <div className="text-steel text-[11px]">
+                      Lượt dùng: <strong className="text-charcoal">{v.usedCount}</strong> / {v.usageLimit} lượt
+                    </div>
+                    <div className="text-steel text-[10px] font-mono pt-1.5 border-t border-hairline-soft/60 space-y-0.5">
+                      <div className="flex items-center gap-1">
+                        <Calendar size={11} className="text-primary shrink-0" />
+                        <span>Bắt đầu: <strong className="text-charcoal">{formatDateTimeDisplay(v.startAt)}</strong></span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Clock size={11} className="text-attention shrink-0" />
+                        <span>Kết thúc: <strong className="text-charcoal">{formatDateTimeDisplay(v.expiredAt)}</strong></span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -440,76 +526,227 @@ export const PortalPromotionsView: React.FC = () => {
 
       {/* Modal 2: Thêm Voucher mới */}
       {showAddVoucherModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-canvas border border-hairline-soft rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-canvas border border-hairline-soft rounded-xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs my-8 animate-in fade-in duration-150">
             <div className="flex items-center justify-between pb-2 border-b border-hairline-soft">
-              <h3 className="text-sm font-bold text-ink-deep uppercase">
-                Tạo mã giảm giá Voucher mới
-              </h3>
+              <div>
+                <h3 className="text-sm font-bold text-ink-deep uppercase">
+                  Tạo mã giảm giá Voucher mới
+                </h3>
+                <p className="text-[11px] text-steel mt-0.5">
+                  Hỗ trợ giảm theo số tiền (Amount) hoặc phần trăm (%) kèm thời gian hiệu lực
+                </p>
+              </div>
               <button
                 type="button"
-                onClick={() => setShowAddVoucherModal(false)}
+                onClick={() => {
+                  setVoucherError(null);
+                  setShowAddVoucherModal(false);
+                }}
                 className="p-1 text-steel hover:text-ink rounded"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleAddVoucher} className="space-y-3">
+            {voucherError && (
+              <div className="p-2.5 bg-critical/10 border border-critical/30 rounded-lg text-critical text-xs flex items-center gap-2">
+                <AlertCircle size={14} className="shrink-0" />
+                <span>{voucherError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAddVoucher} className="space-y-3.5">
               <div>
-                <label className="block font-bold text-charcoal mb-1">Mã Voucher (Code):</label>
+                <label className="block font-bold text-charcoal mb-1">Mã Voucher (Code): <span className="text-critical">*</span></label>
                 <input
                   type="text"
                   required
-                  placeholder="Ví dụ: SALE100, VIPMEMBER..."
+                  placeholder="Ví dụ: SALE100, VIP10, TET2026..."
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
                   className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-mono font-bold uppercase focus:border-2 focus:border-fb-blue focus:outline-none"
                 />
               </div>
 
+              {/* Chọn loại giảm giá: FIXED (Amount) hoặc PERCENT (%) */}
               <div>
-                <label className="block font-bold text-charcoal mb-1">Mức giảm giá tiền mặt (VNĐ):</label>
-                <input
-                  type="number"
-                  required
-                  step={50000}
-                  min={50000}
-                  value={discountValue}
-                  onChange={(e) => setDiscountValue(parseInt(e.target.value, 10) || 0)}
-                  className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
-                />
+                <label className="block font-bold text-charcoal mb-1">Loại hình giảm giá:</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('FIXED');
+                      if (discountValue <= 100) setDiscountValue(100000);
+                    }}
+                    className={`h-10 rounded-lg border font-bold text-xs transition flex items-center justify-center gap-1.5 ${
+                      discountType === 'FIXED'
+                        ? 'bg-primary text-on-primary border-primary shadow-xs'
+                        : 'bg-surface-soft text-charcoal border-hairline-soft hover:border-primary'
+                    }`}
+                  >
+                    <span>Giảm tiền mặt (VNĐ)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiscountType('PERCENT');
+                      if (discountValue > 100) setDiscountValue(10);
+                    }}
+                    className={`h-10 rounded-lg border font-bold text-xs transition flex items-center justify-center gap-1.5 ${
+                      discountType === 'PERCENT'
+                        ? 'bg-primary text-on-primary border-primary shadow-xs'
+                        : 'bg-surface-soft text-charcoal border-hairline-soft hover:border-primary'
+                    }`}
+                  >
+                    <span>Giảm phần trăm (%)</span>
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-charcoal mb-1">Giá trị đơn hàng tối thiểu (VNĐ):</label>
-                <input
-                  type="number"
-                  required
-                  step={500000}
-                  min={0}
-                  value={minOrderValue}
-                  onChange={(e) => setMinOrderValue(parseInt(e.target.value, 10) || 0)}
-                  className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
-                />
+              {discountType === 'FIXED' ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-charcoal">Mức giảm tiền mặt (VNĐ): <span className="text-critical">*</span></label>
+                    <div className="flex gap-1">
+                      {[50000, 100000, 200000, 500000, 1000000].map(val => (
+                        <button
+                          key={val}
+                          type="button"
+                          onClick={() => setDiscountValue(val)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition ${
+                            discountValue === val
+                              ? 'bg-primary/15 text-primary border-primary'
+                              : 'bg-surface-soft text-steel border-hairline-soft hover:text-ink'
+                          }`}
+                        >
+                          {val >= 1000000 ? `${val / 1000000}Tr` : `${val / 1000}K`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    required
+                    step={1000}
+                    min={1000}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(parseInt(e.target.value, 10) || 0)}
+                    className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-bold text-charcoal">Phần trăm giảm (%): <span className="text-critical">*</span></label>
+                      <div className="flex gap-1">
+                        {[5, 10, 15, 20, 50].map(pct => (
+                          <button
+                            key={pct}
+                            type="button"
+                            onClick={() => setDiscountValue(pct)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold border transition ${
+                              discountValue === pct
+                                ? 'bg-primary/15 text-primary border-primary'
+                                : 'bg-surface-soft text-steel border-hairline-soft hover:text-ink'
+                            }`}
+                          >
+                            {pct}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      required
+                      step={1}
+                      min={1}
+                      max={100}
+                      value={discountValue}
+                      onChange={(e) => setDiscountValue(parseInt(e.target.value, 10) || 0)}
+                      className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-charcoal mb-1">Giảm tối đa (VNĐ - 0 = KGH):</label>
+                    <input
+                      type="number"
+                      step={50000}
+                      min={0}
+                      placeholder="VD: 500000"
+                      value={maxDiscount}
+                      onChange={(e) => setMaxDiscount(parseInt(e.target.value, 10) || 0)}
+                      className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Ngày bắt đầu & Ngày kết thúc */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-charcoal mb-1 flex items-center gap-1">
+                    <Calendar size={13} className="text-primary" />
+                    <span>Ngày bắt đầu: <span className="text-critical">*</span></span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={voucherStartAt}
+                    onChange={(e) => setVoucherStartAt(e.target.value)}
+                    className="w-full h-10 bg-canvas border border-hairline rounded-lg px-2.5 text-ink font-mono text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-charcoal mb-1 flex items-center gap-1">
+                    <Calendar size={13} className="text-attention" />
+                    <span>Ngày kết thúc: <span className="text-critical">*</span></span>
+                  </label>
+                  <input
+                    type="datetime-local"
+                    required
+                    value={voucherExpiredAt}
+                    onChange={(e) => setVoucherExpiredAt(e.target.value)}
+                    className="w-full h-10 bg-canvas border border-hairline rounded-lg px-2.5 text-ink font-mono text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-charcoal mb-1">Giới hạn số lượt sử dụng tối đa:</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  value={usageLimit}
-                  onChange={(e) => setUsageLimit(parseInt(e.target.value, 10) || 1)}
-                  className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-charcoal mb-1">Đơn hàng tối thiểu (VNĐ):</label>
+                  <input
+                    type="number"
+                    required
+                    step={100000}
+                    min={0}
+                    value={minOrderValue}
+                    onChange={(e) => setMinOrderValue(parseInt(e.target.value, 10) || 0)}
+                    className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-charcoal mb-1">Giới hạn lượt sử dụng:</label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={usageLimit}
+                    onChange={(e) => setUsageLimit(parseInt(e.target.value, 10) || 1)}
+                    className="w-full h-10 bg-canvas border border-hairline rounded-lg px-3 text-ink font-bold focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 justify-end pt-2 border-t border-hairline-soft">
                 <button
                   type="button"
-                  onClick={() => setShowAddVoucherModal(false)}
+                  onClick={() => {
+                    setVoucherError(null);
+                    setShowAddVoucherModal(false);
+                  }}
                   className="btn-ghost px-3.5 py-2 font-bold"
                 >
                   Hủy

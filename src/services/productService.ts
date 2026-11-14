@@ -278,6 +278,223 @@ export const applyActivePromotionsToProducts = async (
   });
 };
 
+export interface SmartSearchParsed {
+  rawQuery: string;
+  category?: 'phone' | 'laptop' | 'tablet' | 'accessory';
+  minPrice?: number;
+  maxPrice?: number;
+  isCheapIntent?: boolean;
+  isPremiumIntent?: boolean;
+  isFlashSale?: boolean;
+  isInstallment0?: boolean;
+  ram?: number;
+  rom?: number;
+  cpu?: string;
+  connectionType?: string;
+  requirement?: string;
+  suggestedSort?: 'price_asc' | 'price_desc' | 'best_seller' | 'discount_desc' | 'newest';
+  coreTokens: string[];
+  intentTags: string[];
+}
+
+export const stripVietnameseAccents = (str: string): string =>
+  (str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+
+export const parseSmartSearchQuery = (rawSearch?: string): SmartSearchParsed => {
+  const rawQuery = (rawSearch || '').trim();
+  if (!rawQuery) {
+    return { rawQuery: '', coreTokens: [], intentTags: [] };
+  }
+
+  let working = rawQuery.toLowerCase();
+  const intentTags: string[] = [];
+  let category: SmartSearchParsed['category'];
+  let minPrice: number | undefined;
+  let maxPrice: number | undefined;
+  let isCheapIntent = false;
+  let isPremiumIntent = false;
+  let isFlashSale: boolean | undefined;
+  let isInstallment0: boolean | undefined;
+  let ram: number | undefined;
+  let rom: number | undefined;
+  let cpu: string | undefined;
+  let connectionType: string | undefined;
+  let requirement: string | undefined;
+  let suggestedSort: SmartSearchParsed['suggestedSort'];
+
+  const asciiAll = stripVietnameseAccents(working);
+
+  // 1. Nhận diện Danh mục
+  if (/\b(dien thoai|smartphone|phone|de yeu)\b/.test(asciiAll)) {
+    category = 'phone';
+    intentTags.push('Ngành: Điện thoại');
+    working = working.replace(/(điện thoại di động|điện thoại thông minh|điện thoại|dien thoai di dong|dien thoai thong minh|dien thoai|smartphone|\bphone\b|dế yêu|de yeu)/gi, ' ');
+  } else if (/\b(may tinh bang|tablet)\b/.test(asciiAll)) {
+    category = 'tablet';
+    intentTags.push('Ngành: Máy tính bảng');
+    working = working.replace(/(máy tính bảng|may tinh bang|tablet)/gi, ' ');
+  } else if (/\b(laptop|may tinh xach tay|notebook|macbook)\b/.test(asciiAll)) {
+    category = 'laptop';
+    intentTags.push('Ngành: Laptop');
+    working = working.replace(/(máy tính xách tay|may tinh xach tay|laptop|notebook)/gi, ' ');
+  } else if (/\b(phu kien|am thanh|tai nghe|earbuds|airpods|cu sac|sac du phong|pin du phong|cap sac|day sac|loa|op lung|bao da|chuot|ban phim)\b/.test(asciiAll)) {
+    category = 'accessory';
+    intentTags.push('Ngành: Phụ kiện');
+    working = working.replace(/(phụ kiện di động|phụ kiện âm thanh|phụ kiện|phu kien di dong|phu kien am thanh|phu kien)/gi, ' ');
+  }
+
+  // 2. Nhận diện Khoảng giá cụ thể (từ X đến Y triệu, dưới X triệu, trên X triệu, tầm X triệu)
+  let asciiWorking = stripVietnameseAccents(working);
+  const rangeMatch = asciiWorking.match(/(?:tu\s*)?(\d+(?:[.,]\d+)?)\s*(?:trieu|tr|cu)?\s*(?:den|-|toi)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu)/);
+  if (rangeMatch) {
+    minPrice = parseFloat(rangeMatch[1].replace(',', '.')) * 1_000_000;
+    maxPrice = parseFloat(rangeMatch[2].replace(',', '.')) * 1_000_000;
+    intentTags.push(`Giá: ${rangeMatch[1]} - ${rangeMatch[2]} triệu`);
+    working = working.replace(/(từ|tu)?\s*\d+([.,]\d+)?\s*(triệu|trieu|tr|củ|cu)?\s*(đến|den|-|tới|toi)\s*\d+([.,]\d+)?\s*(triệu|trieu|tr|củ|cu)/gi, ' ');
+  } else {
+    const underMatch = asciiWorking.match(/(?:duoi|nho hon|<=|<)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu|k|nghin|ngan)/);
+    if (underMatch) {
+      const val = parseFloat(underMatch[1].replace(',', '.'));
+      const unit = underMatch[2];
+      const mult = unit.startsWith('k') || unit.startsWith('ngh') || unit.startsWith('nga') ? 1_000 : 1_000_000;
+      maxPrice = val * mult;
+      intentTags.push(`Giá dưới ${val}${mult === 1_000 ? 'k' : ' triệu'}`);
+      working = working.replace(/(dưới|duoi|nhỏ hơn|nho hon|<=|<)\s*\d+([.,]\d+)?\s*(triệu|trieu|tr|củ|cu|k|nghìn|nghin|ngàn|ngan)/gi, ' ');
+    }
+    const overMatch = asciiWorking.match(/(?:tren|lon hon|>=|>|tu)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu)/);
+    if (overMatch) {
+      const val = parseFloat(overMatch[1].replace(',', '.'));
+      minPrice = val * 1_000_000;
+      intentTags.push(`Giá trên ${val} triệu`);
+      working = working.replace(/(trên|tren|lớn hơn|lon hon|>=|>|từ|tu)\s*\d+([.,]\d+)?\s*(triệu|trieu|tr|củ|cu)/gi, ' ');
+    }
+    const aroundMatch = asciiWorking.match(/(?:tam|khoang|quanh)\s*(\d+(?:[.,]\d+)?)\s*(trieu|tr|cu)/);
+    if (aroundMatch) {
+      const val = parseFloat(aroundMatch[1].replace(',', '.'));
+      minPrice = Math.max(0, val - 3) * 1_000_000;
+      maxPrice = (val + 3) * 1_000_000;
+      intentTags.push(`Giá tầm ${val} triệu`);
+      working = working.replace(/(tầm|tam|khoảng|khoang|quanh)\s*\d+([.,]\d+)?\s*(triệu|trieu|tr|củ|cu)/gi, ' ');
+    }
+  }
+
+  // 3. Nhận diện Ý định Giá rẻ / Cao cấp / Bán chạy / Khuyến mãi
+  asciiWorking = stripVietnameseAccents(working);
+  if (/\b(gia re|re nhat|binh dan|tiet kiem|gia tot|gia thap|sinh vien|re)\b/.test(asciiWorking)) {
+    isCheapIntent = true;
+    suggestedSort = 'price_asc';
+    intentTags.push('Phân khúc: Giá rẻ (Ưu tiên giá thấp)');
+    working = working.replace(/(giá rẻ nhất|giá rẻ|rẻ nhất|bình dân|tiết kiệm|giá tốt|giá thấp|sinh viên|gia re nhat|gia re|re nhat|binh dan|tiet kiem|gia tot|gia thap|sinh vien|\brẻ\b|\bre\b)/gi, ' ');
+  } else if (/\b(cao cap|flagship|dat nhat|gia cao|sang trong|hang sang)\b/.test(asciiWorking)) {
+    isPremiumIntent = true;
+    suggestedSort = 'price_desc';
+    intentTags.push('Phân khúc: Cao cấp (Ưu tiên giá cao)');
+    working = working.replace(/(cao cấp|cao cap|flagship|đắt nhất|dat nhat|giá cao|gia cao|sang trọng|sang trong|hạng sang|hang sang)/gi, ' ');
+  }
+
+  if (/\b(ban chay|hot|pho bien)\b/.test(asciiWorking)) {
+    if (!suggestedSort) suggestedSort = 'best_seller';
+    intentTags.push('Bán chạy');
+    working = working.replace(/(bán chạy nhất|bán chạy|ban chay nhat|ban chay|\bhot\b|phổ biến|pho bien)/gi, ' ');
+  }
+
+  if (/\b(giam gia|khuyen mai|flash sale|sale|uu dai)\b/.test(asciiWorking)) {
+    isFlashSale = true;
+    if (!suggestedSort) suggestedSort = 'discount_desc';
+    intentTags.push('Đang giảm giá / Flash Sale');
+    working = working.replace(/(giảm giá sốc|giảm giá|giam gia|khuyến mãi|khuyen mai|flash sale|\bsale\b|ưu đãi|uu dai)/gi, ' ');
+  }
+
+  if (/\b(tra gop)\b/.test(asciiWorking)) {
+    isInstallment0 = true;
+    intentTags.push('Trả góp 0%');
+    working = working.replace(/(trả góp 0%|trả góp|tra gop 0%|tra gop)/gi, ' ');
+  }
+
+  // 4. Nhận diện RAM / ROM
+  asciiWorking = stripVietnameseAccents(working);
+  const ramMatch = asciiWorking.match(/\bram\s*(\d{1,2})\s*(?:gb|g)?\b/);
+  if (ramMatch) {
+    ram = parseInt(ramMatch[1], 10);
+    intentTags.push(`RAM ${ram}GB`);
+    working = working.replace(/\bram\s*\d{1,2}\s*(?:gb|g)?\b/gi, ' ');
+  }
+
+  asciiWorking = stripVietnameseAccents(working);
+  const romMatch = asciiWorking.match(/\b(?:rom|ssd|bo nho)?\s*(64|128|256|512|1024)\s*(?:gb|g)\b|\b(1)\s*tb\b/);
+  if (romMatch) {
+    rom = romMatch[1] ? parseInt(romMatch[1], 10) : 1024;
+    intentTags.push(`Bộ nhớ ${rom >= 1024 ? '1TB' : `${rom}GB`}`);
+    working = working.replace(/\b(?:rom|ssd|bộ nhớ|bo nho)?\s*(64|128|256|512|1024)\s*(?:gb|g)\b|\b1\s*tb\b/gi, ' ');
+  }
+
+  // 5. Nhận diện Nhu cầu sử dụng
+  asciiWorking = stripVietnameseAccents(working);
+  if (/\b(gaming|choi game|chien game|cau hinh manh|game)\b/.test(asciiWorking)) {
+    requirement = 'gaming';
+    intentTags.push('Nhu cầu: Gaming / Hiệu năng cao');
+    working = working.replace(/(chơi game|choi game|chiến game|chien game|cấu hình mạnh|cau hinh manh|gaming|\bgame\b)/gi, ' ');
+  } else if (/\b(van phong|mong nhe|hoc tap)\b/.test(asciiWorking)) {
+    requirement = 'office';
+    intentTags.push('Nhu cầu: Văn phòng mỏng nhẹ');
+    working = working.replace(/(văn phòng|van phong|mỏng nhẹ|mong nhe|học tập|hoc tap)/gi, ' ');
+  } else if (/\b(do hoa|ky thuat|render|thiet ke)\b/.test(asciiWorking)) {
+    requirement = 'graphic';
+    intentTags.push('Nhu cầu: Đồ họa & Kỹ thuật');
+    working = working.replace(/(thiết kế đồ họa|đồ họa|do hoa|kỹ thuật|ky thuat|render|thiết kế|thiet ke)/gi, ' ');
+  } else if (/\b(chup anh|camera|nhiep anh|zoom|quay phim)\b/.test(asciiWorking)) {
+    requirement = 'camera';
+    intentTags.push('Nhu cầu: Chụp ảnh / Camera đẹp');
+    working = working.replace(/(chụp ảnh đẹp|chụp ảnh|chup anh dep|chup anh|nhiếp ảnh|nhiep anh|camera đẹp|camera|zoom quang|zoom|quay phim)/gi, ' ');
+  } else if (/\b(pin trau|pin khung|pin lau|sac nhanh)\b/.test(asciiWorking)) {
+    requirement = 'battery';
+    intentTags.push('Nhu cầu: Pin trâu / Sạc nhanh');
+    working = working.replace(/(pin trâu|pin trau|pin khủng|pin khung|pin lâu|pin lau|sạc nhanh|sac nhanh)/gi, ' ');
+  } else if (/\b(man hinh gap|dien thoai gap|gap)\b/.test(asciiWorking)) {
+    requirement = 'foldable';
+    intentTags.push('Thiết kế: Màn hình gập');
+    working = working.replace(/(màn hình gập|man hinh gap|điện thoại gập|dien thoai gap|\bgập\b|\bgap\b)/gi, ' ');
+  } else if (/\b(chong on|anc)\b/.test(asciiWorking)) {
+    requirement = 'anc';
+    intentTags.push('Tính năng: Chống ồn ANC');
+    working = working.replace(/(chống ồn chủ động|chống ồn|chong on|anc)/gi, ' ');
+  }
+
+  // 6. Tách từ khóa gốc còn lại (bỏ từ nối / từ đệm)
+  working = working.replace(/(chính hãng|chinh hang|mới nhất|moi nhat|tốt nhất|tot nhat|đẹp|dep|xịn|xin)/gi, ' ');
+  const stopWords = new Set(['cua', 'cho', 'loai', 'dong', 'may', 'can', 'mua', 'tim', 'co', 'voi', 'va', 'hoac', 'nhung', 'cac', 'chiec', 'con']);
+  const coreTokens = working
+    .trim()
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 1 && !stopWords.has(stripVietnameseAccents(t)));
+
+  return {
+    rawQuery,
+    category,
+    minPrice,
+    maxPrice,
+    isCheapIntent,
+    isPremiumIntent,
+    isFlashSale,
+    isInstallment0,
+    ram,
+    rom,
+    cpu,
+    connectionType,
+    requirement,
+    suggestedSort,
+    coreTokens,
+    intentTags,
+  };
+};
+
 export const productService = {
   /**
    * API 4.1: GET /api/v1/products
@@ -383,7 +600,11 @@ export const productService = {
 
       const response = await apiClient.get<any>('/products', { params: queryParams });
       if (response.data?.data) {
-        const items = response.data.data.items || response.data.data;
+        let items = response.data.data.items || response.data.data;
+        if (Array.isArray(items) && items.length === 0 && params?.search) {
+          const allRes = await apiClient.get<any>('/products', { params: { page: 1, limit: 50 } });
+          items = allRes.data?.data?.items || allRes.data?.data || [];
+        }
         if (Array.isArray(items)) {
           const prods = await Promise.all(
             items.map(async (it: any) => {
@@ -413,9 +634,26 @@ export const productService = {
 
     let results = fetchedProducts !== null ? [...fetchedProducts] : [...sharedStore.getProducts()];
 
-    // 1. Lọc danh mục
-    if (params?.category && params.category !== 'all') {
-      results = results.filter(p => matchesCategory(p, params.category));
+    const parsedSearch = params?.search ? parseSmartSearchQuery(params.search) : null;
+    const effectiveCategory = params?.category && params.category !== 'all'
+      ? params.category
+      : parsedSearch?.category;
+    const effectiveMinPrice = params?.minPrice !== undefined ? params.minPrice : parsedSearch?.minPrice;
+    const effectiveMaxPrice = params?.maxPrice !== undefined ? params.maxPrice : parsedSearch?.maxPrice;
+    const effectiveRom = params?.rom !== undefined ? params.rom : parsedSearch?.rom;
+    const effectiveRam = params?.ram !== undefined ? params.ram : parsedSearch?.ram;
+    const effectiveCpu = params?.cpu || parsedSearch?.cpu;
+    const effectiveConn = params?.connectionType || parsedSearch?.connectionType;
+    const effectiveReq = params?.requirement || parsedSearch?.requirement;
+    const effectiveFlashSale = params?.isFlashSale !== undefined ? params.isFlashSale : parsedSearch?.isFlashSale;
+    const effectiveInstallment = params?.isInstallment0 !== undefined ? params.isInstallment0 : parsedSearch?.isInstallment0;
+
+    // 1. Lọc danh mục (bao gồm cả danh mục nhận diện từ câu tìm kiếm)
+    if (effectiveCategory && effectiveCategory !== 'all') {
+      const catFiltered = results.filter(p => matchesCategory(p, effectiveCategory));
+      if (catFiltered.length > 0 || !params?.search) {
+        results = catFiltered;
+      }
     }
 
     // 2. Lọc thương hiệu (hỗ trợ chọn đồng thời nhiều hãng)
@@ -430,35 +668,55 @@ export const productService = {
     }
 
     // 3. Lọc Flash sale
-    if (params?.isFlashSale !== undefined) {
-      results = results.filter(p => !p.isFlashSale === !params.isFlashSale);
+    if (effectiveFlashSale !== undefined) {
+      const flashFiltered = results.filter(p => Boolean(p.isFlashSale) === Boolean(effectiveFlashSale));
+      if (flashFiltered.length > 0 || !params?.search) {
+        results = flashFiltered;
+      }
     }
 
     // 4. Lọc theo khoảng giá
-    if (params?.minPrice !== undefined && params?.maxPrice !== undefined) {
-      results = results.filter(p => p.variants.some(v => v.salePrice >= params.minPrice! && v.salePrice <= params.maxPrice!));
+    if (effectiveMinPrice !== undefined && effectiveMaxPrice !== undefined) {
+      results = results.filter(p => p.variants.some(v => v.salePrice >= effectiveMinPrice && v.salePrice <= effectiveMaxPrice));
     } else {
-      if (params?.minPrice !== undefined) {
-        results = results.filter(p => p.variants.some(v => v.salePrice >= params.minPrice!));
+      if (effectiveMinPrice !== undefined) {
+        results = results.filter(p => p.variants.some(v => v.salePrice >= effectiveMinPrice));
       }
-      if (params?.maxPrice !== undefined) {
-        results = results.filter(p => p.variants.some(v => v.salePrice <= params.maxPrice!));
+      if (effectiveMaxPrice !== undefined) {
+        results = results.filter(p => p.variants.some(v => v.salePrice <= effectiveMaxPrice));
+      }
+    }
+
+    // 4B. Nếu tìm kiếm với ý định "giá rẻ" mà không gõ số tiền cụ thể: ưu tiên lọc phân khúc giá thấp
+    if (parsedSearch?.isCheapIntent && effectiveMaxPrice === undefined && results.length > 1) {
+      const budgetCap =
+        effectiveCategory === 'laptop' ? 20_000_000 :
+        effectiveCategory === 'accessory' ? 2_000_000 :
+        effectiveCategory === 'tablet' ? 12_000_000 : 15_000_000;
+      const underCap = results.filter(p => p.variants.some(v => v.salePrice <= budgetCap));
+      if (underCap.length > 0) {
+        results = underCap;
+      } else {
+        const sortedByPrice = [...results].sort(
+          (a, b) => (a.variants[0]?.salePrice || 0) - (b.variants[0]?.salePrice || 0)
+        );
+        results = sortedByPrice.slice(0, Math.max(1, Math.ceil(sortedByPrice.length * 0.6)));
       }
     }
 
     // 5. Lọc theo dung lượng ROM / Ổ cứng SSD
-    if (params?.rom) {
-      results = results.filter(p => p.variants.some(v => v.romGb === params.rom));
+    if (effectiveRom) {
+      results = results.filter(p => p.variants.some(v => v.romGb === effectiveRom));
     }
 
     // 6. Lọc theo dung lượng RAM
-    if (params?.ram) {
-      results = results.filter(p => p.variants.some(v => v.ramGb === params.ram));
+    if (effectiveRam) {
+      results = results.filter(p => p.variants.some(v => v.ramGb === effectiveRam));
     }
 
     // 7. Lọc theo CPU (Apple Silicon, Intel, AMD)
-    if (params?.cpu) {
-      const lowerCpu = params.cpu.toLowerCase();
+    if (effectiveCpu) {
+      const lowerCpu = effectiveCpu.toLowerCase();
       results = results.filter(p => {
         const text = `${p.name} ${p.description || ''} ${JSON.stringify(p.specGroups || [])}`.toLowerCase();
         return text.includes(lowerCpu);
@@ -466,8 +724,8 @@ export const productService = {
     }
 
     // 8. Lọc theo Chuẩn kết nối (Wifi, 5G, USB-C, Lightning, Bluetooth...)
-    if (params?.connectionType) {
-      const lowerConn = params.connectionType.toLowerCase();
+    if (effectiveConn) {
+      const lowerConn = effectiveConn.toLowerCase();
       results = results.filter(p => 
         p.variants.some(v => v.connectionType?.toLowerCase().includes(lowerConn)) ||
         JSON.stringify(p.specGroups || []).toLowerCase().includes(lowerConn) ||
@@ -476,30 +734,36 @@ export const productService = {
     }
 
     // 9. Lọc theo Nhu cầu sử dụng
-    if (params?.requirement) {
-      const req = params.requirement.toLowerCase();
-      results = results.filter(p => {
-        const text = `${p.name} ${p.description || ''} ${JSON.stringify(p.specGroups || [])} ${JSON.stringify(p.highlights || [])}`.toLowerCase();
+    if (effectiveReq) {
+      const req = effectiveReq.toLowerCase();
+      const reqFiltered = results.filter(p => {
+        const text = `${p.name} ${p.description || ''} ${p.categoryName || ''} ${JSON.stringify(p.specGroups || [])} ${JSON.stringify(p.highlights || [])} ${JSON.stringify(p.variants || [])}`.toLowerCase();
         if (req === 'gaming') {
-          return text.includes('gaming') || text.includes('rog') || text.includes('120hz') || text.includes('144hz') || text.includes('tản nhiệt') || text.includes('rtx');
+          return text.includes('gaming') || text.includes('rog') || text.includes('tuf') || text.includes('legion') || text.includes('120hz') || text.includes('144hz') || text.includes('tản nhiệt') || text.includes('rtx') || text.includes('a17 pro') || text.includes('a18 pro') || text.includes('snapdragon 8') || text.includes('m3 pro') || text.includes('m3 max');
         }
         if (req === 'camera') {
-          return text.includes('camera') || text.includes('leica') || text.includes('zoom') || text.includes('chụp ảnh') || text.includes('lyt-900') || text.includes('48mp');
+          return text.includes('camera') || text.includes('leica') || text.includes('zoom') || text.includes('chụp ảnh') || text.includes('nhiếp ảnh') || text.includes('lyt-900') || text.includes('48mp') || text.includes('50mp') || text.includes('200mp');
         }
         if (req === 'battery') {
-          return text.includes('5000') || text.includes('6000') || text.includes('pin trâu') || text.includes('sạc nhanh');
+          return text.includes('5000') || text.includes('6000') || text.includes('30 giờ') || text.includes('pin trâu') || text.includes('sạc nhanh') || text.includes('gan') || text.includes('pro max') || text.includes('ultra');
         }
         if (req === 'foldable') {
           return text.includes('fold') || text.includes('flip') || text.includes('gập');
         }
         if (req === 'office') {
-          return text.includes('văn phòng') || text.includes('mỏng nhẹ') || text.includes('macbook air') || text.includes('zenbook');
+          return text.includes('văn phòng') || text.includes('mỏng nhẹ') || text.includes('macbook') || text.includes('air') || text.includes('zenbook') || text.includes('ipad');
         }
         if (req === 'graphic') {
-          return text.includes('đồ họa') || text.includes('macbook pro') || text.includes('creators') || text.includes('m3 max') || text.includes('rtx');
+          return text.includes('đồ họa') || text.includes('macbook pro') || text.includes('creators') || text.includes('m3') || text.includes('rtx') || text.includes('xdr') || text.includes('ultra');
+        }
+        if (req === 'anc') {
+          return text.includes('chống ồn') || text.includes('anc') || text.includes('xm5') || text.includes('pro');
         }
         return text.includes(req);
       });
+      if (reqFiltered.length > 0 || !params?.search) {
+        results = reqFiltered;
+      }
     }
 
     // 10. Lọc theo % giảm giá tối thiểu
@@ -514,22 +778,44 @@ export const productService = {
     }
 
     // 11. Lọc theo Trả góp 0%
-    if (params?.isInstallment0) {
+    if (effectiveInstallment) {
       results = results.filter(p => p.isInstallment0);
     }
 
-    // 12. Lọc theo từ khóa tìm kiếm
-    if (params?.search) {
-      const q = params.search.toLowerCase();
-      results = results.filter(p => 
-        p.name.toLowerCase().includes(q) || 
-        p.brandName.toLowerCase().includes(q) ||
-        p.variants.some(v => v.sku.toLowerCase().includes(q))
-      );
+    // 12. Lọc theo từ khóa gốc còn lại (hỗ trợ cả có dấu & không dấu trên Tên, Hãng, Danh mục, Mô tả, Specs, Variants)
+    if (parsedSearch && parsedSearch.coreTokens.length > 0) {
+      results = results.filter(p => {
+        const catType = classifyProductCategory(p);
+        const catAlias =
+          catType === 'laptop' ? 'laptop máy tính xách tay macbook' :
+          catType === 'tablet' ? 'máy tính bảng tablet ipad' :
+          catType === 'accessory' ? 'phụ kiện âm thanh tai nghe loa sạc cáp' :
+          'điện thoại di động smartphone phone';
+        const rawText = [
+          p.name,
+          p.brandName,
+          p.categoryName,
+          catAlias,
+          p.description || '',
+          ...(p.highlights || []),
+          JSON.stringify(p.specGroups || []),
+          ...(p.variants || []).map(v => `${v.sku} ${v.color || ''} ${v.variantName || ''} ${v.connectionType || ''}`),
+        ].join(' ').toLowerCase();
+        const asciiText = stripVietnameseAccents(rawText);
+
+        return parsedSearch.coreTokens.every(token => {
+          const lowerToken = token.toLowerCase();
+          const asciiToken = stripVietnameseAccents(token);
+          return rawText.includes(lowerToken) || asciiText.includes(asciiToken);
+        });
+      });
     }
 
-    // 13. Sắp xếp đa dạng
-    const s = params?.sortBy || params?.sort || 'newest';
+    // 13. Sắp xếp đa dạng (ưu tiên sort do người dùng chọn, hoặc sort gợi ý từ câu tìm kiếm như "giá rẻ" -> price_asc)
+    const explicitSort = params?.sortBy || params?.sort;
+    const s = (explicitSort && explicitSort !== 'newest')
+      ? explicitSort
+      : (parsedSearch?.suggestedSort || explicitSort || 'newest');
     switch (s) {
       case 'price_asc':
         results.sort((a, b) => (a.variants[0]?.salePrice || 0) - (b.variants[0]?.salePrice || 0));
@@ -557,6 +843,19 @@ export const productService = {
     }
 
     return results;
+  },
+
+  /**
+   * Gợi ý sản phẩm trực tiếp trên thanh tìm kiếm (Live Search Autocomplete)
+   */
+  async getSearchSuggestions(query: string, limit: number = 5): Promise<{ items: Product[]; total: number }> {
+    const q = (query || '').trim();
+    if (!q) return { items: [], total: 0 };
+    const matched = await this.getProducts({ search: q });
+    return {
+      items: matched.slice(0, limit),
+      total: matched.length,
+    };
   },
 
   /**

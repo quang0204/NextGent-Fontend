@@ -1,18 +1,75 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { Search, ShoppingBag, User, Heart, Scale, ChevronDown, Sparkles, LogOut, X } from 'lucide-react';
 import { useCartStore } from '../../stores/cartStore';
 import { useWishlistStore } from '../../stores/wishlistStore';
 import { useCompareStore } from '../../stores/compareStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useToastStore } from '../../stores/toastStore';
+import { productService } from '../../services/productService';
+import { Product } from '../../types/product';
+import { formatVND } from '../common/PriceDisplay';
 import { NotificationBell } from '../common/NotificationBell';
 import { CategoryMegaMenu } from './CategoryMegaMenu';
 
 export const Header: React.FC = () => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('q') || '');
+  const [suggestions, setSuggestions] = useState<Product[]>([]);
+  const [totalMatched, setTotalMatched] = useState(0);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [isSearchingSuggest, setIsSearchingSuggest] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const searchContainerRef = useRef<HTMLFormElement>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const qParam = searchParams.get('q') || '';
+    setSearchTerm(qParam);
+    setShowSuggestions(false);
+  }, [location.pathname, location.search, searchParams]);
+
+  // Đóng dropdown gợi ý khi click ra ngoài
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Tìm kiếm gợi ý sản phẩm theo thời gian thực khi gõ (debounce 180ms)
+  useEffect(() => {
+    const q = searchTerm.trim();
+    if (!q) {
+      setSuggestions([]);
+      setTotalMatched(0);
+      setIsSearchingSuggest(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearchingSuggest(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await productService.getSearchSuggestions(q, 5);
+        if (!cancelled) {
+          setSuggestions(res.items);
+          setTotalMatched(res.total);
+        }
+      } finally {
+        if (!cancelled) setIsSearchingSuggest(false);
+      }
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchTerm]);
 
   const totalCartCount = useCartStore((state) => state.getTotalCount());
   const wishlistCount = useWishlistStore((state) => state.getCount());
@@ -22,8 +79,22 @@ export const Header: React.FC = () => {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchTerm.trim()) {
-      navigate(`/products?q=${encodeURIComponent(searchTerm.trim())}`);
+    setShowSuggestions(false);
+    const trimmed = searchTerm.trim();
+    if (trimmed) {
+      navigate(`/products?q=${encodeURIComponent(trimmed)}`);
+    } else if (location.pathname === '/products' && searchParams.has('q')) {
+      navigate('/products');
+    }
+  };
+
+  const handleClearSearch = () => {
+    setSearchTerm('');
+    setSuggestions([]);
+    setTotalMatched(0);
+    setShowSuggestions(false);
+    if (location.pathname === '/products' && searchParams.has('q')) {
+      navigate('/products');
     }
   };
 
@@ -51,22 +122,123 @@ export const Header: React.FC = () => {
         {/* Mega Menu Danh mục sản phẩm (CellphoneS style) */}
         <CategoryMegaMenu />
 
-        {/* Search Bar - Modern Rounded Capsule (DESIGN-meta search-pill) */}
-        <form onSubmit={handleSearch} className="flex-1 max-w-xl relative">
+        {/* Search Bar - Modern Rounded Capsule kèm Dropdown Sản phẩm đề xuất */}
+        <form ref={searchContainerRef} onSubmit={handleSearch} className="flex-1 max-w-xl relative">
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Tìm kiếm thiết bị di động, tablet, phụ kiện..."
-            className="w-full h-10 pl-11 pr-24 bg-surface-soft hover:bg-hairline-soft/30 focus:bg-canvas text-sm text-ink placeholder:text-steel rounded-full border border-hairline-soft focus:border-fb-blue focus:outline-none transition-all"
+            onFocus={() => {
+              if (searchTerm.trim()) setShowSuggestions(true);
+            }}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setShowSuggestions(Boolean(e.target.value.trim()));
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowSuggestions(false);
+            }}
+            placeholder="Tìm kiếm: điện thoại giá rẻ, laptop gaming, iPhone 15..."
+            className="w-full h-10 pl-11 pr-28 bg-surface-soft hover:bg-hairline-soft/30 focus:bg-canvas text-sm text-ink placeholder:text-steel rounded-full border border-hairline-soft focus:border-fb-blue focus:outline-none transition-all"
           />
           <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-steel" />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              title="Xóa tìm kiếm"
+              className="absolute right-20 top-1/2 -translate-y-1/2 p-1 text-steel hover:text-ink rounded-full hover:bg-hairline-soft/50 transition-colors"
+            >
+              <X size={14} />
+            </button>
+          )}
           <button
             type="submit"
             className="absolute right-1 top-1/2 -translate-y-1/2 bg-ink-button hover:bg-charcoal text-on-ink-button text-xs font-bold px-3.5 py-1.5 rounded-full transition-colors"
           >
             Tìm kiếm
           </button>
+
+          {/* Dropdown Gợi ý sản phẩm ("Sản phẩm đề xuất") */}
+          {showSuggestions && searchTerm.trim() && (
+            <div className="absolute left-0 right-0 top-full mt-2 bg-canvas border border-hairline-soft rounded-2xl shadow-summary p-4 z-50 animate-in fade-in duration-150">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold text-ink-deep">Sản phẩm đề xuất</h4>
+                {totalMatched > 0 && (
+                  <span className="text-[11px] font-medium text-steel">
+                    Tìm thấy {totalMatched} sản phẩm
+                  </span>
+                )}
+              </div>
+
+              {isSearchingSuggest && suggestions.length === 0 ? (
+                <div className="py-6 text-center text-xs text-steel">
+                  Đang tìm sản phẩm phù hợp...
+                </div>
+              ) : suggestions.length === 0 ? (
+                <div className="py-5 text-center text-xs text-steel">
+                  Không tìm thấy sản phẩm nào khớp với <strong className="text-ink-deep">"{searchTerm.trim()}"</strong>
+                </div>
+              ) : (
+                <div className="divide-y divide-hairline-soft max-h-[380px] overflow-y-auto no-scrollbar">
+                  {suggestions.map((prod) => {
+                    const firstVar = prod.variants?.[0];
+                    const salePrice = firstVar?.salePrice || 0;
+                    const listPrice = firstVar?.listPrice || salePrice;
+                    const specSummary = [
+                      firstVar?.ramGb ? `${firstVar.ramGb}GB` : null,
+                      firstVar?.romGb ? (firstVar.romGb >= 1024 ? '1TB' : `${firstVar.romGb}GB`) : null,
+                      firstVar?.color && firstVar.color !== 'Mặc định' ? firstVar.color : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' / ');
+
+                    return (
+                      <Link
+                        key={prod.productId}
+                        to={`/products/${prod.productId}`}
+                        onClick={() => setShowSuggestions(false)}
+                        className="flex items-start gap-3.5 py-2.5 px-2 -mx-2 rounded-xl hover:bg-surface-soft transition-colors group"
+                      >
+                        <img
+                          src={prod.thumbnail || firstVar?.imageUrl || '/logo.png'}
+                          alt={prod.name}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src = '/logo.png';
+                          }}
+                          className="w-14 h-14 rounded-lg object-contain bg-canvas border border-hairline-soft p-1 flex-shrink-0 group-hover:scale-105 transition-transform"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs sm:text-sm font-medium text-charcoal group-hover:text-primary transition-colors line-clamp-2 leading-snug">
+                            {prod.name}
+                            {specSummary ? ` (${specSummary})` : ''}
+                          </div>
+                          <div className="mt-1 flex flex-col">
+                            <span className="text-sm font-bold text-critical leading-tight">
+                              {formatVND(salePrice)}
+                            </span>
+                            {listPrice > 0 && (
+                              <span className="text-xs text-steel line-through leading-tight mt-0.5">
+                                {formatVND(listPrice)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+
+              {suggestions.length > 0 && (
+                <button
+                  type="submit"
+                  className="mt-3 pt-2.5 border-t border-hairline-soft w-full text-center text-xs font-bold text-primary hover:underline cursor-pointer"
+                >
+                  Xem tất cả {totalMatched} kết quả cho "{searchTerm.trim()}" &rarr;
+                </button>
+              )}
+            </div>
+          )}
         </form>
 
         {/* Action icons */}

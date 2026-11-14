@@ -512,6 +512,12 @@ export const sharedStore = {
     return vouchers;
   },
 
+  setVouchers(newVouchers: PortalVoucher[]): void {
+    vouchers = newVouchers;
+    saveToStorage(STORAGE_KEY_VOUCHERS, vouchers);
+    notify();
+  },
+
   getMovements(): StockMovementRecord[] {
     return movements;
   },
@@ -1175,6 +1181,12 @@ export const sharedStore = {
       const cleanCode = payload.voucherCode.trim().toUpperCase();
       const v = vouchers.find(vc => vc.code === cleanCode);
       if (v && v.isActive && v.usedCount < v.usageLimit) {
+        const nowMs = Date.now();
+        const startMs = v.startAt ? new Date(v.startAt).getTime() : NaN;
+        const endMs = v.expiredAt ? new Date(v.expiredAt).getTime() : NaN;
+        const isStarted = !Number.isFinite(startMs) || nowMs >= startMs;
+        const isNotExpired = !Number.isFinite(endMs) || nowMs <= endMs;
+
         // Tạm tính subtotal để kiểm tra điều kiện
         let tempSubtotal = 0;
         for (const it of payload.items) {
@@ -1186,12 +1198,14 @@ export const sharedStore = {
           }
         }
 
-        if (tempSubtotal >= v.minOrderValue) {
-          if (v.discountType === 'FIXED') {
-            voucherDiscount = v.discountValue;
+        if (isStarted && isNotExpired && tempSubtotal >= v.minOrderValue) {
+          const isPercent = v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE';
+          if (!isPercent) {
+            voucherDiscount = Math.min(v.discountValue, tempSubtotal);
           } else {
             const calculated = Math.round((tempSubtotal * v.discountValue) / 100);
-            voucherDiscount = v.maxDiscount? Math.min(calculated, v.maxDiscount): calculated;
+            voucherDiscount = v.maxDiscount ? Math.min(calculated, v.maxDiscount) : calculated;
+            voucherDiscount = Math.min(voucherDiscount, tempSubtotal);
           }
           appliedVoucherCode = v.code;
           // Tăng lượt sử dụng voucher

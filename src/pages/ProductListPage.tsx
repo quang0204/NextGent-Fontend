@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
-import { productService, ProductFilterParams } from '../services/productService';
+import { productService, ProductFilterParams, parseSmartSearchQuery } from '../services/productService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
 import { 
@@ -72,15 +72,19 @@ export const ProductListPage: React.FC = () => {
   // Lấy các params từ URL
   const rawCategory = searchParams.get('category');
   const isSale = searchParams.get('sale') === 'true';
-  const currentSearch = searchParams.get('q') || '';
-  const currentCategory = rawCategory || (currentSearch || isSale ? 'all' : 'phone');
+  const currentSearch = (searchParams.get('q') || '').trim();
+  const isSearchMode = Boolean(currentSearch);
+  const parsedSearch = parseSmartSearchQuery(currentSearch);
+  const currentCategory = rawCategory || (isSearchMode || isSale ? 'all' : 'phone');
 
   // Hỗ trợ chọn đồng thời nhiều hãng sản xuất
   const rawBrand = searchParams.get('brand');
   const selectedBrands: string[] = rawBrand && rawBrand !== 'all' ? rawBrand.split(',').map(s => s.trim()).filter(Boolean) : [];
   const isAllBrands = selectedBrands.length === 0;
 
-  const currentSort = (searchParams.get('sort') as ProductFilterParams['sort']) || 'newest';
+  const explicitSort = searchParams.get('sort') as ProductFilterParams['sort'] | null;
+  const currentSort: NonNullable<ProductFilterParams['sort']> =
+    explicitSort || (isSearchMode && parsedSearch.suggestedSort ? parsedSearch.suggestedSort : 'newest');
   const currentMinPrice = searchParams.get('minPrice') ? Number(searchParams.get('minPrice')) : undefined;
   const currentMaxPrice = searchParams.get('maxPrice') ? Number(searchParams.get('maxPrice')) : undefined;
   const currentRom = searchParams.get('rom') ? Number(searchParams.get('rom')) : undefined;
@@ -100,6 +104,18 @@ export const ProductListPage: React.FC = () => {
   useEffect(() => {
     const fetch = async () => {
       setIsLoading(true);
+      if (isSearchMode) {
+        // Khi tìm kiếm: không áp dụng bộ lọc sản phẩm thủ công, chỉ dùng Smart Search + sắp xếp
+        const prodList = await productService.getProducts({
+          search: currentSearch,
+          sort: currentSort,
+          limit: 100
+        });
+        setProducts(prodList);
+        setIsLoading(false);
+        return;
+      }
+
       const catKey = isSale ? 'sale' : currentCategory;
       const brandList = await productService.getBrands(catKey);
 
@@ -112,7 +128,6 @@ export const ProductListPage: React.FC = () => {
         category: isSale ? undefined : (currentCategory === 'all' ? undefined : currentCategory),
         isFlashSale: isSale ? true : undefined,
         brands: validSelectedBrands.length > 0 ? validSelectedBrands : undefined,
-        search: currentSearch || undefined,
         sort: currentSort,
         minPrice: currentMinPrice,
         maxPrice: currentMaxPrice,
@@ -133,6 +148,7 @@ export const ProductListPage: React.FC = () => {
     fetch();
   }, [
     searchParams,
+    isSearchMode,
     isSale,
     currentCategory,
     currentMinPrice,
@@ -208,24 +224,26 @@ export const ProductListPage: React.FC = () => {
   };
 
   const hasActiveFilters = 
-    selectedBrands.length > 0 || 
-    currentMinPrice !== undefined || 
-    currentMaxPrice !== undefined || 
-    currentRom !== undefined || 
-    currentRam !== undefined || 
-    currentCpu !== undefined ||
-    currentRequirement !== undefined ||
-    currentConnectionType !== undefined ||
-    currentMinDiscount !== undefined ||
-    currentInstallment ||
-    Boolean(currentSearch);
+    !isSearchMode && (
+      selectedBrands.length > 0 || 
+      currentMinPrice !== undefined || 
+      currentMaxPrice !== undefined || 
+      currentRom !== undefined || 
+      currentRam !== undefined || 
+      currentCpu !== undefined ||
+      currentRequirement !== undefined ||
+      currentConnectionType !== undefined ||
+      currentMinDiscount !== undefined ||
+      currentInstallment
+    );
 
-  // Pagination Logic
+  // Pagination Logic (12 SP/trang khi tìm kiếm 4 cột, 9 SP/trang khi có sidebar lọc 3 cột)
+  const itemsPerPage = isSearchMode ? 12 : ITEMS_PER_PAGE;
   const totalItems = products.length;
-  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE) || 1;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
   const safePage = Math.min(currentPage, totalPages);
-  const startIndex = (safePage - 1) * ITEMS_PER_PAGE;
-  const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalItems);
+  const startIndex = (safePage - 1) * itemsPerPage;
+  const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
   const paginatedProducts = products.slice(startIndex, endIndex);
 
   const goToPage = (pageNumber: number) => {
@@ -241,7 +259,7 @@ export const ProductListPage: React.FC = () => {
   };
 
   const categoryTitle = 
-    currentSearch ? `Kết quả tìm kiếm: "${currentSearch}"` :
+    isSearchMode ? `Kết quả tìm kiếm: "${currentSearch}"` :
     isSale ? 'Sản phẩm Khuyến mãi Flash Sale ⚡' :
     currentCategory === 'phone' ? 'Điện thoại thông minh (Smartphone)' :
     currentCategory === 'laptop' ? 'Laptop, Máy tính xách tay' :
@@ -260,34 +278,61 @@ export const ProductListPage: React.FC = () => {
 
       {/* 2. Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-hairline-soft">
-        <div>
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-2xl sm:text-3xl font-medium text-ink-deep tracking-tight">
               {categoryTitle}
             </h1>
-            {isSale && (
+            {isSale && !isSearchMode && (
               <span className="text-xs bg-critical text-canvas font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
                 Giảm đến 50%
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-steel mt-0.5">
+          <p className="text-xs sm:text-sm text-steel">
             Tìm thấy <strong>{products.length}</strong> thiết bị phân phối chính hãng 100%, bảo hành 12 tháng, giao nhanh toàn quốc
           </p>
+          {isSearchMode && parsedSearch.intentTags.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary">
+                <Sparkles size={12} />
+                <span>Đã hiểu ý định:</span>
+              </span>
+              {parsedSearch.intentTags.map((tag, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Mobile Filter Toggle Button */}
-        <button
-          onClick={() => setIsMobileFilterOpen(true)}
-          className="lg:hidden inline-flex items-center gap-2 bg-canvas border border-hairline-soft text-xs font-bold text-ink px-4 py-2 rounded-full self-start hover:border-slate transition-colors"
-        >
-          <Filter size={14} className="text-primary" />
-          <span>Bộ lọc ({hasActiveFilters ? 'Đang lọc' : 'Mặc định'})</span>
-        </button>
+        {/* Khi đang tìm kiếm: hiện nút Xóa tìm kiếm; khi xem danh mục thường: hiện nút Bộ lọc Mobile */}
+        {isSearchMode ? (
+          <button
+            type="button"
+            onClick={() => navigate('/products')}
+            className="inline-flex items-center gap-1.5 bg-surface-soft hover:bg-hairline-soft text-xs font-bold text-ink px-4 py-2 rounded-full self-start sm:self-center border border-hairline-soft transition-colors"
+          >
+            <X size={14} className="text-critical" />
+            <span>Xóa tìm kiếm</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => setIsMobileFilterOpen(true)}
+            className="lg:hidden inline-flex items-center gap-2 bg-canvas border border-hairline-soft text-xs font-bold text-ink px-4 py-2 rounded-full self-start hover:border-slate transition-colors"
+          >
+            <Filter size={14} className="text-primary" />
+            <span>Bộ lọc ({hasActiveFilters ? 'Đang lọc' : 'Mặc định'})</span>
+          </button>
+        )}
       </div>
 
-      {/* 4. Active Filter Chips */}
-      {hasActiveFilters && (
+      {/* 4. Active Filter Chips (Chỉ hiển thị khi KHÔNG ở chế độ tìm kiếm) */}
+      {!isSearchMode && hasActiveFilters && (
         <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-soft/60 border border-hairline-soft p-3 rounded-2xl">
           <span className="font-bold text-steel uppercase text-[11px] tracking-wider mr-1">Đang chọn:</span>
           
@@ -388,7 +433,9 @@ export const ProductListPage: React.FC = () => {
         
         {/* ========================================= */}
         {/* DESKTOP SIDEBAR FILTERS (3 cols)          */}
+        {/* Ẩn hoàn toàn khi đang ở chế độ tìm kiếm   */}
         {/* ========================================= */}
+        {!isSearchMode && (
         <aside className="hidden lg:block lg:col-span-3 space-y-4 sticky top-20">
           <div className="bg-canvas border border-hairline-soft rounded-2xl p-5 space-y-5 shadow-none max-h-[calc(100vh-100px)] overflow-y-auto no-scrollbar">
             
@@ -802,11 +849,12 @@ export const ProductListPage: React.FC = () => {
 
           </div>
         </aside>
+        )}
 
         {/* ========================================= */}
-        {/* MAIN PRODUCT GRID (9 cols)                */}
+        {/* MAIN PRODUCT GRID (12 cols khi tìm kiếm)  */}
         {/* ========================================= */}
-        <div className="lg:col-span-9 space-y-6">
+        <div className={isSearchMode ? "lg:col-span-12 space-y-6" : "lg:col-span-9 space-y-6"}>
           
           {/* Thanh sắp xếp */}
           <div className="bg-canvas border border-hairline-soft rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-none">
@@ -853,20 +901,26 @@ export const ProductListPage: React.FC = () => {
               <div className="w-12 h-12 rounded-full bg-surface-soft text-steel flex items-center justify-center mx-auto mb-3">
                 <SlidersHorizontal size={22} />
               </div>
-              <p className="text-ink-deep font-bold text-base">Không tìm thấy sản phẩm phù hợp</p>
+              <p className="text-ink-deep font-bold text-base">
+                {isSearchMode
+                  ? `Không tìm thấy sản phẩm nào khớp với "${currentSearch}"`
+                  : 'Không tìm thấy sản phẩm phù hợp'}
+              </p>
               <p className="text-steel text-xs mt-1 max-w-sm mx-auto">
-                Vui lòng thử bỏ chọn một số tiêu chí hãng sản xuất, mức giá hoặc dung lượng bộ nhớ.
+                {isSearchMode
+                  ? 'Vui lòng thử lại với từ khóa ngắn gọn hơn (ví dụ: iPhone 15, Samsung, Laptop gaming, Tai nghe...).'
+                  : 'Vui lòng thử bỏ chọn một số tiêu chí hãng sản xuất, mức giá hoặc dung lượng bộ nhớ.'}
               </p>
               <button
-                onClick={clearAllFilters}
+                onClick={() => isSearchMode ? navigate('/products') : clearAllFilters()}
                 className="mt-4 inline-flex items-center justify-center px-6 py-2.5 text-xs font-bold rounded-xl bg-ink-deep text-canvas hover:bg-charcoal transition"
               >
-                Xóa tất cả bộ lọc
+                {isSearchMode ? 'Xem tất cả sản phẩm' : 'Xóa tất cả bộ lọc'}
               </button>
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-5 items-stretch">
+              <div className={`grid grid-cols-2 sm:grid-cols-2 ${isSearchMode ? 'md:grid-cols-3 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4 sm:gap-5 items-stretch`}>
                 {paginatedProducts.map((p) => (
                   <ProductCard key={p.productId} product={p} />
                 ))}
@@ -948,7 +1002,7 @@ export const ProductListPage: React.FC = () => {
       {/* ========================================= */}
       {/* MOBILE FILTER MODAL DRAWER               */}
       {/* ========================================= */}
-      {isMobileFilterOpen && (
+      {!isSearchMode && isMobileFilterOpen && (
         <div className="fixed inset-0 z-50 bg-ink-deep/60 backdrop-blur-xs flex justify-end">
           <div className="bg-canvas w-full max-w-xs h-full p-5 overflow-y-auto space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-hairline-soft">

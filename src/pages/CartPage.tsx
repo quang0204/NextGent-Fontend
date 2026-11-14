@@ -416,9 +416,14 @@ export const CartPage: React.FC = () => {
                     <div>
                       <div className="font-mono font-bold text-xs text-ink-deep">{v.code}</div>
                       <div className="text-[11px] text-steel">
-                        Giảm {v.discountType === 'PERCENT' ? `${v.discountValue}%` : formatVND(v.discountValue)} cho đơn từ {formatVND(v.minOrderValue)}
-                        {v.discountType === 'PERCENT' && v.maxDiscount ? ` (tối đa ${formatVND(v.maxDiscount)})` : ''}
+                        Giảm {(v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE') ? `${v.discountValue}%` : formatVND(v.discountValue)} cho đơn từ {formatVND(v.minOrderValue)}
+                        {(v.discountType === 'PERCENT' || (v.discountType as any) === 'PERCENTAGE') && v.maxDiscount ? ` (tối đa ${formatVND(v.maxDiscount)})` : ''}
                       </div>
+                      {(v.startAt || v.expiredAt) && (
+                        <div className="text-[10px] text-steel/80 font-mono mt-0.5">
+                          HSD: {v.startAt ? new Date(v.startAt).toLocaleDateString('vi-VN') : 'Nay'} - {v.expiredAt ? new Date(v.expiredAt).toLocaleDateString('vi-VN') : 'KGH'}
+                        </div>
+                      )}
                     </div>
                     {isSelected ? (
                       <span className="text-[11px] font-bold text-success bg-surface-soft px-2 py-0.5 rounded-full border border-success/30">Đã chọn</span>
