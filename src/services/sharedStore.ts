@@ -910,13 +910,12 @@ export const sharedStore = {
         DELIVERY_FAILED: "Giao hàng không thành công #" + ord.orderCode,
       };
       if (shipmentNotifTitles[status]) {
-        notificationService.createNotification({
-          userId: 1,
+        notificationService.notifyOrderProgress({
+          userId: (ord as any).userId || 1,
           orderId: ord.orderId,
           orderCode: ord.orderCode,
-          title: shipmentNotifTitles[status]!,
-          content: ord.statusHistory?.[0]?.note || ("Vận đơn " + ship.trackingCode + " đã cập nhật: " + status + "."),
-          type: "ORDER",
+          status: status === 'DELIVERY_FAILED' ? 'RETURNING' : status,
+          note: ord.statusHistory?.[0]?.note || ("Vận đơn " + ship.trackingCode + " đã cập nhật: " + status + "."),
         });
       }
     }
@@ -947,6 +946,13 @@ export const sharedStore = {
     };
     returnRequests.unshift(newReq);
     saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
+
+    notificationService.notifyOrderProgress({
+      orderId: req.orderId,
+      orderCode: req.orderCode,
+      status: 'RETURNING',
+      note: `Đã tiếp nhận yêu cầu đổi trả (${req.reason}). Kỹ thuật viên NextGen sẽ kiểm định và liên hệ trong 24-48h.`,
+    });
 
     this.addAuditLog({
       performedBy: req.requestedBy,
@@ -1007,6 +1013,13 @@ export const sharedStore = {
     movements = [newMovement,...movements];
     saveToStorage(STORAGE_KEY_MOVEMENTS, movements);
 
+    notificationService.notifyOrderProgress({
+      orderId: r.orderId,
+      orderCode: r.orderCode,
+      status: 'REFUNDED',
+      note: `Yêu cầu đổi trả RMA-${returnId} đã được duyệt hoàn tất. Số tiền hoàn: ${formatCurrencyVND(refundAmount)}.`,
+    });
+
     this.addAuditLog({
       performedBy: staffName,
       action: 'APPROVE_RETURN_REFUND',
@@ -1026,6 +1039,15 @@ export const sharedStore = {
     r.status = 'REJECTED';
     r.rejectReason = rejectReason;
     saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
+
+    notificationService.createNotification({
+      userId: 1,
+      orderId: r.orderId,
+      orderCode: r.orderCode,
+      title: `Yêu cầu đổi trả #${r.orderCode} bị từ chối`,
+      content: `Yêu cầu đổi trả cho đơn #${r.orderCode} đã bị từ chối. Lý do: ${rejectReason}.`,
+      type: 'ORDER',
+    });
 
     this.addAuditLog({
       performedBy: staffName,
@@ -1403,22 +1425,14 @@ export const sharedStore = {
     orders = [newOrder,...orders];
     saveToStorage(STORAGE_KEY_ORDERS, orders);
 
-
-
-    notificationService.createNotification({
-
+    notificationService.notifyOrderProgress({
       userId: 1,
-
       orderId: newOrderId,
-
       orderCode: mockOrderCode,
-
-      title: "Đặt hàng thành công #" + mockOrderCode,
-
-      content: "Đơn hàng #" + mockOrderCode + " (" + formatCurrencyVND(finalTotalAmount) + ") đã được ghi nhận thành công và đang chờ xác nhận.",
-
-      type: "ORDER",
-
+      status: initialStatus,
+      note: isCOD
+        ? 'Đơn hàng được tạo thành công, hệ thống tự động khóa giữ chỗ tồn kho.'
+        : 'Đơn chờ chuyển khoản mô phỏng qua mã QR, giữ chỗ kho trong 30 phút.',
     });
 
     // Ghi Audit Log
@@ -1545,20 +1559,12 @@ export const sharedStore = {
 
 
 
-    notificationService.createNotification({
-
-      userId: 1,
-
+    notificationService.notifyOrderProgress({
+      userId: (order as any).userId || 1,
       orderId: order.orderId,
-
       orderCode: order.orderCode,
-
-      title: "Đơn hàng #" + order.orderCode + " đã bị hủy",
-
-      content: "Đơn hàng #" + order.orderCode + " đã được hủy theo yêu cầu. Lý do: " + reason + ".",
-
-      type: "ORDER",
-
+      status: 'CANCELLED',
+      note: reason,
     });
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
 
@@ -1810,24 +1816,13 @@ export const sharedStore = {
       }
     }
 
-        const statusNotifTitles: Partial<Record<OrderStatus, string>> = {
-      CONFIRMED: "Đơn hàng #" + order.orderCode + " đã được xác nhận!",
-      PREPARING: "Kiện hàng #" + order.orderCode + " đang được chuẩn bị",
-      PICKED_UP: "Bưu tá đã lấy kiện hàng #" + order.orderCode,
-      SHIPPING: "Đơn hàng #" + order.orderCode + " đang trên đường giao đến bạn!",
-      COMPLETED: "Giao hàng thành công #" + order.orderCode,
-      CANCELLED: "Đơn hàng #" + order.orderCode + " đã bị hủy",
-    };
-    if (statusNotifTitles[nextStatus]) {
-      notificationService.createNotification({
-        userId: 1,
-        orderId: order.orderId,
-        orderCode: order.orderCode,
-        title: statusNotifTitles[nextStatus]!,
-        content: order.statusHistory?.[0]?.note || ("Đơn hàng #" + order.orderCode + " đã cập nhật: " + nextStatus + "."),
-        type: "ORDER",
-      });
-    }
+    notificationService.notifyOrderProgress({
+      userId: (order as any).userId || 1,
+      orderId: order.orderId,
+      orderCode: order.orderCode,
+      status: nextStatus,
+      note: options?.reason || order.statusHistory?.[0]?.note,
+    });
 
 
 
