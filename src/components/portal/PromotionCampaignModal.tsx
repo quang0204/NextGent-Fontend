@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { sharedStore } from '../../services/sharedStore';
-import { promotionService } from '../../services/promotionService';
+import { AdminPromotionItem, promotionService } from '../../services/promotionService';
 import { productService } from '../../services/productService';
 import { Product } from '../../types/product';
 import { PortalPromotion, PortalPromotionVariant, PromotionStatus } from '../../types/portal';
@@ -42,10 +42,13 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
   });
   const [status, setStatus] = useState<PromotionStatus>('ACTIVE');
   const [searchTerm, setSearchTerm] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [brandFilter, setBrandFilter] = useState('ALL');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Danh sách sản phẩm thực tế từ Database / sharedStore
   const [productsList, setProductsList] = useState<Product[]>(() => sharedStore.getProducts());
+  const [existingPromotions, setExistingPromotions] = useState<AdminPromotionItem[]>([]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -54,7 +57,43 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
         setProductsList(prods);
       }
     }).catch(() => {});
+    promotionService.getAdminPromotions({ page: 1, size: 100, status: 'ALL' })
+      .then(res => setExistingPromotions(res.content || []))
+      .catch(() => {});
   }, [isOpen]);
+
+  const categories = useMemo(
+    () => Array.from(new Set(productsList.map(p => p.categoryName).filter(Boolean))).sort(),
+    [productsList]
+  );
+  const brands = useMemo(
+    () => Array.from(new Set(productsList.map(p => p.brandName).filter(Boolean))).sort(),
+    [productsList]
+  );
+
+  // Sản phẩm đang tham gia chiến dịch khác còn hiệu lực & giao nhau thời gian -> không cho cộng dồn
+  const conflictByProductId = useMemo(() => {
+    const map: Record<number, { promoName: string; endAt: string }> = {};
+    const nowMs = Date.now();
+    const newStartMs = new Date(startAt).getTime();
+    const newEndMs = new Date(endAt).getTime();
+
+    for (const promo of existingPromotions) {
+      if (promo.status === 'ENDED') continue;
+      const pEndMs = promo.endAt ? new Date(promo.endAt).getTime() : Infinity;
+      const pStartMs = promo.startAt ? new Date(promo.startAt).getTime() : -Infinity;
+      if (Number.isFinite(pEndMs) && pEndMs <= nowMs) continue;
+      if (Number.isFinite(newStartMs) && Number.isFinite(pEndMs) && pEndMs <= newStartMs) continue;
+      if (Number.isFinite(newEndMs) && Number.isFinite(pStartMs) && pStartMs >= newEndMs) continue;
+
+      for (const pv of promo.variants || []) {
+        if (pv.productId && !map[pv.productId]) {
+          map[pv.productId] = { promoName: promo.name, endAt: promo.endAt };
+        }
+      }
+    }
+    return map;
+  }, [existingPromotions, startAt, endAt]);
 
   // Lấy danh sách toàn bộ biến thể SKU thực tế với ID và giá niêm yết chuẩn
   const allVariants = useMemo(() => {
@@ -65,6 +104,8 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
           variantId: Number(v.variantId),
           productId: p.productId,
           productName: p.name,
+          categoryName: p.categoryName || '',
+          brandName: p.brandName || '',
           sku: v.sku || `SKU-${v.variantId}`,
           color: v.color || 'Mặc định',
           romGb: v.romGb || 0,
@@ -81,8 +122,10 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Lọc biến thể theo từ khóa
+  // Lọc biến thể theo danh mục, thương hiệu và từ khóa
   const filteredVariants = allVariants.filter(v => {
+    if (categoryFilter !== 'ALL' && v.categoryName !== categoryFilter) return false;
+    if (brandFilter !== 'ALL' && v.brandName !== brandFilter) return false;
     const term = searchTerm.toLowerCase().trim();
     if (!term) return true;
     return (
@@ -91,6 +134,24 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
       v.color.toLowerCase().includes(term)
     );
   });
+
+  const calcDiscountedPrice = (basePrice: number, percent: number) => {
+    const rawDiscount = (basePrice * percent) / 100;
+    let promoPrice = Math.round((basePrice - rawDiscount) / 10000) * 10000;
+    if (promoPrice >= basePrice) promoPrice = Math.max(10000, basePrice - 10000);
+    return Math.max(10000, promoPrice);
+  };
+
+  const applyToFilteredVariants = (percent: number) => {
+    setSelectedVariantsMap(prev => {
+      const next = { ...prev };
+      for (const v of filteredVariants) {
+        if (conflictByProductId[v.productId]) continue;
+        next[v.variantId] = calcDiscountedPrice(v.listPrice, percent);
+      }
+      return next;
+    });
+  };
 
   const toggleSelectVariant = (variantId: number, basePrice: number) => {
     setSelectedVariantsMap(prev => {
@@ -316,7 +377,7 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
                   <span>Chọn các SKU biến thể áp dụng ({Object.keys(selectedVariantsMap).length} đã chọn):</span>
                 </label>
                 <p className="text-[10px] text-steel">
-                  Quy tắc: Mỗi biến thể chỉ áp dụng 1 giá Flash Sale ưu đãi cao nhất tại một thời điểm.
+                  Quy tắc: Sản phẩm đang tham gia chiến dịch chưa hết hạn sẽ không được cộng dồn vào chiến dịch khác.
                 </p>
               </div>
 
@@ -333,10 +394,59 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
               </div>
             </div>
 
+            {/* Bộ lọc theo Danh mục, Thương hiệu & Áp dụng hàng loạt */}
+            <div className="flex flex-wrap items-center gap-2 bg-surface-soft p-2.5 rounded-xl border border-hairline-soft">
+              <select
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                className="h-8 px-2.5 bg-canvas border border-hairline rounded-lg text-[11px] text-ink focus:outline-none focus:border-primary"
+              >
+                <option value="ALL">Tất cả danh mục</option>
+                {categories.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+
+              <select
+                value={brandFilter}
+                onChange={(e) => setBrandFilter(e.target.value)}
+                className="h-8 px-2.5 bg-canvas border border-hairline rounded-lg text-[11px] text-ink focus:outline-none focus:border-primary"
+              >
+                <option value="ALL">Tất cả thương hiệu</option>
+                {brands.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+
+              <div className="flex items-center gap-1 ml-auto flex-wrap">
+                <span className="text-[10px] text-steel font-semibold mr-1">Chọn đang lọc:</span>
+                {[10, 15, 20].map(pct => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => applyToFilteredVariants(pct)}
+                    className="px-2 py-1 rounded bg-canvas border border-hairline hover:border-primary text-[10px] font-bold text-ink transition"
+                  >
+                    Tất cả -{pct}%
+                  </button>
+                ))}
+                {Object.keys(selectedVariantsMap).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVariantsMap({})}
+                    className="px-2 py-1 rounded bg-canvas border border-hairline text-[10px] text-critical hover:bg-critical/10 transition"
+                  >
+                    Bỏ chọn
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Danh sách cuộn các biến thể */}
             <div className="max-h-60 overflow-y-auto border border-hairline-soft rounded-xl divide-y divide-hairline-soft bg-canvas">
               {filteredVariants.map(v => {
-                const isSelected = selectedVariantsMap[v.variantId] !== undefined;
+                const conflict = conflictByProductId[v.productId];
+                const isSelected = !conflict && selectedVariantsMap[v.variantId] !== undefined;
                 const currentPromoPrice = selectedVariantsMap[v.variantId] || 0;
                 const discountPct = isSelected && v.listPrice > 0 ? Math.round(((v.listPrice - currentPromoPrice) / v.listPrice) * 100) : 0;
 
@@ -344,18 +454,19 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
                   <div
                     key={v.variantId}
                     className={`p-3 transition-colors ${
-                      isSelected ? 'bg-primary/5' : 'hover:bg-surface-soft'
+                      conflict ? 'bg-surface-soft/70 opacity-65' : isSelected ? 'bg-primary/5' : 'hover:bg-surface-soft'
                     }`}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       
                       {/* Checkbox & Thông tin SKU */}
-                      <label className="flex items-center gap-3 cursor-pointer flex-1">
+                      <label className={`flex items-center gap-3 flex-1 ${conflict ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
+                          disabled={!!conflict}
                           checked={isSelected}
-                          onChange={() => toggleSelectVariant(v.variantId, v.listPrice)}
-                          className="w-4 h-4 rounded text-primary focus:ring-primary border-hairline"
+                          onChange={() => !conflict && toggleSelectVariant(v.variantId, v.listPrice)}
+                          className="w-4 h-4 rounded text-primary focus:ring-primary border-hairline disabled:opacity-50"
                         />
                         <img
                           src={v.imageUrl}
@@ -363,9 +474,14 @@ export const PromotionCampaignModal: React.FC<PromotionCampaignModalProps> = ({
                           className="w-10 h-10 object-contain rounded-lg border border-hairline-soft p-0.5 bg-canvas"
                         />
                         <div>
-                          <div className="font-bold text-ink-deep flex items-center gap-1.5">
+                          <div className="font-bold text-ink-deep flex items-center gap-1.5 flex-wrap">
                             <span>{v.productName}</span>
                             <span className="font-mono text-[10px] text-steel font-normal">({v.sku})</span>
+                            {conflict && (
+                              <span className="px-1.5 py-0.5 rounded bg-attention/15 text-attention border border-attention/30 text-[10px] font-semibold">
+                                Đang tham gia: {conflict.promoName}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-steel flex items-center gap-2">
                             <span>Màu: <strong className="text-charcoal">{v.color}</strong></span>
