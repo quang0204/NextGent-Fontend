@@ -31,7 +31,7 @@ export const NotificationBell: React.FC = () => {
     }
   }, [isAuthenticated, effectiveUserId]);
 
-  // Lắng nghe sự kiện cập nhật thông báo toàn hệ thống (Real-time custom event)
+  // Lắng nghe sự kiện cập nhật thông báo toàn hệ thống (Real-time custom event + Cross-tab storage)
   useEffect(() => {
     const handleUpdate = () => {
       if (isAuthenticated && effectiveUserId) {
@@ -39,9 +39,20 @@ export const NotificationBell: React.FC = () => {
       }
     };
     window.addEventListener('notification:updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
     return () => {
       window.removeEventListener('notification:updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
     };
+  }, [isAuthenticated, effectiveUserId]);
+
+  // Định kỳ poll cập nhật thông báo mới từ Backend (không cần khách hàng F5)
+  useEffect(() => {
+    if (!isAuthenticated || !effectiveUserId) return;
+    const interval = setInterval(() => {
+      loadNotifications(effectiveUserId);
+    }, 15000);
+    return () => clearInterval(interval);
   }, [isAuthenticated, effectiveUserId]);
 
   // Click outside listener
