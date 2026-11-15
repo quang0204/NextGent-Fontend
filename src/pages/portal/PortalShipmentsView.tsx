@@ -23,7 +23,6 @@ import {
   XCircle,
   AlertCircle,
   ArrowRight,
-  Sparkles,
   RefreshCw,
   PackageCheck
 } from 'lucide-react';
@@ -40,6 +39,10 @@ export const PortalShipmentsView: React.FC = () => {
   const [newStatus, setNewStatus] = useState<ShipmentStatus>('IN_TRANSIT');
   const [failReason, setFailReason] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [selectedShipmentIds, setSelectedShipmentIds] = useState<number[]>([]);
+  const [bulkStatusTarget, setBulkStatusTarget] = useState<'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'DELIVERY_FAILED'>('IN_TRANSIT');
+  const [bulkFailReason, setBulkFailReason] = useState('');
+  const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
   // API 9.2: Tải danh sách vận đơn thực tế từ Backend
   const loadBackendShipments = useCallback(async () => {
@@ -145,6 +148,70 @@ export const PortalShipmentsView: React.FC = () => {
       setShipments([...sharedStore.getShipments()]);
       setOrders([...sharedStore.getOrders()]);
     setEditingShipment(null);
+  };
+
+  const isTerminalShipment = (status: ShipmentStatus) =>
+    status === 'DELIVERED' || status === 'DELIVERY_FAILED' || status === 'FAILED' || status === 'PICKUP_FAILED' || status === 'CANCELLED';
+
+  const handleToggleSelectShipment = (shipmentId: number) => {
+    setSelectedShipmentIds(prev =>
+      prev.includes(shipmentId) ? prev.filter(id => id !== shipmentId) : [...prev, shipmentId]
+    );
+  };
+
+  const handleBulkUpdateShipments = async () => {
+    if (selectedShipmentIds.length === 0 || isBulkUpdating) return;
+    const isFail = bulkStatusTarget === 'DELIVERY_FAILED';
+    if (isFail && !bulkFailReason.trim()) {
+      alert('Bắt buộc nhập nguyên nhân giao hàng thất bại (sai địa chỉ, không nghe máy...)!');
+      return;
+    }
+    const apiStatus = bulkStatusTarget === 'PICKED_UP' ? 'PICKED' : bulkStatusTarget;
+    setIsBulkUpdating(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedShipmentIds.map(id =>
+          isFail
+            ? apiClient.post(`/admin/shipments/${id}/fail-delivery`, {
+                failReason: bulkFailReason.trim(),
+                note: 'Duyệt hàng loạt giao thất bại trên Portal Vận đơn'
+              })
+            : apiClient.put(`/admin/shipments/${id}/status`, {
+                status: apiStatus,
+                note: 'Duyệt hàng loạt trên Portal Vận đơn'
+              })
+        )
+      );
+      let successCount = 0;
+      let failCount = 0;
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') {
+          successCount++;
+          const ship = shipments.find(s => s.shipmentId === selectedShipmentIds[idx]);
+          if (ship) {
+            sharedStore.updateShipmentStatus(
+              ship.shipmentId,
+              bulkStatusTarget,
+              isFail ? bulkFailReason.trim() : undefined,
+              'Điều phối viên giao vận',
+              ship
+            );
+          }
+        } else {
+          failCount++;
+        }
+      });
+      setSelectedShipmentIds([]);
+      if (isFail) setBulkFailReason('');
+      await loadBackendShipments();
+      showNotification(
+        failCount === 0
+          ? `✓ Đã duyệt hàng loạt ${successCount} vận đơn thành công!`
+          : `Đã cập nhật ${successCount} vận đơn, ${failCount} vận đơn không hợp lệ (không thể chuyển trạng thái).`
+      );
+    } finally {
+      setIsBulkUpdating(false);
+    }
   };
 
   const carriers = Array.from(new Set(shipments.map(s => s.carrier)));
@@ -397,11 +464,11 @@ export const PortalShipmentsView: React.FC = () => {
             className="h-9 px-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-medium focus:bg-white focus:outline-none focus:border-blue-500"
           >
             <option value="ALL">Tất cả trạng thái vận đơn</option>
-            <option value="PREPARING">1. Đang chuẩn bị hàng</option>
-            <option value="PICKED_UP">2. Đã lấy hàng</option>
-            <option value="IN_TRANSIT">3. Đang giao hàng</option>
-            <option value="DELIVERED">4. Giao thành công</option>
-            <option value="DELIVERY_FAILED">5. Giao thất bại</option>
+            <option value="PREPARING">Đang chuẩn bị hàng</option>
+            <option value="PICKED_UP">Đã lấy hàng</option>
+            <option value="IN_TRANSIT">Đang giao hàng</option>
+            <option value="DELIVERED">Giao thành công</option>
+            <option value="DELIVERY_FAILED">Giao thất bại</option>
           </select>
 
           {(searchTerm || statusFilter !== 'ALL' || carrierFilter !== 'ALL') && (
@@ -420,11 +487,75 @@ export const PortalShipmentsView: React.FC = () => {
       </div>
 
       {/* 4. Bảng danh sách vận đơn */}
+      {selectedShipmentIds.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-2xl text-xs">
+          <div className="font-bold text-blue-900">
+            Đã chọn <span className="font-mono text-blue-700">{selectedShipmentIds.length}</span> vận đơn
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={bulkStatusTarget}
+              onChange={(e) => setBulkStatusTarget(e.target.value as 'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'DELIVERY_FAILED')}
+              className="h-9 px-3 bg-white border border-blue-300 rounded-xl text-slate-800 text-xs font-semibold focus:outline-none focus:border-blue-600"
+            >
+              <option value="PICKED_UP">Đã lấy hàng</option>
+              <option value="IN_TRANSIT">Đang giao hàng</option>
+              <option value="DELIVERED">Giao thành công</option>
+              <option value="DELIVERY_FAILED">Giao thất bại</option>
+            </select>
+            {bulkStatusTarget === 'DELIVERY_FAILED' && (
+              <input
+                type="text"
+                placeholder="Nguyên nhân thất bại (sai địa chỉ, không nghe máy...)"
+                value={bulkFailReason}
+                onChange={(e) => setBulkFailReason(e.target.value)}
+                className="h-9 px-3 w-72 bg-white border border-rose-300 rounded-xl text-slate-800 text-xs focus:outline-none focus:border-rose-500"
+              />
+            )}
+            <button
+              type="button"
+              disabled={isBulkUpdating}
+              onClick={handleBulkUpdateShipments}
+              className="h-9 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-bold rounded-xl transition inline-flex items-center gap-1.5"
+            >
+              <CheckCircle2 size={14} />
+              <span>{isBulkUpdating ? 'Đang xử lý...' : 'Duyệt hàng loạt'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedShipmentIds([])}
+              className="h-9 px-3 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 font-bold rounded-xl transition"
+            >
+              Bỏ chọn
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border border-slate-200/90 rounded-2xl overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[11px]">
+                <th className="py-3.5 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    aria-label="Chọn tất cả vận đơn trên trang"
+                    checked={(() => {
+                      const selectable = paginatedShipments.filter(s => !isTerminalShipment(s.status));
+                      return selectable.length > 0 && selectable.every(s => selectedShipmentIds.includes(s.shipmentId));
+                    })()}
+                    onChange={(e) => {
+                      const selectableIds = paginatedShipments.filter(s => !isTerminalShipment(s.status)).map(s => s.shipmentId);
+                      if (e.target.checked) {
+                        setSelectedShipmentIds(prev => Array.from(new Set([...prev, ...selectableIds])));
+                      } else {
+                        setSelectedShipmentIds(prev => prev.filter(id => !selectableIds.includes(id)));
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                  />
+                </th>
                 <th className="py-3.5 px-4">Mã VĐ & Đơn hàng</th>
                 <th className="py-3.5 px-4">Hãng vận chuyển</th>
                 <th className="py-3.5 px-4">Người nhận & Địa chỉ</th>
@@ -437,14 +568,23 @@ export const PortalShipmentsView: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {paginatedShipments.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-slate-400">
+                  <td colSpan={8} className="text-center py-10 text-slate-400">
                     <Truck size={32} className="mx-auto text-slate-300 mb-2" />
                     <p className="font-medium text-xs">Không tìm thấy bưu kiện vận đơn nào phù hợp với bộ lọc.</p>
                   </td>
                 </tr>
               ) : (
                 paginatedShipments.map((ship) => (
-                  <tr key={ship.shipmentId} className="hover:bg-slate-50/60 transition">
+                  <tr key={ship.shipmentId} className={`hover:bg-slate-50/60 transition ${selectedShipmentIds.includes(ship.shipmentId) ? 'bg-blue-50/40' : ''}`}>
+                    <td className="py-3.5 px-3 text-center">
+                      <input
+                        type="checkbox"
+                        disabled={isTerminalShipment(ship.status)}
+                        checked={selectedShipmentIds.includes(ship.shipmentId)}
+                        onChange={() => handleToggleSelectShipment(ship.shipmentId)}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:opacity-35 cursor-pointer disabled:cursor-not-allowed"
+                      />
+                    </td>
                     
                     {/* Cột 1: Mã vận đơn & Mã đơn hàng */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
@@ -608,11 +748,11 @@ export const PortalShipmentsView: React.FC = () => {
                 }}
                 className="w-full h-10 px-3 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-semibold focus:border-blue-600 focus:outline-none"
               >
-                <option value="PREPARING">1. Đang chuẩn bị hàng (⚡ Đồng bộ Đơn hàng: Đang chuẩn bị hàng)</option>
-                <option value="PICKED_UP">2. Đã lấy hàng (⚡ Đồng bộ Đơn hàng: Đã lấy hàng)</option>
-                <option value="IN_TRANSIT">3. Đang giao hàng (⚡ Đồng bộ Đơn hàng: Đang giao hàng)</option>
-                <option value="DELIVERED">4. Giao thành công (⚡ Đồng bộ Đơn hàng: Hoàn tất & Thu COD)</option>
-                <option value="DELIVERY_FAILED">5. Giao thất bại (⚡ Đồng bộ Đơn hàng: Đang hoàn về)</option>
+                <option value="PREPARING">Đang chuẩn bị hàng</option>
+                <option value="PICKED_UP">Đã lấy hàng</option>
+                <option value="IN_TRANSIT">Đang giao hàng</option>
+                <option value="DELIVERED">Giao thành công</option>
+                <option value="DELIVERY_FAILED">Giao thất bại</option>
               </select>
             </div>
 
@@ -665,17 +805,6 @@ export const PortalShipmentsView: React.FC = () => {
                 />
               </div>
             )}
-
-            {/* Banner cơ chế tự động đồng bộ */}
-            <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-xl text-[11px] text-blue-900 leading-relaxed space-y-1">
-              <strong className="flex items-center gap-1 font-bold text-blue-950">
-                <Sparkles size={13} className="text-blue-600" />
-                <span>Quy tắc đồng bộ hệ thống tự động:</span>
-              </strong>
-              <p>
-                Trạng thái mới của vận đơn sẽ tự động cập nhật ngay lập tức sang <strong>Đơn hàng</strong>. Nếu chọn Lấy/Giao thất bại, đơn hàng tương ứng sẽ được tự động chuyển sang <strong>Đơn hàng bị hủy</strong> và giải phóng kho theo chuẩn nghiệp vụ.
-              </p>
-            </div>
 
             {/* Modal Actions */}
             <div className="flex gap-2 justify-end pt-3 border-t border-slate-200">
