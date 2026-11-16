@@ -45,8 +45,10 @@ export const NotificationsPage: React.FC = () => {
       }
     };
     window.addEventListener('notification:updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
     return () => {
       window.removeEventListener('notification:updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
     };
   }, [isAuthenticated, effectiveUserId]);
 

@@ -267,6 +267,27 @@ export const OrderTrackingPage: React.FC = () => {
     }
   }, [urlCode]);
 
+  // Lắng nghe cập nhật tiến trình đơn hàng theo thời gian thực (tự động cập nhật không cần F5)
+  useEffect(() => {
+    const handleOrderProgressSync = () => {
+      loadAllOrders();
+      if (order?.orderCode) {
+        orderService.trackOrder(order.orderCode, order.recipientPhone).then((res) => {
+          if (res) setOrder(res);
+        });
+      }
+    };
+
+    const unsubscribe = sharedStore.subscribe(handleOrderProgressSync);
+    window.addEventListener('notification:updated', handleOrderProgressSync);
+    window.addEventListener('storage', handleOrderProgressSync);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('notification:updated', handleOrderProgressSync);
+      window.removeEventListener('storage', handleOrderProgressSync);
+    };
+  }, [order?.orderCode, order?.recipientPhone]);
+
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isNotifyingPayment, setIsNotifyingPayment] = useState(false);
 
