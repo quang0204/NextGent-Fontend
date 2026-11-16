@@ -297,6 +297,25 @@ export const PortalBrandsView: React.FC = () => {
     }
   };
 
+  // Xóa riêng logo thương hiệu (API DELETE /api/v1/admin/brands/{id}/logo)
+  const handleQuickDeleteLogo = async (b: BrandItem) => {
+    if (!isAdmin) {
+      showToast('Chỉ tài khoản Quản trị viên (ADMIN) mới có quyền xóa logo thương hiệu!', 'error');
+      return;
+    }
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa logo của thương hiệu "${b.name}"?`)) {
+      return;
+    }
+    try {
+      await brandService.deleteBrandLogo(b.brandId);
+      showToast(`Đã xóa logo của thương hiệu "${b.name}" thành công!`, 'success');
+      await loadBrands();
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Không thể xóa logo!';
+      showToast(msg, 'error');
+    }
+  };
+
   // Xóa thương hiệu (API 3.10: DELETE /api/v1/admin/brands/{id} - Kiểm tra ràng buộc và cảnh báo khi có sản phẩm)
   const handleDeleteBrand = async (b: BrandItem) => {
     if (!isAdmin) {
@@ -506,6 +525,22 @@ export const PortalBrandsView: React.FC = () => {
                     {/* Thao tác */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {b.logoUrl && (
+                          <button
+                            onClick={() => handleQuickDeleteLogo(b)}
+                            disabled={!isAdmin}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg border transition ${
+                              isAdmin
+                                ? 'text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                                : 'text-slate-300 bg-slate-50 border-slate-200 cursor-not-allowed opacity-60'
+                            }`}
+                            title={isAdmin ? "Xóa riêng logo thương hiệu này" : "Chỉ tài khoản ADMIN mới có quyền xóa logo"}
+                          >
+                            <Trash2 size={12} />
+                            <span>Xóa logo</span>
+                          </button>
+                        )}
+
                         <button
                           onClick={() => handleOpenEditModal(b)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:text-blue-700 bg-slate-100 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-lg transition"

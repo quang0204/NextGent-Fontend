@@ -65,6 +65,7 @@ export interface CreateOrderPayload {
   shippingAddress: string;
   paymentMethod: 'COD' | 'SIMULATED_TRANSFER' | 'BANK_TRANSFER' | string;
   shippingMethod?: 'standard' | 'express' | string;
+  shippingFee?: number;
   expectedTotalAmount?: number;
   note?: string;
   voucherCode?: string;

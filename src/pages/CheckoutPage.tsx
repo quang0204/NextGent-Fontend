@@ -256,6 +256,7 @@ export const CheckoutPage: React.FC = () => {
           shippingAddress: fullShippingAddress,
           paymentMethod: paymentMethod,
           shippingMethod: shippingMethod,
+          shippingFee: shippingFee,
           expectedTotalAmount: totalAmount,
           note: note.trim(),
           voucherCode: appliedVoucher || undefined,

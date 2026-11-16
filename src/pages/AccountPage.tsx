@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OtpInput } from '../components/common/OtpInput';
@@ -33,6 +33,7 @@ import { SupportHistoryView } from '../components/account/SupportHistoryView';
 export const AccountPage: React.FC = () => {
   const { 
     user, 
+    isAuthenticated,
     updateProfile, 
     addAddress, 
     updateAddress, 
@@ -52,6 +53,11 @@ export const AccountPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'profile' | 'addresses' | 'password' | 'support'>(
     urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (window.location.pathname === '/support-history' ? 'support' : 'profile')
   );
+
+  if (!user || !isAuthenticated) {
+    const currentPath = window.location.pathname === '/support-history' ? '/support-history' : '/account';
+    return <Navigate to={`/auth?redirect=${encodeURIComponent(currentPath)}`} replace />;
+  }
 
   const [supportCount, setSupportCount] = useState(0);
 

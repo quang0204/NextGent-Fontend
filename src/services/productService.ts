@@ -813,14 +813,18 @@ export const productService = {
    */
   async addAdminVariant(productId: number, payload: AddAdminVariantPayload): Promise<any> {
     try {
-      const res = await apiClient.post<any>(`/admin/products/${productId}/variants`, payload);
+      const res = await apiClient.post<any>(`/admin/products/${productId}/variants`, {
+        ...payload,
+        initialOnHandQty: payload.initialOnHandQty ?? (payload as any).initialStock ?? 0,
+      });
       if (res.data?.data) {
         return res.data.data;
       }
-    } catch (err) {
-      console.warn('[productService.addAdminVariant] Fallback to sharedStore', err);
+      return res.data;
+    } catch (err: any) {
+      console.error('[productService.addAdminVariant] Failed to add variant', err);
+      throw err;
     }
-    return null;
   },
 
   /**
