@@ -1307,7 +1307,7 @@ export const OrderTrackingPage: React.FC = () => {
                           #{ord.orderCode}
                         </div>
                         <span className="text-[11px] text-steel">
-                          {ord.createdAt.replace('T', ' ').slice(0, 16)}
+                          {new Date(/(Z|[+-]\d\d:?\d\d)$/.test(ord.createdAt) ? ord.createdAt : ord.createdAt + 'Z').toLocaleString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' }).slice(0, 16)}
                         </span>
                       </div>
 
