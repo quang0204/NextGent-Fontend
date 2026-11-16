@@ -4,6 +4,7 @@ import { productService, applyActivePromotionsToProducts } from '../services/pro
 import { promotionService, getCountdownParts } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
+import { formatVND } from '../components/common/PriceDisplay';
 import { 
   Zap, 
   ShieldCheck, 
@@ -11,8 +12,7 @@ import {
   RotateCcw, 
   ChevronRight, 
   ChevronLeft,
-  ChevronDown,
-  Sparkles, 
+  ChevronDown, 
   CreditCard,
   Cpu,
   Smartphone,
@@ -25,6 +25,7 @@ export const HomePage: React.FC = () => {
   const [selectedBrand, setSelectedBrand] = useState<string>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState<number>(12);
+  const [bestSellers, setBestSellers] = useState<Product[]>([]);
 
   // Flash Sale Auto-slide & Navigation Controls
   const flashSaleSliderRef = useRef<HTMLDivElement>(null);
@@ -37,11 +38,12 @@ export const HomePage: React.FC = () => {
     const fetchData = async () => {
       setIsLoading(true);
       // API 4.2 & API 6.1: Nạp sản phẩm, thương hiệu, Flash Sale và chiến dịch khuyến mãi đang diễn ra
-      const [allProducts, allBrands, featuredFlashSale, activePromos] = await Promise.all([
+      const [allProducts, allBrands, featuredFlashSale, activePromos, topSellers] = await Promise.all([
         productService.getProducts(),
         productService.getBrands(),
         productService.getFeaturedProducts('FLASH_SALE', 8).catch(() => []),
         promotionService.getActivePromotions().catch(() => []),
+        productService.getFeaturedProducts('BEST_SELLER', 3).catch(() => []),
       ]);
       let mergedProducts = [...allProducts];
       // Backend fallback trả best-seller (không có promotion) khi không có chiến dịch đang chạy -> bỏ qua
@@ -65,10 +67,18 @@ export const HomePage: React.FC = () => {
       }
       setProducts(mergedProducts);
       setBrands(allBrands);
+      setBestSellers(topSellers);
       setIsLoading(false);
     };
     fetchData();
   }, []);
+
+  // Banner: ưu tiên best-seller từ backend, thiếu thì bù bằng sản phẩm đầu danh mục
+  const bannerProducts = [...bestSellers, ...products.filter(p => !bestSellers.some(b => b.productId === p.productId))].slice(0, 3);
+  const bannerMinPrice = (p: Product) => {
+    const prices = p.variants.map(v => (v.salePrice > 0 ? v.salePrice : v.listPrice || 0)).filter(x => x > 0);
+    return prices.length ? Math.min(...prices) : 0;
+  };
 
   const flashSaleProducts = products.filter(p => p.isFlashSale);
   const flashCountdown = getCountdownParts(flashSaleEndAt, nowMs);
@@ -170,49 +180,32 @@ export const HomePage: React.FC = () => {
   return (
     <div className="space-y-12 pb-20">
       
-      {/* 1. HERO BANNER SECTION (DESIGN-meta hero-band-marketing with dual-CTA) */}
+      {/* 1. HERO BANNER SECTION - dữ liệu thật: sản phẩm bán chạy (fallback: sản phẩm đầu danh mục) */}
+      {bannerProducts.length > 0 && (
       <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-          
+
           {/* Main Hero Showcase (8 cols) */}
           <div className="lg:col-span-8 bg-ink-deep rounded-xxxl overflow-hidden relative border border-hairline-soft/20 flex flex-col justify-between p-8 sm:p-12 text-canvas min-h-[420px] group">
-            
-            {/* Ambient Lighting */}
             <div className="absolute top-0 right-0 w-80 h-80 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
 
-            {/* Top Tagline */}
             <div className="z-10 space-y-3.5 max-w-lg">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-canvas/10 border border-canvas/20 text-xs font-bold text-canvas">
-                <Sparkles size={13} className="text-warning" />
-                <span className="uppercase tracking-wider">Flagship Thế Hệ Mới</span>
-              </div>
-
               <h1 className="text-3xl sm:text-5xl font-medium tracking-tight leading-[1.15] text-canvas">
-                iPhone 15 Pro Max
+                {bannerProducts[0].name}
               </h1>
 
-              <p className="text-sm sm:text-base text-canvas/80 leading-relaxed font-normal">
-                Khung vỏ Titanium chuẩn hàng không vũ trụ. Chip Apple A17 Pro đỉnh cao hiệu năng 3nm thế hệ mới.
-              </p>
-
-              {/* Key Specs Pills */}
-              <div className="flex flex-wrap gap-2 pt-1 text-xs text-canvas/90">
-                <span className="bg-canvas/10 border border-canvas/20 px-3 py-1 rounded-full font-medium">
-                  Titanium tự nhiên
-                </span>
-                <span className="bg-canvas/10 border border-canvas/20 px-3 py-1 rounded-full font-medium">
-                  Chip A17 Pro
-                </span>
-                <span className="bg-canvas/10 border border-canvas/20 px-3 py-1 rounded-full font-medium">
-                  Zoom quang 5x
-                </span>
-              </div>
+              {bannerProducts[0].highlights?.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1 text-xs text-canvas/90">
+                  {bannerProducts[0].highlights.slice(0, 3).map((h) => (
+                    <span key={h} className="bg-canvas/10 border border-canvas/20 px-3 py-1 rounded-full font-medium">{h}</span>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Dual CTA & Pricing per DESIGN-meta */}
             <div className="z-10 pt-8 flex flex-wrap items-center gap-4 border-t border-canvas/15 mt-6">
               <Link
-                to="/product/1"
+                to={`/product/${bannerProducts[0].productId}`}
                 className="inline-flex items-center justify-center font-bold text-sm text-ink-button bg-canvas hover:bg-surface-soft active:bg-hairline-soft rounded-full px-[30px] py-[14px] transition-colors"
               >
                 <span>Khám phá ngay</span>
@@ -226,81 +219,56 @@ export const HomePage: React.FC = () => {
                 <span>So sánh cấu hình</span>
               </Link>
 
-              <div className="flex flex-col ml-auto">
-                <span className="text-xs text-canvas/60 uppercase font-semibold">Giá niêm yết</span>
-                <span className="text-base sm:text-lg font-bold text-canvas font-mono">
-                  Từ 29.490.000₫
-                </span>
-              </div>
+              {bannerMinPrice(bannerProducts[0]) > 0 && (
+                <div className="flex flex-col ml-auto">
+                  <span className="text-xs text-canvas/60 uppercase font-semibold">Giá bán từ</span>
+                  <span className="text-base sm:text-lg font-bold text-canvas font-mono">
+                    {formatVND(bannerMinPrice(bannerProducts[0]))}
+                  </span>
+                </div>
+              )}
             </div>
 
-            {/* Device Image Showcase */}
             <div className="hidden sm:block absolute right-4 sm:right-8 bottom-6 top-6 w-72 lg:w-80 pointer-events-none flex items-center justify-center">
               <img
-                src="https://cdn.tgdd.vn/Products/Images/42/305658/iphone-15-pro-max-blue-thumbnew-600x600.jpg"
-                alt="iPhone 15 Pro Max"
+                src={bannerProducts[0].thumbnail}
+                alt={bannerProducts[0].name}
                 className="max-h-full max-w-full object-contain filter drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
               />
             </div>
           </div>
 
-          {/* Sub Side Cards (4 cols) - DESIGN-meta card-product-feature */}
+          {/* Sub Side Cards (4 cols) */}
           <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col gap-6 justify-between">
-            
-            {/* Card 1: Galaxy S24 Ultra */}
-            <div className="flex-1 bg-surface-soft rounded-xxxl p-6 text-ink-deep flex items-center justify-between relative overflow-hidden border border-hairline-soft group">
-              <div className="z-10 space-y-2 max-w-[170px]">
-                <span className="text-xs font-bold text-primary uppercase tracking-wider flex items-center gap-1">
-                  <Sparkles size={12} /> Galaxy AI
-                </span>
-                <h3 className="text-xl font-medium leading-tight text-ink-deep">Galaxy S24 Ultra</h3>
-                <p className="text-xs text-steel line-clamp-1">Khung Titan & Zoom AI 100x</p>
-                <Link 
-                  to="/product/2" 
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-deep pt-1 transition"
-                >
-                  <span>Xem chi tiết</span>
-                  <ChevronRight size={14} />
-                </Link>
+            {bannerProducts.slice(1, 3).map((p) => (
+              <div key={p.productId} className="flex-1 bg-surface-soft rounded-xxxl p-6 text-ink-deep flex items-center justify-between relative overflow-hidden border border-hairline-soft group">
+                <div className="z-10 space-y-2 max-w-[170px]">
+                  <h3 className="text-xl font-medium leading-tight text-ink-deep line-clamp-2">{p.name}</h3>
+                  {bannerMinPrice(p) > 0 && (
+                    <p className="text-xs text-steel font-mono">Từ {formatVND(bannerMinPrice(p))}</p>
+                  )}
+                  <Link
+                    to={`/product/${p.productId}`}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-deep pt-1 transition"
+                  >
+                    <span>Xem chi tiết</span>
+                    <ChevronRight size={14} />
+                  </Link>
+                </div>
+                <div className="w-28 h-28 flex items-center justify-center">
+                  <img
+                    src={p.thumbnail}
+                    alt={p.name}
+                    className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-300"
+                  />
+                </div>
               </div>
-              <div className="w-28 h-28 flex items-center justify-center">
-                <img
-                  src="https://cdn.tgdd.vn/Products/Images/42/307174/samsung-galaxy-s24-ultra-xam-thumb-600x600.jpg"
-                  alt="S24 Ultra"
-                  className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-300"
-                />
-              </div>
-            </div>
-
-            {/* Card 2: Xiaomi 14 */}
-            <div className="flex-1 bg-surface-soft rounded-xxxl p-6 text-ink-deep flex items-center justify-between relative overflow-hidden border border-hairline-soft group">
-              <div className="z-10 space-y-2 max-w-[170px]">
-                <span className="text-xs font-bold text-warning uppercase tracking-wider flex items-center gap-1">
-                  <Star size={12} className="fill-warning" /> Leica Optics
-                </span>
-                <h3 className="text-xl font-medium leading-tight text-ink-deep">Xiaomi 14 5G</h3>
-                <p className="text-xs text-steel line-clamp-1">Snapdragon 8 Gen 3 & 90W</p>
-                <Link 
-                  to="/product/3" 
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-deep pt-1 transition"
-                >
-                  <span>Xem chi tiết</span>
-                  <ChevronRight size={14} />
-                </Link>
-              </div>
-              <div className="w-28 h-28 flex items-center justify-center">
-                <img
-                  src="https://cdn.tgdd.vn/Products/Images/42/313364/xiaomi-14-black-thumb-600x600.jpg"
-                  alt="Xiaomi 14"
-                  className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-300"
-                />
-              </div>
-            </div>
-
+            ))}
           </div>
 
         </div>
       </section>
+      )}
 
       {/* 2. BRAND QUICK FILTER ROW (DESIGN-meta button-pill-tab) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
