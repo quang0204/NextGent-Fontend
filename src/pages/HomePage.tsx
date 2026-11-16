@@ -16,8 +16,87 @@ import {
   CreditCard,
   Cpu,
   Smartphone,
+  Laptop,
+  Flame,
   Star
 } from 'lucide-react';
+
+interface HeroBannerSlide {
+  id: number;
+  title: string;
+  subtitle: string;
+  tag: string;
+  bottomBadge: string;
+  bottomText: string;
+  minioUrl: string;
+  fallbackUrl: string;
+  targetUrl: string;
+  ctaText: string;
+  type: 'FLASH_SALE' | 'LAPTOP_PC';
+  icon: typeof Zap;
+}
+
+const HERO_BANNERS: HeroBannerSlide[] = [
+  {
+    id: 1,
+    title: 'GIỜ VÀNG FLASH SALE',
+    subtitle: 'Săn deal cực hot – Đón công nghệ đỉnh cao',
+    tag: 'Ưu Đãi Hôm Nay',
+    bottomBadge: '⚡ FLASH SALE',
+    bottomText: 'Giảm sốc tới 50% • Cam kết chính hãng 100% • Khóa giữ giá 30 phút',
+    minioUrl: 'http://localhost:9000/banner/banner1.png',
+    fallbackUrl: '/banners/banner1.png',
+    targetUrl: '/products?sale=true',
+    ctaText: 'Săn Deal Flash Sale',
+    type: 'FLASH_SALE',
+    icon: Zap,
+  },
+  {
+    id: 2,
+    title: 'LAPTOP & PC CAO CẤP',
+    subtitle: 'Hiệu năng vượt trội • Kết nối tương lai',
+    tag: 'Đón Đầu Công Nghệ',
+    bottomBadge: '🚀 HIỆU NĂNG ĐỈNH CAO',
+    bottomText: 'Trả góp 0% lãi suất • Bảo hành 24 tháng • Tặng quà tới 2.000.000đ',
+    minioUrl: 'http://localhost:9000/banner/banner2.png',
+    fallbackUrl: '/banners/banner2.png',
+    targetUrl: '/products?category=laptop',
+    ctaText: 'Khám Phá Laptop & PC',
+    type: 'LAPTOP_PC',
+    icon: Laptop,
+  },
+];
+
+const MINIO_BRAND_LOGOS: Record<string, string> = {
+  apple: 'http://localhost:9000/brands/brands/1/446bbd63-6d10-4009-8f6a-b00b55e89fd4-Apple_logo_black.svg',
+  samsung: 'http://localhost:9000/brands/brands/2/bbcd5610-2a04-4c41-ac54-53320f56c418-Samsung_old_logo_before_year_2015.svg.webp',
+  xiaomi: 'http://localhost:9000/brands/brands/3/bcc64df8-125d-479c-9eea-75ec88e8189c-images.png',
+  sony: 'http://localhost:9000/brands/brands/4/1a3dd88f-296b-437a-a454-bae91860c9d1-Sony_logo.svg',
+  asus: 'http://localhost:9000/brands/brands/5/33a9e35d-bf8d-4e8a-bb2c-c35e6488b179-ASUS_Corporate_Logo.svg.webp',
+  anker: 'http://localhost:9000/brands/brands/6/db4362ee-74ba-48db-8496-e1f74d0c963c-Anker_logo.svg.webp',
+  marshall: 'http://localhost:9000/brands/brands/7/974db7fb-bc24-4b43-9191-928d229edac6-Marshall_logo.svg.webp',
+};
+
+const resolveBrandLogo = (logoUrl?: string, brandName?: string): string | undefined => {
+  if (logoUrl && logoUrl.trim() !== '') {
+    if (logoUrl.startsWith('minio://brands/')) {
+      return `http://localhost:9000/brands/${logoUrl.replace('minio://brands/', '')}`;
+    }
+    if (logoUrl.startsWith('minio://')) {
+      return `http://localhost:9000/${logoUrl.replace('minio://', '')}`;
+    }
+    if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
+      return logoUrl;
+    }
+  }
+  if (brandName) {
+    const key = brandName.toLowerCase().trim();
+    if (MINIO_BRAND_LOGOS[key]) {
+      return MINIO_BRAND_LOGOS[key];
+    }
+  }
+  return undefined;
+};
 
 export const HomePage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -73,11 +152,24 @@ export const HomePage: React.FC = () => {
     fetchData();
   }, []);
 
-  // Banner: ưu tiên best-seller từ backend, thiếu thì bù bằng sản phẩm đầu danh mục
-  const bannerProducts = [...bestSellers, ...products.filter(p => !bestSellers.some(b => b.productId === p.productId))].slice(0, 3);
-  const bannerMinPrice = (p: Product) => {
-    const prices = p.variants.map(v => (v.salePrice > 0 ? v.salePrice : v.listPrice || 0)).filter(x => x > 0);
-    return prices.length ? Math.min(...prices) : 0;
+  // Hero Banner Auto-slide & Navigation Controls
+  const [currentBannerSlide, setCurrentBannerSlide] = useState(0);
+  const [isBannerHovered, setIsBannerHovered] = useState(false);
+
+  useEffect(() => {
+    if (isBannerHovered) return;
+    const timer = setInterval(() => {
+      setCurrentBannerSlide(prev => (prev + 1) % HERO_BANNERS.length);
+    }, 4500);
+    return () => clearInterval(timer);
+  }, [isBannerHovered]);
+
+  const handlePrevBanner = () => {
+    setCurrentBannerSlide(prev => (prev === 0 ? HERO_BANNERS.length - 1 : prev - 1));
+  };
+
+  const handleNextBanner = () => {
+    setCurrentBannerSlide(prev => (prev + 1) % HERO_BANNERS.length);
   };
 
   const flashSaleProducts = products.filter(p => p.isFlashSale);
@@ -180,130 +272,193 @@ export const HomePage: React.FC = () => {
   return (
     <div className="space-y-12 pb-20">
       
-      {/* 1. HERO BANNER SECTION - dữ liệu thật: sản phẩm bán chạy (fallback: sản phẩm đầu danh mục) */}
-      {bannerProducts.length > 0 && (
+      {/* 1. HERO BANNER SECTION - 2 Banner MinIO lướt tự động, full viền không bị đen hai bên, thanh CTA cùng hàng với text */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        <div 
+          className="relative rounded-xxxl overflow-hidden border border-hairline-soft/40 shadow-xl group bg-[#06142e] select-none"
+          onMouseEnter={() => setIsBannerHovered(true)}
+          onMouseLeave={() => setIsBannerHovered(false)}
+        >
+          {/* Banner Slides Carousel Track */}
+          <div 
+            className="flex transition-transform duration-700 ease-in-out"
+            style={{ transform: `translateX(-${currentBannerSlide * 100}%)` }}
+          >
+            {HERO_BANNERS.map((banner) => {
+              const Icon = banner.icon;
+              return (
+                <Link
+                  key={banner.id}
+                  to={banner.targetUrl}
+                  className="w-full flex-shrink-0 relative aspect-[16/9] sm:aspect-[1.85/1] md:aspect-[1.95/1] flex items-center justify-center bg-[#06142e] overflow-hidden cursor-pointer"
+                >
+                  {/* Ảnh Banner MinIO phủ đều viền (object-cover) - Không còn vệt đen hai bên, giữ trọn chi tiết */}
+                  <img
+                    src={banner.minioUrl}
+                    alt={banner.title}
+                    className="w-full h-full object-cover object-center select-none transition-transform duration-700 group-hover:scale-[1.015]"
+                    onError={(e) => {
+                      if (e.currentTarget.src !== banner.fallbackUrl) {
+                        e.currentTarget.src = banner.fallbackUrl;
+                      }
+                    }}
+                  />
 
-          {/* Main Hero Showcase (8 cols) */}
-          <div className="lg:col-span-8 bg-ink-deep rounded-xxxl overflow-hidden relative border border-hairline-soft/20 flex flex-col justify-between p-8 sm:p-12 text-canvas min-h-[420px] group">
-            <div className="absolute top-0 right-0 w-80 h-80 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
+                  {/* Thanh thông điệp & Nút CTA rực rỡ cùng hàng ở đáy banner */}
+                  <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-6 sm:right-6 md:bottom-5 md:left-8 md:right-8 z-10 pointer-events-auto">
+                    <div className="bg-slate-950/80 hover:bg-slate-950/90 backdrop-blur-md rounded-2xl sm:rounded-full px-4 py-2.5 sm:px-6 sm:py-3 border border-white/20 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-3 sm:gap-4 transition-all">
+                      
+                      {/* Chữ cùng hàng với CTA: Badge + Thông điệp ưu đãi nổi bật */}
+                      <div className="flex items-center gap-2.5 sm:gap-3 text-white flex-1 min-w-0 w-full md:w-auto">
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 border border-white/20 shadow-inner ${
+                          banner.type === 'FLASH_SALE' ? 'bg-amber-500/30 text-amber-300' : 'bg-cyan-500/30 text-cyan-300'
+                        }`}>
+                          <Icon size={17} className={banner.type === 'FLASH_SALE' ? 'fill-amber-300 text-amber-300' : 'text-cyan-300'} />
+                        </span>
 
-            <div className="z-10 space-y-3.5 max-w-lg">
-              <h1 className="text-3xl sm:text-5xl font-medium tracking-tight leading-[1.15] text-canvas">
-                {bannerProducts[0].name}
-              </h1>
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className={`text-[11px] sm:text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full text-white shadow-xs shrink-0 ${
+                            banner.type === 'FLASH_SALE'
+                              ? 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-500'
+                              : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500'
+                          }`}>
+                            {banner.bottomBadge}
+                          </span>
+                          <span className="text-xs sm:text-sm font-semibold text-white/95 truncate">
+                            {banner.bottomText}
+                          </span>
+                        </div>
+                      </div>
 
-              {bannerProducts[0].highlights?.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-1 text-xs text-canvas/90">
-                  {bannerProducts[0].highlights.slice(0, 3).map((h) => (
-                    <span key={h} className="bg-canvas/10 border border-canvas/20 px-3 py-1 rounded-full font-medium">{h}</span>
-                  ))}
-                </div>
-              )}
-            </div>
+                      {/* Chấm phân trang (Dots) nằm cân bằng ngay trên thanh điều khiển */}
+                      <div className="hidden lg:flex items-center gap-2 px-3 shrink-0">
+                        {HERO_BANNERS.map((_, idx) => (
+                          <button
+                            key={idx}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setCurrentBannerSlide(idx);
+                            }}
+                            aria-label={`Chuyển tới slide ${idx + 1}`}
+                            className={`h-2 sm:h-2.5 rounded-full transition-all duration-300 cursor-pointer ${
+                              currentBannerSlide === idx 
+                                ? 'w-7 sm:w-8 bg-white shadow-md' 
+                                : 'w-2 sm:w-2.5 bg-white/40 hover:bg-white/70'
+                            }`}
+                          />
+                        ))}
+                      </div>
 
-            <div className="z-10 pt-8 flex flex-wrap items-center gap-4 border-t border-canvas/15 mt-6">
-              <Link
-                to={`/product/${bannerProducts[0].productId}`}
-                className="inline-flex items-center justify-center font-bold text-sm text-ink-button bg-canvas hover:bg-surface-soft active:bg-hairline-soft rounded-full px-[30px] py-[14px] transition-colors"
-              >
-                <span>Khám phá ngay</span>
-                <ChevronRight size={16} className="ml-1" />
-              </Link>
+                      {/* Nút CTA cực kỳ nổi bật với Gradient rực rỡ & Hiệu ứng viền sáng */}
+                      <div className="shrink-0 w-full md:w-auto">
+                        <span
+                          className={`inline-flex items-center justify-center gap-2 w-full md:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full font-black text-xs sm:text-sm md:text-base text-white shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 uppercase tracking-wide cursor-pointer border border-white/30 ${
+                            banner.type === 'FLASH_SALE'
+                              ? 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 hover:from-red-500 hover:to-amber-300 shadow-orange-500/50 ring-2 ring-amber-300/70 animate-pulse'
+                              : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-400 hover:from-blue-500 hover:to-cyan-300 shadow-cyan-500/50 ring-2 ring-cyan-300/70'
+                          }`}
+                        >
+                          <Icon size={18} className={banner.type === 'FLASH_SALE' ? 'fill-white text-white' : 'text-white'} />
+                          <span>{banner.ctaText}</span>
+                          <ChevronRight size={18} className="transition-transform group-hover:translate-x-1" />
+                        </span>
+                      </div>
 
-              <Link
-                to="/compare"
-                className="inline-flex items-center justify-center font-bold text-sm text-canvas bg-transparent border-2 border-canvas hover:bg-canvas/10 rounded-full px-[28px] py-[12px] transition-colors"
-              >
-                <span>So sánh cấu hình</span>
-              </Link>
-
-              {bannerMinPrice(bannerProducts[0]) > 0 && (
-                <div className="flex flex-col ml-auto">
-                  <span className="text-xs text-canvas/60 uppercase font-semibold">Giá bán từ</span>
-                  <span className="text-base sm:text-lg font-bold text-canvas font-mono">
-                    {formatVND(bannerMinPrice(bannerProducts[0]))}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="hidden sm:block absolute right-4 sm:right-8 bottom-6 top-6 w-72 lg:w-80 pointer-events-none flex items-center justify-center">
-              <img
-                src={bannerProducts[0].thumbnail}
-                alt={bannerProducts[0].name}
-                className="max-h-full max-w-full object-contain filter drop-shadow-2xl group-hover:scale-105 transition-transform duration-500"
-              />
-            </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
 
-          {/* Sub Side Cards (4 cols) */}
-          <div className="lg:col-span-4 flex flex-col sm:flex-row lg:flex-col gap-6 justify-between">
-            {bannerProducts.slice(1, 3).map((p) => (
-              <div key={p.productId} className="flex-1 bg-surface-soft rounded-xxxl p-6 text-ink-deep flex items-center justify-between relative overflow-hidden border border-hairline-soft group">
-                <div className="z-10 space-y-2 max-w-[170px]">
-                  <h3 className="text-xl font-medium leading-tight text-ink-deep line-clamp-2">{p.name}</h3>
-                  {bannerMinPrice(p) > 0 && (
-                    <p className="text-xs text-steel font-mono">Từ {formatVND(bannerMinPrice(p))}</p>
-                  )}
-                  <Link
-                    to={`/product/${p.productId}`}
-                    className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:text-primary-deep pt-1 transition"
-                  >
-                    <span>Xem chi tiết</span>
-                    <ChevronRight size={14} />
-                  </Link>
-                </div>
-                <div className="w-28 h-28 flex items-center justify-center">
-                  <img
-                    src={p.thumbnail}
-                    alt={p.name}
-                    className="max-h-full max-w-full object-contain group-hover:scale-110 transition-transform duration-300"
-                  />
-                </div>
-              </div>
+          {/* Navigation Controls: Previous / Next Arrows */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handlePrevBanner();
+            }}
+            aria-label="Banner trước"
+            className="absolute left-3 sm:left-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 z-20 shadow-lg cursor-pointer"
+          >
+            <ChevronLeft size={22} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleNextBanner();
+            }}
+            aria-label="Banner tiếp theo"
+            className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/40 hover:bg-black/70 text-white backdrop-blur-md border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 z-20 shadow-lg cursor-pointer"
+          >
+            <ChevronRight size={22} />
+          </button>
+
+          {/* Chấm phân trang cho mobile/tablet hiển thị tinh tế ở góc trên phải */}
+          <div className="lg:hidden absolute top-3 right-3 sm:top-4 sm:right-5 z-20 flex items-center gap-1.5 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20">
+            {HERO_BANNERS.map((_, idx) => (
+              <button
+                key={idx}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setCurrentBannerSlide(idx);
+                }}
+                aria-label={`Chuyển tới slide ${idx + 1}`}
+                className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                  currentBannerSlide === idx 
+                    ? 'w-6 bg-white shadow-md' 
+                    : 'w-2 bg-white/50 hover:bg-white/80'
+                }`}
+              />
             ))}
           </div>
-
         </div>
       </section>
-      )}
 
-      {/* 2. BRAND QUICK FILTER ROW (DESIGN-meta button-pill-tab) */}
+      {/* 2. BRAND QUICK FILTER ROW (Lấy logo thương hiệu từ MinIO đổ vào bên cạnh tên) */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="bg-canvas border border-hairline-soft rounded-xxxl p-3 flex items-center gap-2 overflow-x-auto no-scrollbar">
+        <div className="bg-canvas border border-hairline-soft rounded-xxxl p-3 flex items-center gap-2.5 overflow-x-auto no-scrollbar shadow-xs">
           <span className="text-xs font-bold text-steel uppercase tracking-wider px-3 flex-shrink-0">
             Thương hiệu:
           </span>
           <button
             onClick={() => setSelectedBrand('all')}
-            className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex-shrink-0 ${
+            className={`px-4 py-2 rounded-full text-sm font-bold transition-all flex-shrink-0 cursor-pointer ${
               selectedBrand === 'all'
-                ? 'bg-ink-deep text-canvas border-transparent shadow-subtle'
-                : 'bg-canvas text-ink border border-hairline hover:border-slate'
+                ? 'bg-ink-deep text-canvas border-transparent shadow-subtle ring-2 ring-ink-deep/20'
+                : 'bg-canvas text-ink border border-hairline hover:border-slate hover:bg-surface-soft'
             }`}
           >
             Tất cả
           </button>
           {brands.map((b) => {
             const isSelected = selectedBrand.toLowerCase() === b.name.toLowerCase();
+            const brandLogo = resolveBrandLogo(b.logoUrl, b.name);
             return (
               <button
                 key={b.brandId}
                 onClick={() => setSelectedBrand(b.name)}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-colors flex-shrink-0 ${
+                className={`inline-flex items-center gap-2 px-3.5 py-1.5 sm:py-2 rounded-full text-sm font-bold transition-all flex-shrink-0 cursor-pointer ${
                   isSelected
-                    ? 'bg-ink-deep text-canvas border-transparent shadow-subtle'
-                    : 'bg-canvas text-ink border border-hairline hover:border-slate'
+                    ? 'bg-ink-deep text-canvas border-transparent shadow-subtle ring-2 ring-ink-deep/20'
+                    : 'bg-canvas text-ink border border-hairline hover:border-slate hover:bg-surface-soft'
                 }`}
               >
-                {b.logoUrl && (
-                  <img
-                    src={b.logoUrl}
-                    alt=""
-                    className="w-5 h-5 object-contain flex-shrink-0 rounded-full bg-canvas p-0.5"
-                  />
+                {brandLogo && (
+                  <span className="w-5 h-5 rounded-full bg-white flex items-center justify-center p-0.5 shrink-0 border border-hairline-soft/60 shadow-2xs overflow-hidden">
+                    <img
+                      src={brandLogo}
+                      alt={b.name}
+                      className="w-full h-full object-contain"
+                      loading="lazy"
+                      onError={(e) => {
+                        (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </span>
                 )}
                 <span>{b.name}</span>
               </button>
