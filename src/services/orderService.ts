@@ -91,6 +91,11 @@ export const orderService = {
       if (!d) {
         throw new Error('Phản hồi tạo đơn hàng từ máy chủ không hợp lệ!');
       }
+      try {
+        sharedStore.createOrder(payload, _userRole, _userName);
+      } catch {
+        // Safe sync with local store
+      }
       return {
         orderId: d.orderId,
         orderCode: d.orderCode,
