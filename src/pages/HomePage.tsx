@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { productService, applyActivePromotionsToProducts } from '../services/productService';
 import { promotionService, getCountdownParts } from '../services/promotionService';
@@ -17,9 +17,80 @@ import {
   Cpu,
   Smartphone,
   Laptop,
+  Tablet,
+  Headphones,
   Flame,
   Star
 } from 'lucide-react';
+
+const classifyProductCategory = (p: Product): 'phone' | 'laptop' | 'tablet' | 'accessory' => {
+  const pName = (p.name || '').toLowerCase();
+  const cName = (p.categoryName || '').toLowerCase();
+  const catId = Number(p.categoryId || 0);
+  const hasRom = Array.isArray(p.variants) && p.variants.some(v => (v.romGb || 0) >= 32);
+
+  if (
+    pName.includes('tai nghe') || pName.includes('airpods') || pName.includes('earbuds') ||
+    pName.includes('củ sạc') || pName.includes('sạc dự phòng') || pName.includes('pin dự phòng') ||
+    pName.includes('cáp') || pName.includes('dây sạc') || pName.includes('loa ') ||
+    pName.includes('loa bluetooth') || pName.includes('ốp lưng') || pName.includes('bao da') ||
+    pName.includes('kính cường lực') || pName.includes('magsafe') || pName.includes('anker') ||
+    pName.includes('marshall') || pName.includes('chuột') || pName.includes('bàn phím') ||
+    pName.includes('adapter') || pName.includes('hub ') || pName.includes('phụ kiện')
+  ) {
+    return 'accessory';
+  }
+
+  if (
+    pName.includes('laptop') || pName.includes('lap top') || pName.includes('macbook') ||
+    pName.includes('mac book') || pName.includes('thinkpad') || pName.includes('zenbook') ||
+    pName.includes('vivobook') || pName.includes('legion') || pName.includes('ideapad') ||
+    pName.includes('rog ') || pName.includes('tuf ') || pName.includes('máy tính xách tay')
+  ) {
+    return 'laptop';
+  }
+
+  if (
+    pName.includes('ipad') || pName.includes('i pad') || pName.includes('galaxy tab') ||
+    pName.includes('samsung tab') || pName.includes('xiaomi pad') || pName.includes('redmi pad') ||
+    pName.includes('matepad') || pName.includes('máy tính bảng') || pName.includes('tablet')
+  ) {
+    return 'tablet';
+  }
+
+  if (
+    pName.includes('iphone') || pName.includes('i phone') || pName.includes('điện thoại') ||
+    pName.includes('smartphone') || pName.includes('galaxy s') || pName.includes('galaxy z') ||
+    pName.includes('galaxy a') || pName.includes('redmi note') || pName.includes('xiaomi 1') ||
+    pName.includes('oppo') || pName.includes('vivo') || pName.includes('realme') || pName.includes('pixel')
+  ) {
+    return 'phone';
+  }
+
+  if (
+    catId === 4 || catId === 12 || catId === 13 || catId === 14 ||
+    cName.includes('phụ kiện') || cName.includes('âm thanh') || cName.includes('tai nghe') ||
+    cName.includes('sạc') || cName.includes('cáp') || cName.includes('loa')
+  ) {
+    return hasRom ? 'phone' : 'accessory';
+  }
+
+  if (
+    catId === 3 || catId === 10 || catId === 11 ||
+    cName.includes('laptop') || cName.includes('macbook') || cName.includes('pc') || cName.includes('máy tính xách tay')
+  ) {
+    return 'laptop';
+  }
+
+  if (
+    catId === 2 || catId === 8 || catId === 9 ||
+    cName.includes('máy tính bảng') || cName.includes('tablet') || cName.includes('ipad')
+  ) {
+    return 'tablet';
+  }
+
+  return 'phone';
+};
 
 interface HeroBannerSlide {
   id: number;
@@ -120,9 +191,9 @@ export const HomePage: React.FC = () => {
       const [allProducts, allBrands, featuredFlashSale, activePromos, topSellers] = await Promise.all([
         productService.getProducts(),
         productService.getBrands(),
-        productService.getFeaturedProducts('FLASH_SALE', 8).catch(() => []),
+        productService.getFeaturedProducts('FLASH_SALE', 12).catch(() => []),
         promotionService.getActivePromotions().catch(() => []),
-        productService.getFeaturedProducts('BEST_SELLER', 3).catch(() => []),
+        productService.getFeaturedProducts('BEST_SELLER', 24).catch(() => []),
       ]);
       let mergedProducts = [...allProducts];
       // Backend fallback trả best-seller (không có promotion) khi không có chiến dịch đang chạy -> bỏ qua
@@ -180,23 +251,82 @@ export const HomePage: React.FC = () => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [flashSaleProducts.length]);
-  const filteredProducts = selectedBrand === 'all'
-    ? products
-    : products.filter(p => p.brandName.toLowerCase() === selectedBrand.toLowerCase());
+  // Phân bổ sản phẩm theo từng ngành hàng cốt lõi: Chọn lọc đúng 4 sản phẩm NỔI BẬT & BÁN CHẠY NHẤT
+  const categorySections = useMemo(() => {
+    const baseList = selectedBrand === 'all'
+      ? products
+      : products.filter(p => p.brandName.toLowerCase() === selectedBrand.toLowerCase());
 
-  // Hiển thị ban đầu 12 sản phẩm, mỗi lần click "Xem thêm" tải thêm 8 sản phẩm
-  const displayedProducts = filteredProducts.slice(0, visibleCount);
-  const remainingCount = Math.max(0, filteredProducts.length - visibleCount);
-  const hasMore = remainingCount > 0;
+    const bestSellerIds = new Set(bestSellers.map(b => b.productId));
 
-  const handleLoadMore = () => {
-    setVisibleCount(prev => prev + 8);
-  };
+    // Thuật toán xếp hạng độ Nổi Bật & Bán Chạy thực tế:
+    // 1. Nằm trong Top Best Seller từ hệ sinh thái đơn hàng (backend query): +10.000 điểm
+    // 2. Thuộc chiến dịch Flash Sale đang chạy: +5.000 điểm
+    // 3. Số lượng bán thực tế (soldCount): +soldCount * 10 điểm
+    // 4. Điểm đánh giá thực tế từ khách (rating): +rating * 20 điểm
+    // 5. Tổng lượt review uy tín: +reviewCount
+    const getHotScore = (p: Product) => {
+      let score = 0;
+      if (bestSellerIds.has(p.productId)) score += 10000;
+      if (p.isFlashSale) score += 5000;
+      score += (p.soldCount || 0) * 10;
+      score += (p.rating || 0) * 20;
+      score += (p.reviewCount || 0);
+      return score;
+    };
 
-  // Reset số lượng sản phẩm hiển thị về 12 mỗi khi đổi thương hiệu
-  useEffect(() => {
-    setVisibleCount(12);
-  }, [selectedBrand]);
+    const sortByTopSelling = (list: Product[]) => {
+      return [...list].sort((a, b) => getHotScore(b) - getHotScore(a));
+    };
+
+    const phones = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'phone'));
+    const laptops = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'laptop'));
+    const tablets = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'tablet'));
+    const accessories = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'accessory'));
+
+    return [
+      {
+        id: 'phone',
+        title: 'Điện thoại nổi bật & Bán chạy',
+        subtitle: 'Smartphone chính hãng 100% • Bảo hành 12 tháng • Hỗ trợ trả góp 0%',
+        icon: Smartphone,
+        targetUrl: '/products?category=phone',
+        ctaText: 'Xem tất cả Điện thoại',
+        totalCount: phones.length,
+        items: phones.slice(0, 4),
+      },
+      {
+        id: 'laptop',
+        title: 'Laptop & Máy tính xách tay',
+        subtitle: 'Laptop văn phòng mỏng nhẹ, đồ họa & gaming hiệu năng đỉnh cao',
+        icon: Laptop,
+        targetUrl: '/products?category=laptop',
+        ctaText: 'Xem tất cả Laptop',
+        totalCount: laptops.length,
+        items: laptops.slice(0, 4),
+      },
+      {
+        id: 'tablet',
+        title: 'Máy tính bảng (Tablet)',
+        subtitle: 'Màn hình sắc nét, học tập, làm việc & giải trí sáng tạo không giới hạn',
+        icon: Tablet,
+        targetUrl: '/products?category=tablet',
+        ctaText: 'Xem tất cả Tablet',
+        totalCount: tablets.length,
+        items: tablets.slice(0, 4),
+      },
+      {
+        id: 'accessory',
+        title: 'Phụ kiện công nghệ chính hãng',
+        subtitle: 'Củ cáp sạc nhanh GaN, tai nghe True Wireless, pin sạc & loa Bluetooth',
+        icon: Headphones,
+        targetUrl: '/products?category=accessory',
+        ctaText: 'Xem tất cả Phụ kiện',
+        totalCount: accessories.length,
+        items: accessories.slice(0, 4),
+      },
+    ].filter(sec => sec.items.length > 0);
+  }, [products, selectedBrand, bestSellers]);
 
   // Quan sát khi người dùng cuộn màn hình đến khu vực Flash Sale
   useEffect(() => {
@@ -555,69 +685,82 @@ export const HomePage: React.FC = () => {
         </section>
       )}
 
-      {/* 4. MAIN PRODUCT LIST (DESIGN-meta card-product-feature grid) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-8 pb-3 border-b border-hairline-soft">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-medium text-ink-deep tracking-tight flex items-center gap-2.5">
-              <Smartphone size={24} className="text-primary" />
-              <span>Thiết bị di động nổi bật & Bán chạy</span>
-            </h2>
-            <p className="text-sm text-steel mt-1">
-              Phân phối chính hãng 100%, bảo hành 12 tháng, hỗ trợ trả góp 0% lãi suất
-            </p>
-          </div>
-          <span className="text-xs text-steel font-medium self-end sm:self-auto">
-            Đang hiển thị <strong>{displayedProducts.length}</strong> / <strong>{filteredProducts.length}</strong> thiết bị
-          </span>
-        </div>
-
-        {/* Product Grid */}
+      {/* 4. MAIN CATEGORY SECTIONS (Từng ngành hàng: 4 sản phẩm bán chạy nhất + nút Xem tất cả) */}
+      <div className="space-y-12 sm:space-y-16">
         {isLoading ? (
-          <div className="py-24 text-center text-steel text-sm">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-            <p className="font-semibold text-ink">Đang tải danh mục thiết bị công nghệ...</p>
-          </div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="py-20 bg-surface-soft rounded-xxxl border border-hairline-soft text-center text-steel text-sm">
-            <p className="text-ink-deep font-bold text-base">Không tìm thấy sản phẩm nào</p>
-            <p className="text-steel text-xs mt-1">Vui lòng chọn thương hiệu khác để xem thêm thiết bị.</p>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 items-stretch">
-              {displayedProducts.map((p) => (
-                <ProductCard key={p.productId} product={p} />
-              ))}
+          <section className="max-w-7xl mx-auto px-4 sm:px-6">
+            <div className="py-24 text-center text-steel text-sm">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+              <p className="font-semibold text-ink">Đang tải danh mục thiết bị công nghệ...</p>
             </div>
+          </section>
+        ) : categorySections.length === 0 ? (
+          <section className="max-w-7xl mx-auto px-4 sm:px-6">
+            <div className="py-16 bg-surface-soft rounded-xxxl border border-hairline-soft text-center text-steel text-sm px-4">
+              <p className="text-ink-deep font-bold text-base">Không tìm thấy sản phẩm nào</p>
+              <p className="text-steel text-xs mt-1">Vui lòng chọn thương hiệu khác để xem thêm thiết bị.</p>
+              <button
+                type="button"
+                onClick={() => setSelectedBrand('all')}
+                className="mt-4 px-4 py-2 rounded-full text-xs font-bold bg-ink-deep text-canvas hover:opacity-90 transition-opacity"
+              >
+                Xem tất cả thương hiệu
+              </button>
+            </div>
+          </section>
+        ) : (
+          categorySections.map((sec) => {
+            const Icon = sec.icon;
+            return (
+              <section key={sec.id} className="max-w-7xl mx-auto px-4 sm:px-6">
+                {/* Block Header: Tiêu đề + Brand tags + Nút Xem tất cả */}
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-6 pb-4 border-b border-hairline-soft">
+                  <div>
+                    <h2 className="text-2xl sm:text-3xl font-medium text-ink-deep tracking-tight flex items-center gap-2.5">
+                      <span className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <Icon size={20} />
+                      </span>
+                      <span>{sec.title}</span>
+                    </h2>
+                    <p className="text-xs sm:text-sm text-steel mt-1">
+                      {sec.subtitle}
+                    </p>
+                  </div>
 
-            {/* Nút Xem thêm sản phẩm (+8 sản phẩm mỗi lần click) */}
-            {hasMore && (
-              <div className="pt-8 flex flex-col items-center justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleLoadMore}
-                  className="btn-marketing px-8 py-3 rounded-full text-xs font-bold inline-flex items-center gap-2 shadow-sm hover:scale-[1.02] active:scale-[0.98] transition-all"
-                >
-                  <span>Xem thêm sản phẩm</span>
-                  <ChevronDown size={15} />
-                </button>
-                <p className="text-[11px] text-steel">
-                  Còn <strong>{remainingCount}</strong> thiết bị chính hãng chưa hiển thị
-                </p>
-              </div>
-            )}
+                  {/* Nút Xem tất cả */}
+                  <div className="flex items-center justify-end">
+                    <Link
+                      to={sec.targetUrl}
+                      className="text-xs sm:text-sm font-bold text-primary hover:text-primary-deep inline-flex items-center gap-1 group bg-primary/5 hover:bg-primary/10 px-3.5 py-1.5 rounded-full transition-all shrink-0"
+                    >
+                      <span>{sec.ctaText}</span>
+                      <ChevronRight size={14} className="group-hover:translate-x-0.5 transition-transform" />
+                    </Link>
+                  </div>
+                </div>
 
-            {!hasMore && filteredProducts.length > 12 && (
-              <div className="pt-8 text-center text-xs text-steel">
-                <span className="bg-surface-soft px-4 py-2 rounded-full border border-hairline-soft inline-block font-medium">
-                  ✓ Đã hiển thị toàn bộ <strong>{filteredProducts.length}</strong> sản phẩm
-                </span>
-              </div>
-            )}
-          </>
+                {/* 4 Cards Grid (Chuẩn 4 cột Desktop - 2 cột Mobile) */}
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6 items-stretch">
+                  {sec.items.map((p) => (
+                    <ProductCard key={p.productId} product={p} />
+                  ))}
+                </div>
+
+                {/* Nút Xem tất cả cho Mobile nằm gọn ở đáy thẻ */}
+                <div className="mt-5 md:hidden text-center">
+                  <Link
+                    to={sec.targetUrl}
+                    className="inline-flex items-center justify-center gap-1.5 w-full py-2.5 px-4 rounded-xl border border-hairline-soft bg-surface-soft/60 hover:bg-surface-soft text-ink font-bold text-xs transition-colors"
+                  >
+                    <span>Xem tất cả {sec.totalCount} {sec.title.toLowerCase()}</span>
+                    <ChevronRight size={14} />
+                  </Link>
+                </div>
+              </section>
+            );
+          })
         )}
-      </section>
+      </div>
 
     </div>
   );
