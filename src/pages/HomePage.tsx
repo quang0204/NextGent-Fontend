@@ -292,13 +292,20 @@ export const HomePage: React.FC = () => {
               <button
                 key={b.brandId}
                 onClick={() => setSelectedBrand(b.name)}
-                className={`px-4 py-2 rounded-full text-sm font-bold transition-colors flex-shrink-0 ${
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold transition-colors flex-shrink-0 ${
                   isSelected
                     ? 'bg-ink-deep text-canvas border-transparent shadow-subtle'
                     : 'bg-canvas text-ink border border-hairline hover:border-slate'
                 }`}
               >
-                {b.name}
+                {b.logoUrl && (
+                  <img
+                    src={b.logoUrl}
+                    alt=""
+                    className="w-5 h-5 object-contain flex-shrink-0 rounded-full bg-canvas p-0.5"
+                  />
+                )}
+                <span>{b.name}</span>
               </button>
             );
           })}
