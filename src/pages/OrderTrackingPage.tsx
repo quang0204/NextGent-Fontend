@@ -92,7 +92,7 @@ export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => 
   return Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
 };
 
-export const RETURN_POLICY_DAYS = 7; // Chính sách đổi trả sản phẩm trong vòng 7 ngày kể từ khi nhận hàng
+export const RETURN_POLICY_DAYS = 30; // Chính sách đổi trả sản phẩm trong vòng 30 ngày kể từ khi nhận hàng
 
 export interface ReturnTimeEligibility {
   isEligible: boolean;
@@ -1538,13 +1538,13 @@ export const OrderTrackingPage: React.FC = () => {
                           {formatVND(item.unitPrice * item.quantity)}
                         </div>
 
-                        {/* Nút Yêu cầu đổi trả bên cạnh Đánh giá sản phẩm (CHỈ HIỆN KHI CHƯA TỪNG HOÀN VÀ CÒN TRONG HẠN 7 NGÀY - NẾU ĐÃ HOÀN HOẶC BỊ TỪ CHỐI THÌ KHÔNG CHO HOÀN NỮA) */}
+                        {/* Nút Yêu cầu đổi trả bên cạnh Đánh giá sản phẩm (CHỈ HIỆN KHI CHƯA TỪNG HOÀN VÀ CÒN TRONG HẠN 30 NGÀY - NẾU ĐÃ HOÀN HOẶC BỊ TỪ CHỐI THÌ KHÔNG CHO HOÀN NỮA) */}
                         {isItemReturnable(item, order, returnRequests) && (
                           <button
                             type="button"
                             onClick={() => handleOpenReturnModal(item)}
                             className="btn-secondary py-1 px-3 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-400 whitespace-nowrap cursor-pointer transition-all"
-                            title={`Yêu cầu đổi trả trong 7 ngày (Còn ${getOrderReturnTimeEligibility(order).daysRemaining} ngày)`}
+                            title={`Yêu cầu đổi trả trong 30 ngày (Còn ${getOrderReturnTimeEligibility(order).daysRemaining} ngày)`}
                           >
                             <RotateCcw size={12} />
                             <span>Yêu cầu đổi trả</span>
@@ -1818,7 +1818,7 @@ export const OrderTrackingPage: React.FC = () => {
                                       handleOpenReturnModal(it, ord);
                                     }}
                                     className="btn-secondary py-1 px-2.5 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-400 whitespace-nowrap cursor-pointer transition-all"
-                                    title={`Đổi trả trong vòng 7 ngày (Còn ${getOrderReturnTimeEligibility(ord).daysRemaining} ngày)`}
+                                    title={`Đổi trả trong vòng 30 ngày (Còn ${getOrderReturnTimeEligibility(ord).daysRemaining} ngày)`}
                                   >
                                     <RotateCcw size={11} />
                                     <span>Đổi trả</span>
@@ -2029,7 +2029,7 @@ export const OrderTrackingPage: React.FC = () => {
             
             <div className="text-steel leading-relaxed space-y-1.5">
               <p>
-                Theo chính sách bảo hành NextGen Smart Tech, bạn được quyền đổi trả máy trong vòng <strong>7 ngày</strong> kể từ khi nhận hàng. Thiết bị gửi về kho sẽ được nhân viên thẩm định tình trạng seal và ngoại quan trước khi hoàn tiền hoặc đổi mới.
+                Theo chính sách bảo hành NextGen Smart Tech, bạn được quyền đổi trả máy trong vòng <strong>30 ngày</strong> kể từ khi nhận hàng. Thiết bị gửi về kho sẽ được nhân viên thẩm định tình trạng seal và ngoại quan trước khi hoàn tiền vào tài khoản.
               </p>
               {order && (() => {
                 const timeInfo = getOrderReturnTimeEligibility(order);
@@ -2155,7 +2155,7 @@ export const OrderTrackingPage: React.FC = () => {
                   onChange={(e) => setReturnReason(e.target.value)}
                   className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
                 >
-                  <option value="Lỗi phần cứng từ nhà sản xuất (yêu cầu đổi 1-1)">Lỗi phần cứng từ nhà sản xuất (yêu cầu đổi 1-1)</option>
+                  <option value="Lỗi phần cứng từ nhà sản xuất (thu hồi & hoàn tiền)">Lỗi phần cứng từ nhà sản xuất (thu hồi & hoàn tiền)</option>
                   <option value="Hàng giao không đúng mẫu mã / màu sắc đã đặt">Hàng giao không đúng mẫu mã / màu sắc đã đặt</option>
                   <option value="Hộp máy có dấu hiệu bị móp méo / rách seal khi nhận">Hộp máy có dấu hiệu bị móp méo / rách seal khi nhận</option>
                   <option value="Đổi ý không còn nhu cầu sử dụng (yêu cầu hoàn tiền)">Đổi ý không còn nhu cầu sử dụng (yêu cầu hoàn tiền)</option>
