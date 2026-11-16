@@ -12,6 +12,13 @@ export interface CreateReturnRequestPayload {
     accountNumber?: string;
     accountHolder?: string;
   };
+  items?: Array<{
+    variantId?: number;
+    productName: string;
+    sku: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
 }
 
 export interface AdminReturnsQuery {
@@ -105,6 +112,7 @@ export const returnService = {
           ? payload.evidenceImages
           : ['https://cdn.nextgen.vn/evidence/default_defect.png'],
         bankInfo: payload.bankInfo,
+        items: payload.items,
       });
 
       const currentUserId = useAuthStore.getState().user?.userId || 101;
@@ -132,13 +140,21 @@ export const returnService = {
             requestedBy: order.recipientName,
             phone: order.recipientPhone,
             reason: payload.reason,
-            items: order.items.map((i) => ({
-              variantId: i.variantId,
-              productName: i.productNameSnapshot,
-              sku: i.skuSnapshot,
-              quantity: i.quantity,
-              unitPrice: i.unitPrice,
-            })),
+            items: payload.items && payload.items.length > 0
+              ? payload.items.map(it => ({
+                  variantId: it.variantId,
+                  productName: it.productName,
+                  sku: it.sku,
+                  quantity: it.quantity,
+                  unitPrice: it.unitPrice,
+                }))
+              : order.items.map((i) => ({
+                  variantId: i.variantId,
+                  productName: i.productNameSnapshot,
+                  sku: i.skuSnapshot,
+                  quantity: i.quantity,
+                  unitPrice: i.unitPrice,
+                })),
           });
         }
 
@@ -188,13 +204,21 @@ export const returnService = {
       requestedBy: order.recipientName,
       phone: order.recipientPhone,
       reason: payload.reason,
-      items: order.items.map((i) => ({
-        variantId: i.variantId,
-        productName: i.productNameSnapshot,
-        sku: i.skuSnapshot,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-      })),
+      items: payload.items && payload.items.length > 0
+        ? payload.items.map(it => ({
+            variantId: it.variantId,
+            productName: it.productName,
+            sku: it.sku,
+            quantity: it.quantity,
+            unitPrice: it.unitPrice,
+          }))
+        : order.items.map((i) => ({
+            variantId: i.variantId,
+            productName: i.productNameSnapshot,
+            sku: i.skuSnapshot,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+          })),
     });
 
     return {
@@ -264,6 +288,28 @@ export const returnService = {
               }
             }
 
+            // Lọc chính xác sản phẩm yêu cầu hoàn trả nếu là hoàn trả một phần:
+            let isPartial = false;
+            const reasonStr = it.reason || '';
+            if (reasonStr.toLowerCase().includes('hoàn trả một phần')) {
+              isPartial = true;
+              const match = reasonStr.match(/\[Yêu cầu hoàn trả một phần:\s*([^\]]+)\]/i);
+              const targetSegment = (match ? match[1] : reasonStr).toLowerCase();
+              const filtered = items.filter((item) => {
+                const name = (item.productName || '').toLowerCase();
+                const sku = (item.sku || '').toLowerCase();
+                const shortName = name.split('(')[0].trim().toLowerCase();
+                return (sku && targetSegment.includes(sku)) ||
+                       (name && targetSegment.includes(name)) ||
+                       (shortName.length > 3 && targetSegment.includes(shortName));
+              });
+              if (filtered.length > 0) {
+                items = filtered;
+              }
+              const partialTotal = items.reduce((s, i) => s + (i.unitPrice || 0) * (i.quantity || 1), 0);
+              orderTotalAmount = partialTotal;
+            }
+
             const cachedInspect = it.status === 'PENDING' && !it.inspectionResult ? inspectCache[it.returnId] : undefined;
             if (it.status !== 'PENDING' && inspectCache[it.returnId]) {
               saveInspectCache(it.returnId, null);
@@ -291,10 +337,13 @@ export const returnService = {
               bankInfo: it.bankInfo,
               createdAt: it.createdAt,
               evidenceImages: it.evidenceImages || [],
+              isPartial,
               items,
             };
           })
         );
+
+        sharedStore.syncExternalReturns(mappedItems);
 
         return {
           items: mappedItems,

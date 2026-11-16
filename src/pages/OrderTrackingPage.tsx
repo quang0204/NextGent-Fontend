@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { orderService } from '../services/orderService';
+import { returnService } from '../services/returnService';
 import { paymentService, PaymentIntentData } from '../services/paymentService';
 import { sharedStore, cleanLogNote } from '../services/sharedStore';
 import { productService } from '../services/productService';
@@ -34,9 +35,17 @@ import {
   Check
 } from 'lucide-react';
 
+export const matchOrderWithReturn = (ord: OrderDetail, r: any): boolean => {
+  if (ord.orderId && r.orderId && Number(ord.orderId) === Number(r.orderId)) return true;
+  const oCode = (ord.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+  const rCode = (r.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+  if (oCode && rCode && (oCode === rCode || oCode.includes(rCode) || rCode.includes(oCode))) return true;
+  return false;
+};
+
 export const resolveOrderReturnState = (ord: OrderDetail, returnRequests?: any[]) => {
   const reqs = returnRequests || sharedStore.getReturnRequests();
-  const matchedReq = reqs.find((r: any) => r.orderId === ord.orderId || r.orderCode === ord.orderCode);
+  const matchedReq = reqs.find((r: any) => matchOrderWithReturn(ord, r));
 
   const historyRejectNote = ord.statusHistory?.find((h: { note?: string }) => {
     const lower = (h.note || '').toLowerCase();
@@ -46,7 +55,12 @@ export const resolveOrderReturnState = (ord: OrderDetail, returnRequests?: any[]
   const returnStatus =
     ord.returnStatus ||
     matchedReq?.status ||
-    (ord.paymentStatus === 'REFUNDED' ? 'APPROVED' : historyRejectNote ? 'REJECTED' : undefined);
+    (ord.paymentStatus === 'REFUNDED' || ord.paymentStatus === 'PARTIALLY_REFUNDED' ? 'APPROVED' : historyRejectNote ? 'REJECTED' : undefined);
+
+  const isPartial = ord.paymentStatus === 'PARTIALLY_REFUNDED' ||
+    (matchedReq?.items && matchedReq.items.length < (ord.items?.length || 1)) ||
+    (matchedReq?.reason && (matchedReq.reason.includes('hoàn trả một phần') || matchedReq.reason.includes('Hoàn trả một phần'))) ||
+    (Boolean(ord.returnRefundAmount || matchedReq?.refundAmount) && (ord.returnRefundAmount || matchedReq?.refundAmount || 0) < (ord.totalAmount || 0));
 
   return {
     returnId: ord.returnId || matchedReq?.returnId,
@@ -54,11 +68,14 @@ export const resolveOrderReturnState = (ord: OrderDetail, returnRequests?: any[]
     rejectReason: ord.returnRejectReason || matchedReq?.rejectReason || historyRejectNote,
     inspectionResult: ord.returnInspectionResult || matchedReq?.inspectionResult,
     refundAmount: ord.returnRefundAmount ?? matchedReq?.refundAmount,
+    reason: matchedReq?.reason,
+    items: matchedReq?.items,
+    isPartial,
   };
 };
 
 export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => {
-  if (ord.paymentStatus === 'REFUNDED') return true;
+  if (ord.paymentStatus === 'REFUNDED' || ord.paymentStatus === 'PARTIALLY_REFUNDED') return true;
   const retInfo = resolveOrderReturnState(ord, returnRequests);
   if (retInfo.returnStatus) return true;
   const isFailedDelivery = 
@@ -75,7 +92,261 @@ export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => 
   return Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
 };
 
+export const RETURN_POLICY_DAYS = 7; // Chính sách đổi trả sản phẩm trong vòng 7 ngày kể từ khi nhận hàng
+
+export interface ReturnTimeEligibility {
+  isEligible: boolean;
+  daysRemaining: number;
+  hoursRemaining: number;
+  expired: boolean;
+  completedTimeFormatted?: string;
+}
+
+export const getOrderReturnTimeEligibility = (order: OrderDetail): ReturnTimeEligibility => {
+  if (order.status !== 'COMPLETED') {
+    return { isEligible: false, daysRemaining: 0, hoursRemaining: 0, expired: false };
+  }
+
+  let completedMs: number | null = null;
+  if (order.completedAt) {
+    const t = new Date(order.completedAt).getTime();
+    if (!isNaN(t)) completedMs = t;
+  }
+  if (!completedMs && order.statusHistory) {
+    const compEvent = order.statusHistory.find((h: { status?: string }) => h.status === 'COMPLETED');
+    if (compEvent && (compEvent as any).time) {
+      const timeStr = String((compEvent as any).time);
+      const match = timeStr.match(/(\d{1,2}):(\d{1,2}):(\d{1,2})\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (match) {
+        const [, h, m, s, d, mo, y] = match;
+        const parsed = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(m), Number(s)).getTime();
+        if (!isNaN(parsed)) completedMs = parsed;
+      } else {
+        const parsed = new Date(timeStr).getTime();
+        if (!isNaN(parsed)) completedMs = parsed;
+      }
+    }
+  }
+  if (!completedMs) {
+    const parsed = order.updatedAt ? new Date(order.updatedAt).getTime() : (order.createdAt ? new Date(order.createdAt).getTime() : Date.now());
+    completedMs = isNaN(parsed) ? Date.now() : parsed;
+  }
+
+  const deadlineMs = completedMs + RETURN_POLICY_DAYS * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const diffMs = deadlineMs - now;
+
+  if (diffMs <= 0) {
+    return { isEligible: false, daysRemaining: 0, hoursRemaining: 0, expired: true };
+  }
+
+  const daysRemaining = Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+  const hoursRemaining = Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+  return {
+    isEligible: true,
+    daysRemaining,
+    hoursRemaining,
+    expired: false,
+    completedTimeFormatted: new Date(completedMs).toLocaleDateString('vi-VN'),
+  };
+};
+
+export type ItemReturnStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface ItemReturnInfo {
+  status: ItemReturnStatus;
+  rejectReason?: string;
+  refundAmount?: number;
+  returnId?: number;
+}
+
+export const checkItemMatchesReturn = (
+  item: OrderItemSnapshot,
+  rItems?: any[],
+  reason?: string
+): boolean => {
+  if (rItems && rItems.length > 0) {
+    const directHit = rItems.some((it: any) => {
+      const matchVariant = it.variantId && item.variantId && Number(it.variantId) === Number(item.variantId);
+      const skuA = (it.sku || '').trim().toLowerCase();
+      const skuB = (item.skuSnapshot || '').trim().toLowerCase();
+      const matchSku = Boolean(skuA && skuB && skuA === skuB);
+
+      const nameA = (it.productName || '').trim().toLowerCase().split('(')[0].trim();
+      const nameB = (item.productNameSnapshot || '').trim().toLowerCase().split('(')[0].trim();
+      const matchShortName = Boolean(
+        nameA && nameB && (nameA === nameB || nameA.includes(nameB) || nameB.includes(nameA))
+      );
+
+      return matchVariant || matchSku || matchShortName;
+    });
+    if (directHit) return true;
+  }
+
+  if (reason) {
+    const reasonLower = reason.toLowerCase();
+    const sku = (item.skuSnapshot || '').trim().toLowerCase();
+    const fullName = (item.productNameSnapshot || '').trim().toLowerCase();
+    const baseName = fullName.split('(')[0].trim();
+
+    if (sku && sku.length >= 2 && reasonLower.includes(sku)) return true;
+    if (fullName && reasonLower.includes(fullName)) return true;
+    if (baseName && baseName.length >= 3 && reasonLower.includes(baseName)) return true;
+  }
+
+  return false;
+};
+
+export const getItemReturnState = (
+  item: OrderItemSnapshot,
+  ord: OrderDetail,
+  returnRequests?: any[]
+): ItemReturnInfo => {
+  const reqs = returnRequests || sharedStore.getReturnRequests();
+  const matchedReqs = reqs.filter((r: any) => matchOrderWithReturn(ord, r));
+
+  for (const r of matchedReqs) {
+    const isPartial = Boolean(
+      (r.items && r.items.length < (ord.items?.length || 1)) ||
+      (r.reason && (r.reason.toLowerCase().includes('hoàn trả một phần') || r.reason.toLowerCase().includes('hoan tra mot phan')))
+    );
+
+    let isItemInReq = !isPartial;
+    if (isPartial) {
+      isItemInReq = checkItemMatchesReturn(item, r.items, r.reason);
+    }
+
+    if (isItemInReq) {
+      if (r.status === 'APPROVED') {
+        const itemRefund = (r.items && r.items.find((it: any) => {
+          const skuA = (it.sku || '').trim().toLowerCase();
+          const skuB = (item.skuSnapshot || '').trim().toLowerCase();
+          return (it.variantId && it.variantId === item.variantId) || (skuA && skuB && skuA === skuB);
+        })?.unitPrice) || (item.unitPrice * item.quantity);
+
+        return {
+          status: 'APPROVED',
+          refundAmount: itemRefund,
+          returnId: r.returnId,
+        };
+      }
+      if (r.status === 'REJECTED') {
+        return {
+          status: 'REJECTED',
+          rejectReason: r.rejectReason || 'Không đáp ứng điều kiện đổi trả theo biên bản thẩm định',
+          returnId: r.returnId,
+        };
+      }
+      if (r.status === 'PENDING' || r.status === 'INSPECTING') {
+        return {
+          status: 'PENDING',
+          returnId: r.returnId,
+        };
+      }
+    }
+  }
+
+  // 1. Nếu toàn bộ đơn hàng đã hoàn tiền (REFUNDED), mọi sản phẩm trong đơn đều đã hoàn trả thành công
+  if (ord.paymentStatus === 'REFUNDED') {
+    return {
+      status: 'APPROVED',
+      refundAmount: item.unitPrice * item.quantity,
+      returnId: ord.returnId,
+    };
+  }
+
+  // 2. Kiểm tra qua statusHistory của đơn hàng (nếu khách hàng tra cứu công khai hoặc chưa đồng bộ danh sách phiếu)
+  if (ord.statusHistory && ord.statusHistory.length > 0) {
+    for (const h of ord.statusHistory) {
+      const note = (h.note || '').toLowerCase();
+      const isReturnNote = note.includes('đổi trả') || note.includes('hoàn tiền');
+      if (!isReturnNote) continue;
+
+      const matchesThisItem = checkItemMatchesReturn(item, undefined, h.note);
+      if (matchesThisItem) {
+        if (note.includes('chấp thuận') || note.includes('thành công') || note.includes('đã duyệt')) {
+          return {
+            status: 'APPROVED',
+            refundAmount: item.unitPrice * item.quantity,
+            returnId: ord.returnId,
+          };
+        }
+        if (note.includes('bị từ chối') || note.includes('từ chối') || note.includes('bác bỏ')) {
+          return {
+            status: 'REJECTED',
+            rejectReason: h.note || 'Không đủ điều kiện đổi trả',
+            returnId: ord.returnId,
+          };
+        }
+        if (note.includes('tiếp nhận') || note.includes('chờ') || note.includes('kiểm định')) {
+          return {
+            status: 'PENDING',
+            returnId: ord.returnId,
+          };
+        }
+      }
+    }
+  }
+
+  // 3. Fallback từ các trường của order
+  const orderRetState = resolveOrderReturnState(ord, reqs);
+  if (orderRetState.returnStatus) {
+    const isPartial = orderRetState.isPartial;
+    let isItemInOrderRet = !isPartial;
+    if (isPartial) {
+      isItemInOrderRet = checkItemMatchesReturn(item, orderRetState.items, orderRetState.reason);
+    }
+
+    if (isItemInOrderRet) {
+      if (orderRetState.returnStatus === 'APPROVED' || ord.paymentStatus === 'REFUNDED' || ord.paymentStatus === 'PARTIALLY_REFUNDED') {
+        return {
+          status: 'APPROVED',
+          refundAmount: orderRetState.refundAmount || (item.unitPrice * item.quantity),
+          returnId: orderRetState.returnId,
+        };
+      }
+      if (orderRetState.returnStatus === 'REJECTED') {
+        return {
+          status: 'REJECTED',
+          rejectReason: orderRetState.rejectReason || 'Không đáp ứng điều kiện đổi trả',
+          returnId: orderRetState.returnId,
+        };
+      }
+      if (orderRetState.returnStatus === 'PENDING' || orderRetState.returnStatus === 'INSPECTING') {
+        return {
+          status: 'PENDING',
+          returnId: orderRetState.returnId,
+        };
+      }
+    }
+  }
+
+  return { status: 'NONE' };
+};
+
+export const isItemReturnable = (item: OrderItemSnapshot, ord: OrderDetail, returnRequests?: any[]): boolean => {
+  if (ord.status !== 'COMPLETED' || ord.paymentStatus === 'REFUNDED') return false;
+
+  const timeInfo = getOrderReturnTimeEligibility(ord);
+  if (!timeInfo.isEligible) return false;
+
+  const itemRet = getItemReturnState(item, ord, returnRequests);
+  // Nếu sản phẩm đã thực hiện hoàn (dù thành công hay thất bại/từ chối hay đang chờ duyệt), KHÔNG ĐƯỢC HOÀN NỮA
+  if (itemRet.status !== 'NONE') {
+    return false;
+  }
+
+  return true;
+};
+
 export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
+  if (order?.status === 'RETURNING' || status === 'RETURNING') {
+    return {
+      label: 'Đang hoàn về kho',
+      bg: 'bg-orange-50 text-orange-700 border-orange-200',
+      dot: 'bg-orange-500'
+    };
+  }
   if (order && checkIsReturnOrder(order)) {
     const ret = resolveOrderReturnState(order);
     if (ret.returnStatus === 'REJECTED') {
@@ -85,7 +356,14 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
         dot: 'bg-rose-500'
       };
     }
-    if (ret.returnStatus === 'APPROVED' || order.paymentStatus === 'REFUNDED') {
+    if (ret.returnStatus === 'APPROVED' || order.paymentStatus === 'REFUNDED' || order.paymentStatus === 'PARTIALLY_REFUNDED') {
+      if (ret.isPartial) {
+        return {
+          label: 'Hoàn tất',
+          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+          dot: 'bg-indigo-500'
+        };
+      }
       return {
         label: 'Đã hoàn hàng / Hoàn tiền',
         bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -94,7 +372,7 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
     }
     if (ret.returnStatus === 'PENDING' || ret.returnStatus === 'INSPECTING') {
       return {
-        label: 'Đang xử lý đổi trả',
+        label: ret.isPartial ? 'Đang xử lý đổi trả 1 phần' : 'Đang xử lý đổi trả',
         bg: 'bg-purple-50 text-purple-700 border-purple-200',
         dot: 'bg-purple-500'
       };
@@ -143,12 +421,7 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
         bg: 'bg-cyan-50 text-cyan-700 border-cyan-200',
         dot: 'bg-cyan-500'
       };
-    case 'RETURNING':
-      return {
-        label: 'Đang hoàn về',
-        bg: 'bg-orange-50 text-orange-700 border-orange-200',
-        dot: 'bg-orange-500'
-      };
+
     case 'COMPLETED':
       return {
         label: 'Giao thành công',
@@ -201,12 +474,63 @@ export const OrderTrackingPage: React.FC = () => {
   const [cancelReason, setCancelReason] = useState('Đổi ý không có nhu cầu mua nữa');
 
   // Modal yêu cầu Đổi trả trong 7 ngày
+  interface ReturnItemSelection {
+    variantId: number;
+    productName: string;
+    sku: string;
+    unitPrice: number;
+    maxQuantity: number;
+    returnQuantity: number;
+    selected: boolean;
+    imageUrl?: string;
+  }
   const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItemSelections, setReturnItemSelections] = useState<ReturnItemSelection[]>([]);
   const [returnReason, setReturnReason] = useState('Lỗi phần cứng từ nhà sản xuất (yêu cầu đổi 1-1)');
   const [returnNote, setReturnNote] = useState('');
   const [returnBankName, setReturnBankName] = useState('');
   const [returnAccountNumber, setReturnAccountNumber] = useState('');
   const [returnAccountHolder, setReturnAccountHolder] = useState('');
+
+  const handleOpenReturnModal = (targetItem?: OrderItemSnapshot, targetOrder?: OrderDetail) => {
+    const curOrder = targetOrder || order;
+    if (!curOrder) return;
+    if (targetOrder && targetOrder !== order) {
+      setOrder(targetOrder);
+    }
+    const currentReqs = sharedStore.getReturnRequests();
+    const retState = resolveOrderReturnState(curOrder, currentReqs);
+    const returnedItems = retState.items || [];
+
+    // Chỉ đưa vào danh sách chọn những sản phẩm chưa từng thực hiện hoàn trả (status === 'NONE')
+    const availableItems = (curOrder.items || []).filter((item) => {
+      const itemRet = getItemReturnState(item, curOrder, currentReqs);
+      return itemRet.status === 'NONE';
+    });
+
+    if (availableItems.length === 0) {
+      showToast('Tất cả sản phẩm trong đơn hàng này đều đã được xử lý đổi trả (thành công hoặc thất bại), không thể hoàn tiếp!', 'warning');
+      return;
+    }
+
+    const items: ReturnItemSelection[] = availableItems.map((item) => {
+      const isTarget = targetItem
+        ? (item.orderItemId === targetItem.orderItemId || item.variantId === targetItem.variantId)
+        : true;
+      return {
+        variantId: item.variantId || 0,
+        productName: item.productNameSnapshot || (item as any).productName || 'Sản phẩm',
+        sku: item.skuSnapshot || (item as any).sku || '',
+        unitPrice: item.unitPrice || 0,
+        maxQuantity: item.quantity || 1,
+        returnQuantity: item.quantity || 1,
+        selected: isTarget,
+        imageUrl: item.imageUrl,
+      };
+    });
+    setReturnItemSelections(items);
+    setShowReturnModal(true);
+  };
 
   // Modal xem biểu mẫu số hóa
   const [viewFormModal, setViewFormModal] = useState<'ORDER' | 'CONFIRM' | 'EXPORT' | 'RETURN' | null>(null);
@@ -239,6 +563,7 @@ export const OrderTrackingPage: React.FC = () => {
   const loadAllOrders = async () => {
     const list = await orderService.getAllOrders();
     setAllOrders(list);
+    returnService.getAdminReturns().catch(() => {});
     return list;
   };
 
@@ -532,8 +857,36 @@ export const OrderTrackingPage: React.FC = () => {
       return;
     }
 
-    const reasonText = `${returnReason}${returnNote? `: ${returnNote}`: ''}`;
-    const res = await orderService.requestReturn(order.orderId, reasonText, bankInfo);
+    const selectedItems = returnItemSelections.filter((it) => it.selected && it.returnQuantity > 0);
+    if (selectedItems.length === 0) {
+      showToast('Vui lòng chọn ít nhất 1 sản phẩm bạn muốn hoàn trả!', 'warning');
+      return;
+    }
+
+    const totalRefundEst = selectedItems.reduce((sum, it) => sum + it.unitPrice * it.returnQuantity, 0);
+    const totalOrderItemsCount = (order.items || []).reduce((sum, it) => sum + (it.quantity || 1), 0);
+    const totalSelectedCount = selectedItems.reduce((sum, it) => sum + it.returnQuantity, 0);
+    const isPartial = totalSelectedCount < totalOrderItemsCount;
+
+    const itemDetails = selectedItems.map((it) => `${it.productName} (x${it.returnQuantity})`).join(', ');
+    const prefix = isPartial
+      ? `[Yêu cầu hoàn trả một phần: ${itemDetails} - Tiền hoàn ước tính ${formatVND(totalRefundEst)}]`
+      : `[Yêu cầu hoàn trả toàn bộ: ${itemDetails} - Tiền hoàn ước tính ${formatVND(totalRefundEst)}]`;
+
+    const reasonText = `${prefix} - Lý do: ${returnReason}${returnNote ? ` (${returnNote})` : ''}`;
+
+    const res = await orderService.requestReturn(
+      order.orderId,
+      reasonText,
+      bankInfo,
+      selectedItems.map((it) => ({
+        variantId: it.variantId,
+        productName: it.productName,
+        sku: it.sku,
+        quantity: it.returnQuantity,
+        unitPrice: it.unitPrice,
+      }))
+    );
     if (res.success) {
       showToast(res.message, 'success');
       setShowReturnModal(false);
@@ -558,6 +911,7 @@ export const OrderTrackingPage: React.FC = () => {
       case 'SHIPPING': return 3;
       case 'COMPLETED': return 4;
       case 'CANCELLED': return -1;
+      case 'RETURNING': return -2;
       default: return 0;
     }
   };
@@ -755,16 +1109,7 @@ export const OrderTrackingPage: React.FC = () => {
                   </button>
                 )}
 
-                {/* Nút Yêu cầu đổi trả trong 7 ngày */}
-                {isReturnEligible && (
-                  <button
-                    onClick={() => setShowReturnModal(true)}
-                    className="btn-secondary px-3.5 py-1.5 rounded-full text-xs font-bold text-attention border-attention/30 flex items-center gap-1.5"
-                  >
-                    <RotateCcw size={13} />
-                    <span>Yêu cầu Đổi trả (7 ngày)</span>
-                  </button>
-                )}
+
 
                 {isCancellable && (
                   <button
@@ -785,7 +1130,35 @@ export const OrderTrackingPage: React.FC = () => {
             </div>
 
             {/* Trạng thái đơn hàng */}
-            {checkIsReturnOrder(order)? (
+            {order.status === 'RETURNING'? (
+              <div className="p-5 bg-orange-50/90 border-2 border-orange-300 rounded-2xl text-xs text-orange-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
+                <div className="flex items-start gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
+                    <RotateCcw size={22} className="text-orange-600" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong className="text-sm font-black text-orange-900 uppercase tracking-tight">Giao hàng không thành công</strong>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-200 text-orange-800 border border-orange-300">
+                        ĐANG HOÀN VỀ KHO
+                      </span>
+                    </div>
+                    <p className="text-xs text-orange-800 leading-relaxed">
+                      Lý do: <span className="font-semibold">{order.cancelReason || 'Không liên hệ được người nhận'}</span>.
+                      <span className="block text-slate-700 mt-1">Kiện hàng đang được bưu tá chuyển hoàn về kho NextGen. Bộ phận CSKH sẽ hỗ trợ bạn nếu bạn cần đặt lại hoặc nhận hỗ trợ.</span>
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <Link
+                    to="/products"
+                    className="flex-1 sm:flex-initial px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold text-center transition shadow-xs whitespace-nowrap"
+                  >
+                    Xem sản phẩm khác
+                  </Link>
+                </div>
+              </div>
+            ): checkIsReturnOrder(order)? (
               <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2.5">
                 <RotateCcw size={18} className="text-purple-600 flex-shrink-0 mt-0.5" />
                 <div>
@@ -853,7 +1226,7 @@ export const OrderTrackingPage: React.FC = () => {
             )}
 
             {/* Banner Thông Báo Đã Thanh Toán Thành Công */}
-            {order.paymentStatus === 'PAID' && (
+            {(order.paymentStatus === 'PAID' || (order.status === 'COMPLETED' && order.paymentStatus !== 'REFUNDED')) && (
               <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-2 border-emerald-400 rounded-2xl p-5 text-emerald-950 shadow-xs animate-in zoom-in-95 duration-200">
                 <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-md flex-shrink-0">
@@ -1088,7 +1461,15 @@ export const OrderTrackingPage: React.FC = () => {
               <div className="space-y-1">
                 <span className="font-bold text-ink-deep uppercase tracking-wider block text-[11px]">Thanh toán & Giao vận:</span>
                 <div>Hình thức: <strong className="text-ink-deep">{order.paymentMethod === 'COD'? 'Thanh toán tiền mặt khi nhận hàng (COD)': 'Chuyển khoản VietQR'}</strong></div>
-                <div>Trạng thái TT: {order.paymentStatus === 'PAID' ? (
+                <div>Trạng thái TT: {order.paymentStatus === 'REFUNDED' ? (
+                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-300 text-xs">
+                    <CheckCircle2 size={12} /> Đã hoàn tiền
+                  </span>
+                ) : order.paymentStatus === 'PARTIALLY_REFUNDED' ? (
+                  <span className="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-300 text-xs">
+                    <CheckCircle2 size={12} /> Đã hoàn tiền 1 phần
+                  </span>
+                ) : (order.paymentStatus === 'PAID' || order.status === 'COMPLETED') ? (
                   <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-xs">
                     <CheckCircle2 size={12} /> Đã thanh toán (Thành công)
                   </span>
@@ -1111,42 +1492,87 @@ export const OrderTrackingPage: React.FC = () => {
             <div className="pt-4 border-t border-hairline-soft space-y-3">
               <span className="font-bold text-ink-deep uppercase tracking-wider block text-[11px]">Sản phẩm đã đặt mua:</span>
               <div className="divide-y divide-hairline-soft">
-                {order.items.map((item) => (
-                  <div key={item.orderItemId} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-3">
-                      <img src={item.imageUrl} alt={item.productNameSnapshot} className="w-12 h-12 object-contain bg-surface-soft rounded-lg border border-hairline-soft p-1" />
-                      <div>
-                        <h5 className="font-bold text-ink-deep">{item.productNameSnapshot}</h5>
-                        <div className="text-[11px] text-steel">
-                          {item.colorSnapshot}{item.romSnapshot ? ` - ${item.romSnapshot}` : ''} | SKU: <span className="font-mono">{item.skuSnapshot}</span>
+                {order.items.map((item) => {
+                  const itemRet = getItemReturnState(item, order, returnRequests);
+
+                  return (
+                    <div key={item.orderItemId} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-3">
+                        <img src={item.imageUrl} alt={item.productNameSnapshot} className="w-12 h-12 object-contain bg-surface-soft rounded-lg border border-hairline-soft p-1" />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h5 className="font-bold text-ink-deep">{item.productNameSnapshot}</h5>
+                            
+                            {/* 1. Báo Hoàn trả thành công */}
+                            {itemRet.status === 'APPROVED' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                                <CheckCircle size={10} />
+                                <span>Đã hoàn trả thành công {itemRet.refundAmount ? `(${formatVND(itemRet.refundAmount)})` : ''}</span>
+                              </span>
+                            )}
+
+                            {/* 2. Báo Hoàn trả thất bại / Bị từ chối */}
+                            {itemRet.status === 'REJECTED' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-300" title={itemRet.rejectReason}>
+                                <XCircle size={10} />
+                                <span>Hoàn trả thất bại (Bị từ chối{itemRet.rejectReason ? `: ${itemRet.rejectReason}` : ''})</span>
+                              </span>
+                            )}
+
+                            {/* 3. Báo Chờ duyệt hoàn trả */}
+                            {itemRet.status === 'PENDING' && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-300">
+                                <Clock size={10} />
+                                <span>Chờ duyệt hoàn trả</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-steel">
+                            {item.colorSnapshot}{item.romSnapshot ? ` - ${item.romSnapshot}` : ''} | SKU: <span className="font-mono">{item.skuSnapshot}</span>
+                          </div>
+                          <div className="text-[11px] text-steel">Số lượng: x{item.quantity}</div>
                         </div>
-                        <div className="text-[11px] text-steel">Số lượng: x{item.quantity}</div>
                       </div>
-                    </div>
-                    <div className="flex items-center justify-between sm:justify-end gap-3 pt-1 sm:pt-0">
-                      <div className="font-bold text-ink-deep text-right font-mono">
-                        {formatVND(item.unitPrice * item.quantity)}
-                      </div>
-                      {order.status === 'COMPLETED' && (
-                        reviewedOrderItemIds.includes(item.orderItemId) ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/30 whitespace-nowrap">
-                            <CheckCircle size={12} />
-                            <span>Đã đánh giá</span>
-                          </span>
-                        ) : (
+                      <div className="flex items-center justify-between sm:justify-end gap-2.5 pt-1 sm:pt-0 flex-wrap">
+                        <div className="font-bold text-ink-deep text-right font-mono pr-1">
+                          {formatVND(item.unitPrice * item.quantity)}
+                        </div>
+
+                        {/* Nút Yêu cầu đổi trả bên cạnh Đánh giá sản phẩm (CHỈ HIỆN KHI CHƯA TỪNG HOÀN VÀ CÒN TRONG HẠN 7 NGÀY - NẾU ĐÃ HOÀN HOẶC BỊ TỪ CHỐI THÌ KHÔNG CHO HOÀN NỮA) */}
+                        {isItemReturnable(item, order, returnRequests) && (
                           <button
                             type="button"
-                            onClick={() => handleOpenReviewModal(item, order)}
-                            className="btn-secondary py-1 px-3 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs hover:border-attention text-attention whitespace-nowrap cursor-pointer hover:bg-attention/10 transition-all"
+                            onClick={() => handleOpenReturnModal(item)}
+                            className="btn-secondary py-1 px-3 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-400 whitespace-nowrap cursor-pointer transition-all"
+                            title={`Yêu cầu đổi trả trong 7 ngày (Còn ${getOrderReturnTimeEligibility(order).daysRemaining} ngày)`}
                           >
-                            <Star size={12} className="fill-attention text-attention" />
-                            <span>Đánh giá sản phẩm</span>
+                            <RotateCcw size={12} />
+                            <span>Yêu cầu đổi trả</span>
                           </button>
-                        )
-                      )}
+                        )}
+
+                        {/* Nút Đánh giá sản phẩm (Hiện nếu sản phẩm KHÔNG hoàn thành công và KHÔNG đang chờ duyệt) */}
+                        {order.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
+                          reviewedOrderItemIds.includes(item.orderItemId) ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/30 whitespace-nowrap">
+                              <CheckCircle size={12} />
+                              <span>Đã đánh giá</span>
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenReviewModal(item, order)}
+                              className="btn-secondary py-1 px-3 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs hover:border-attention text-attention whitespace-nowrap cursor-pointer hover:bg-attention/10 transition-all"
+                            >
+                              <Star size={12} className="fill-attention text-attention" />
+                              <span>Đánh giá sản phẩm</span>
+                            </button>
+                          )
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Total footer */}
@@ -1358,31 +1784,69 @@ export const OrderTrackingPage: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="flex items-center justify-between sm:justify-end gap-3 flex-shrink-0 pt-1 sm:pt-0">
-                            <div className="font-bold text-ink-deep text-xs font-mono text-right">
-                              {formatVND(it.lineTotal)}
-                            </div>
-                            {ord.status === 'COMPLETED' && (
-                              reviewedOrderItemIds.includes(it.orderItemId) ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full border border-success/30 whitespace-nowrap">
-                                  <CheckCircle size={11} />
-                                  <span>Đã đánh giá</span>
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleOpenReviewModal(it, ord);
-                                  }}
-                                  className="btn-secondary py-1 px-2.5 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-attention border-attention/30 hover:bg-attention/10 transition-all cursor-pointer whitespace-nowrap"
-                                >
-                                  <Star size={11} className="fill-attention text-attention" />
-                                  <span>Đánh giá</span>
-                                </button>
-                              )
-                            )}
-                          </div>
+                          {(() => {
+                            const itemRet = getItemReturnState(it, ord, returnRequests);
+
+                            return (
+                              <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0 pt-1 sm:pt-0 flex-wrap">
+                                <div className="font-bold text-ink-deep text-xs font-mono text-right pr-1">
+                                  {formatVND(it.lineTotal)}
+                                </div>
+                                {itemRet.status === 'APPROVED' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-300">
+                                    <CheckCircle size={10} />
+                                    <span>Đã hoàn trả thành công</span>
+                                  </span>
+                                )}
+                                {itemRet.status === 'REJECTED' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-300" title={itemRet.rejectReason}>
+                                    <XCircle size={10} />
+                                    <span>Hoàn trả thất bại (Bị từ chối)</span>
+                                  </span>
+                                )}
+                                {itemRet.status === 'PENDING' && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                                    <Clock size={10} />
+                                    <span>Chờ duyệt hoàn</span>
+                                  </span>
+                                )}
+                                {isItemReturnable(it, ord, returnRequests) && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleOpenReturnModal(it, ord);
+                                    }}
+                                    className="btn-secondary py-1 px-2.5 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-rose-600 border-rose-200 hover:bg-rose-50 hover:border-rose-400 whitespace-nowrap cursor-pointer transition-all"
+                                    title={`Đổi trả trong vòng 7 ngày (Còn ${getOrderReturnTimeEligibility(ord).daysRemaining} ngày)`}
+                                  >
+                                    <RotateCcw size={11} />
+                                    <span>Đổi trả</span>
+                                  </button>
+                                )}
+                                {ord.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
+                                  reviewedOrderItemIds.includes(it.orderItemId) ? (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full border border-success/30 whitespace-nowrap">
+                                      <CheckCircle size={11} />
+                                      <span>Đã đánh giá</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenReviewModal(it, ord);
+                                      }}
+                                      className="btn-secondary py-1 px-2.5 text-[11px] font-bold rounded-full flex items-center gap-1 shadow-xs text-attention border-attention/30 hover:bg-attention/10 transition-all cursor-pointer whitespace-nowrap"
+                                    >
+                                      <Star size={11} className="fill-attention text-attention" />
+                                      <span>Đánh giá</span>
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       ))}
                     </div>
@@ -1402,16 +1866,8 @@ export const OrderTrackingPage: React.FC = () => {
                           </div>
                         );
                       }
-                      if (cardRet.returnStatus === 'APPROVED' || ord.paymentStatus === 'REFUNDED') {
-                        return (
-                          <div className="text-xs bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 text-emerald-700 flex items-start gap-2">
-                            <CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
-                            <div>
-                              <strong>Đã chấp thuận đổi trả &amp; hoàn tiền</strong>
-                              {cardRet.refundAmount ? ` (${formatVND(cardRet.refundAmount)})` : ''}
-                            </div>
-                          </div>
-                        );
+                      if (cardRet.returnStatus === 'APPROVED' || ord.paymentStatus === 'REFUNDED' || ord.paymentStatus === 'PARTIALLY_REFUNDED') {
+                        return null;
                       }
                       return (
                         <div className="text-xs bg-purple-50 border border-purple-200 rounded-xl p-2.5 text-purple-700 flex items-center gap-2">
@@ -1422,16 +1878,42 @@ export const OrderTrackingPage: React.FC = () => {
                     })()}
 
                     {/* Mini Progress Status Note */}
-                    {ord.statusHistory && ord.statusHistory.length > 0 && (
-                      <div className="text-xs bg-primary/5 border border-primary/15 rounded-xl p-3 flex items-start gap-2.5 text-charcoal">
-                        <Clock size={15} className="text-primary flex-shrink-0 mt-0.5" />
-                        <div>
-                          <span className="font-bold text-ink-deep">Tiến trình gần nhất: </span>
-                          <span>{cleanLogNote(ord.statusHistory[ord.statusHistory.length - 1].note)}</span>
-                          <span className="text-[11px] text-steel ml-1.5">({ord.statusHistory[ord.statusHistory.length - 1].time})</span>
+                    {ord.statusHistory && ord.statusHistory.length > 0 && (() => {
+                      // sharedStore dùng unshift nên index 0 là mới nhất; kiểm tra timestamp để chắc chắn
+                      const getLatestItem = (hist: Array<{ time?: string; note?: string }>) => {
+                        if (!hist || hist.length === 0) return null;
+                        if (hist.length === 1) return hist[0];
+                        const parseTime = (tStr?: string) => {
+                          if (!tStr) return 0;
+                          const parts = tStr.split(' ');
+                          if (parts.length === 2) {
+                            const [hms, dmy] = parts;
+                            const [d, m, y] = dmy.split('/').map(Number);
+                            const [hh, mm, ss] = hms.split(':').map(Number);
+                            return new Date(y, m - 1, d, hh || 0, mm || 0, ss || 0).getTime();
+                          }
+                          const d = new Date(tStr).getTime();
+                          return isNaN(d) ? 0 : d;
+                        };
+                        const t0 = parseTime(hist[0]?.time);
+                        const tLast = parseTime(hist[hist.length - 1]?.time);
+                        return t0 >= tLast ? hist[0] : hist[hist.length - 1];
+                      };
+
+                      const latest = getLatestItem(ord.statusHistory);
+                      if (!latest) return null;
+
+                      return (
+                        <div className="text-xs bg-primary/5 border border-primary/15 rounded-xl p-3 flex items-start gap-2.5 text-charcoal">
+                          <Clock size={15} className="text-primary flex-shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-ink-deep">Tiến trình gần nhất: </span>
+                            <span>{cleanLogNote(latest.note || '')}</span>
+                            {latest.time && <span className="text-[11px] text-steel ml-1.5">({latest.time})</span>}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Bottom Row: Recipient & Detail Button */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-hairline-soft">
@@ -1537,7 +2019,7 @@ export const OrderTrackingPage: React.FC = () => {
       {/* MODAL YÊU CẦU ĐỔI TRẢ TRONG 7 NGÀY */}
       {showReturnModal && (
         <div className="fixed inset-0 z-50 bg-ink-deep/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-canvas border border-hairline-soft rounded-xxl max-w-md w-full p-6 sm:p-8 shadow-sticky space-y-4 text-xs">
+          <div className="bg-canvas border border-hairline-soft rounded-xxl max-w-lg w-full p-6 sm:p-7 shadow-sticky space-y-4 text-xs max-h-[90vh] overflow-y-auto">
             <div className="flex items-center gap-2 pb-3 border-b border-hairline-soft">
               <RotateCcw className="text-attention" size={18} />
               <h3 className="text-base font-medium text-ink-deep">
@@ -1545,11 +2027,127 @@ export const OrderTrackingPage: React.FC = () => {
               </h3>
             </div>
             
-            <p className="text-steel leading-relaxed">
-              Theo chính sách bảo hành NextGen Smart Tech, bạn được quyền đổi trả máy trong vòng <strong>7 ngày</strong> kể từ khi nhận hàng. Thiết bị gửi về kho sẽ được nhân viên thẩm định tình trạng seal và ngoại quan trước khi hoàn tiền hoặc đổi mới.
-            </p>
+            <div className="text-steel leading-relaxed space-y-1.5">
+              <p>
+                Theo chính sách bảo hành NextGen Smart Tech, bạn được quyền đổi trả máy trong vòng <strong>7 ngày</strong> kể từ khi nhận hàng. Thiết bị gửi về kho sẽ được nhân viên thẩm định tình trạng seal và ngoại quan trước khi hoàn tiền hoặc đổi mới.
+              </p>
+              {order && (() => {
+                const timeInfo = getOrderReturnTimeEligibility(order);
+                if (timeInfo.isEligible) {
+                  return (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-[11px] font-semibold">
+                      <Clock size={12} />
+                      <span>Thời hạn đổi trả còn lại của đơn hàng: <strong>{timeInfo.daysRemaining} ngày</strong> ({timeInfo.hoursRemaining} giờ)</span>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
 
             <div className="space-y-3.5">
+              {/* Lựa chọn sản phẩm hoàn trả */}
+              <div className="space-y-2 border border-hairline-soft rounded-xl p-3 bg-surface-soft/40">
+                <div className="flex items-center justify-between">
+                  <label className="font-semibold text-ink-deep">Chọn sản phẩm bạn muốn hoàn / trả:</label>
+                  <span className="text-[10px] text-steel">Hỗ trợ trả 1 phần</span>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {returnItemSelections.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className={`p-2.5 rounded-lg border transition-all ${
+                        item.selected ? 'border-primary/50 bg-canvas shadow-xs' : 'border-hairline-soft opacity-60 bg-surface-soft/20'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={item.selected}
+                            onChange={() => {
+                              setReturnItemSelections((prev) => {
+                                const updated = [...prev];
+                                updated[idx] = { ...updated[idx], selected: !updated[idx].selected };
+                                return updated;
+                              });
+                            }}
+                            className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                          />
+                          {item.imageUrl && (
+                            <img
+                              src={item.imageUrl}
+                              alt={item.productName}
+                              className="w-10 h-10 object-contain rounded border border-hairline-soft p-0.5 bg-white shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-semibold text-ink-deep truncate">{item.productName}</div>
+                            <div className="text-[11px] text-steel font-mono">
+                              {item.sku} • {formatVND(item.unitPrice)}
+                            </div>
+                          </div>
+                        </label>
+
+                        {item.selected && item.maxQuantity > 1 ? (
+                          <div className="flex items-center gap-1 shrink-0 bg-surface-soft border border-hairline-soft rounded-lg p-0.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReturnItemSelections((prev) => {
+                                  const updated = [...prev];
+                                  const currentQty = updated[idx].returnQuantity;
+                                  if (currentQty > 1) {
+                                    updated[idx] = { ...updated[idx], returnQuantity: currentQty - 1 };
+                                  }
+                                  return updated;
+                                });
+                              }}
+                              disabled={item.returnQuantity <= 1}
+                              className="w-6 h-6 rounded bg-canvas hover:bg-hairline flex items-center justify-center font-bold text-xs disabled:opacity-40"
+                            >
+                              -
+                            </button>
+                            <span className="w-6 text-center font-mono font-bold text-xs">{item.returnQuantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setReturnItemSelections((prev) => {
+                                  const updated = [...prev];
+                                  const currentQty = updated[idx].returnQuantity;
+                                  if (currentQty < item.maxQuantity) {
+                                    updated[idx] = { ...updated[idx], returnQuantity: currentQty + 1 };
+                                  }
+                                  return updated;
+                                });
+                              }}
+                              disabled={item.returnQuantity >= item.maxQuantity}
+                              className="w-6 h-6 rounded bg-canvas hover:bg-hairline flex items-center justify-center font-bold text-xs disabled:opacity-40"
+                            >
+                              +
+                            </button>
+                          </div>
+                        ) : (
+                          item.selected && <span className="text-xs font-mono font-bold text-ink-deep shrink-0">x1</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tóm tắt tiền hoàn ước tính */}
+                <div className="pt-2 border-t border-hairline-soft flex items-center justify-between text-xs">
+                  <span className="text-steel font-medium">Tiền hoàn ước tính:</span>
+                  <span className="font-mono font-bold text-primary text-sm">
+                    {formatVND(
+                      returnItemSelections
+                        .filter((it) => it.selected)
+                        .reduce((sum, it) => sum + it.unitPrice * it.returnQuantity, 0)
+                    )}
+                  </span>
+                </div>
+              </div>
+
               <div>
                 <label className="block font-medium text-charcoal mb-1.5">Lý do yêu cầu đổi trả:</label>
                 <select

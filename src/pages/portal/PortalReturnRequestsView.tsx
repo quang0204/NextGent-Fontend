@@ -32,6 +32,17 @@ export const PortalReturnRequestsView: React.FC = () => {
   const [approvingReq, setApprovingReq] = useState<PortalReturnRequest | null>(null);
   const [refundAmount, setRefundAmount] = useState<number>(0);
 
+  interface RestockItemSelection {
+    variantId: number;
+    productName: string;
+    sku: string;
+    unitPrice: number;
+    quantity: number;
+    maxQuantity: number;
+    isSelected: boolean;
+  }
+  const [restockItemSelections, setRestockItemSelections] = useState<RestockItemSelection[]>([]);
+
   const [rejectingReq, setRejectingReq] = useState<PortalReturnRequest | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
@@ -94,36 +105,87 @@ export const PortalReturnRequestsView: React.FC = () => {
     setInspectingReq(null);
   };
 
-  const handleStartApprove = (req: PortalReturnRequest) => {
+  const handleStartApprove = async (req: PortalReturnRequest) => {
     setModalError(null);
     setApprovingReq(req);
-    const itemsTotal = (req.items || []).reduce((s, i) => s + Number(i.unitPrice || 0) * Number(i.quantity || 1), 0);
-    const suggestedRefund = (req.orderTotalAmount && req.orderTotalAmount > 0) ? req.orderTotalAmount : itemsTotal;
-    setRefundAmount(suggestedRefund);
+
+    // Chuẩn bị danh sách sản phẩm để thẩm định nhập kho MB04
+    let itemsToProcess = (req.items || []).filter(i => (i.quantity || 0) > 0);
+    if (itemsToProcess.length === 0 && req.orderCode) {
+      try {
+        const origOrder = await orderService.getOrderByCode(req.orderCode);
+        if (origOrder?.items) {
+          itemsToProcess = origOrder.items.map(i => ({
+            variantId: i.variantId,
+            productName: i.productNameSnapshot || (i as any).productName || 'Sản phẩm',
+            sku: i.skuSnapshot || (i as any).sku || '',
+            quantity: i.quantity || 1,
+            unitPrice: i.unitPrice || 0,
+          }));
+        }
+      } catch (err) {
+        console.warn('Cannot fetch original order items', err);
+      }
+    }
+
+    const selections: RestockItemSelection[] = itemsToProcess.map(it => ({
+      variantId: Number(it.variantId || 0),
+      productName: it.productName,
+      sku: it.sku,
+      unitPrice: Number(it.unitPrice || 0),
+      quantity: Number(it.quantity || 1),
+      maxQuantity: Number(it.quantity || 1),
+      isSelected: true,
+    }));
+
+    setRestockItemSelections(selections);
+    const initialTotal = selections
+      .filter(s => s.isSelected)
+      .reduce((sum, s) => sum + s.unitPrice * s.quantity, 0);
+    setRefundAmount(initialTotal);
+  };
+
+  const handleToggleRestockItem = (index: number) => {
+    setRestockItemSelections(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], isSelected: !updated[index].isSelected };
+      const newTotal = updated
+        .filter(s => s.isSelected)
+        .reduce((sum, s) => sum + s.unitPrice * s.quantity, 0);
+      setRefundAmount(newTotal);
+      return updated;
+    });
+  };
+
+  const handleRestockQuantityChange = (index: number, newQty: number) => {
+    setRestockItemSelections(prev => {
+      const updated = [...prev];
+      const safeQty = Math.max(1, Math.min(newQty, updated[index].maxQuantity));
+      updated[index] = { ...updated[index], quantity: safeQty };
+      const newTotal = updated
+        .filter(s => s.isSelected)
+        .reduce((sum, s) => sum + s.unitPrice * s.quantity, 0);
+      setRefundAmount(newTotal);
+      return updated;
+    });
   };
 
   const handleConfirmApprove = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!approvingReq || isSubmitting) return;
 
+    const activeRestock = restockItemSelections.filter(s => s.isSelected && s.variantId > 0 && s.quantity > 0);
+    if (activeRestock.length === 0) {
+      setModalError('Vui lòng chọn ít nhất 1 sản phẩm thực tế nhận lại để nhập hoàn kho MB04!');
+      return;
+    }
+
     // API 11.3: Biên bản kiểm định ngoại quan & Hoàn kho MB04 (APPROVED)
     setErrorBanner(null);
     setModalError(null);
     setIsSubmitting(true);
     try {
-      let restockItems = (approvingReq.items || [])
-        .filter(i => i.variantId && i.quantity > 0)
-        .map(i => ({ variantId: Number(i.variantId), quantity: i.quantity }));
-
-      // Nếu phiếu cũ chưa có variantId -> tra cứu đơn hàng gốc qua API 8.3 để lấy đúng variantId hoàn kho MB04
-      if (restockItems.length === 0 && approvingReq.orderCode) {
-        const origOrder = await orderService.getOrderByCode(approvingReq.orderCode);
-        if (origOrder?.items?.length) {
-          restockItems = origOrder.items
-            .filter(i => i.variantId && i.quantity > 0)
-            .map(i => ({ variantId: Number(i.variantId), quantity: i.quantity }));
-        }
-      }
+      const restockItems = activeRestock.map(i => ({ variantId: Number(i.variantId), quantity: i.quantity }));
 
       await returnService.inspectReturn(approvingReq.returnId, {
         status: 'APPROVED',
@@ -139,7 +201,7 @@ export const PortalReturnRequestsView: React.FC = () => {
             : r
         )
       );
-      showNotification(`Đã duyệt hoàn tiền ${formatVND(refundAmount)} & lập phiếu nhập kho cho RMA-${approvingReq.returnId}!`);
+      showNotification(`Đã duyệt hoàn tiền ${formatVND(refundAmount)} & lập phiếu nhập kho MB04 cho RMA-${approvingReq.returnId}!`);
       setApprovingReq(null);
       loadAdminReturns();
     } catch (err: any) {
@@ -320,6 +382,11 @@ export const PortalReturnRequestsView: React.FC = () => {
                     Đơn hàng: <strong className="font-mono text-primary font-bold">#{req.orderCode}</strong>
                   </span>
                   {getStatusBadge(req.status)}
+                  {req.isPartial && (
+                    <span className="text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full">
+                      Hoàn trả 1 phần
+                    </span>
+                  )}
                 </div>
 
                 <div className="text-[11px] text-steel flex items-center gap-1.5">
@@ -389,7 +456,7 @@ export const PortalReturnRequestsView: React.FC = () => {
                   )}
                   {req.status !== 'APPROVED' && req.status !== 'REJECTED' && (req.orderTotalAmount !== undefined && req.orderTotalAmount > 0) && (
                     <div className="flex items-center justify-between text-xs font-bold text-primary bg-primary/5 p-2 rounded-lg border border-primary/20">
-                      <span>Giá trị đơn hàng có thể hoàn tối đa:</span>
+                      <span>{req.isPartial ? 'Giá trị sản phẩm yêu cầu hoàn tối đa:' : 'Giá trị đơn hàng có thể hoàn tối đa:'}</span>
                       <span className="text-sm font-mono">{formatVND(req.orderTotalAmount)}</span>
                     </div>
                   )}
@@ -488,7 +555,7 @@ export const PortalReturnRequestsView: React.FC = () => {
       {/* Modal 2: Approve & Refund */}
       {approvingReq && (
         <div className="fixed inset-0 z-50 bg-ink-deep/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <form onSubmit={handleConfirmApprove} className="max-w-md w-full bg-canvas border border-hairline-soft rounded-2xl p-6 shadow-2xl space-y-4 text-xs animate-in fade-in duration-150">
+          <form onSubmit={handleConfirmApprove} className="max-w-lg w-full bg-canvas border border-hairline-soft rounded-2xl p-6 shadow-2xl space-y-4 text-xs animate-in fade-in duration-150 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-hairline-soft">
               <h4 className="font-bold text-ink-deep text-sm">Chấp thuận đổi trả & Hoàn tiền</h4>
               <button type="button" onClick={() => setApprovingReq(null)} className="p-1 text-steel hover:text-ink">
@@ -503,11 +570,73 @@ export const PortalReturnRequestsView: React.FC = () => {
               </div>
             )}
             <p className="text-steel">
-              Hệ thống sẽ chuyển trạng thái đơn hàng sang đã hoàn, tự động sinh <strong>Phiếu nhập lại kho</strong> và hoàn tiền cho khách hàng.
+              Hệ thống sẽ hoàn tiền cho khách hàng và tự động sinh <strong>Biên bản nhập kho MB04</strong> cho các sản phẩm được tích chọn dưới đây.
             </p>
 
+            {/* Danh sách sản phẩm thực tế nhận hoàn kho MB04 */}
+            <div className="space-y-2 border border-hairline-soft rounded-xl p-3 bg-surface-soft/40">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-ink-deep">Sản phẩm thực tế nhận lại vào kho (MB04):</label>
+                <span className="text-[10px] text-steel">Chọn đúng sản phẩm khách trả</span>
+              </div>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {restockItemSelections.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-2.5 rounded-lg border transition-all ${
+                      item.isSelected ? 'border-primary/50 bg-canvas shadow-xs' : 'border-hairline-soft opacity-60 bg-surface-soft/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <label className="flex items-center gap-2.5 cursor-pointer flex-1 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={item.isSelected}
+                          onChange={() => handleToggleRestockItem(idx)}
+                          className="rounded text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                        />
+                        <div className="min-w-0">
+                          <div className="font-semibold text-ink-deep truncate">{item.productName}</div>
+                          <div className="text-[11px] text-steel font-mono">
+                            {item.sku} • {formatVND(item.unitPrice)}
+                          </div>
+                        </div>
+                      </label>
+
+                      {item.isSelected && item.maxQuantity > 1 ? (
+                        <div className="flex items-center gap-1 shrink-0 bg-surface-soft border border-hairline-soft rounded-lg p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => handleRestockQuantityChange(idx, item.quantity - 1)}
+                            disabled={item.quantity <= 1}
+                            className="w-6 h-6 rounded bg-canvas hover:bg-hairline flex items-center justify-center font-bold text-xs disabled:opacity-40"
+                          >
+                            -
+                          </button>
+                          <span className="w-6 text-center font-mono font-bold text-xs">{item.quantity}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRestockQuantityChange(idx, item.quantity + 1)}
+                            disabled={item.quantity >= item.maxQuantity}
+                            className="w-6 h-6 rounded bg-canvas hover:bg-hairline flex items-center justify-center font-bold text-xs disabled:opacity-40"
+                          >
+                            +
+                          </button>
+                        </div>
+                      ) : (
+                        item.isSelected && <span className="text-xs font-mono font-bold text-ink-deep shrink-0">x1</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <div>
-              <label className="block text-steel font-medium mb-1">Số tiền hoàn trả (VNĐ):</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-steel font-medium">Số tiền hoàn trả (VNĐ):</label>
+                <span className="text-[10px] text-steel">Tự động tính theo sản phẩm đã chọn</span>
+              </div>
               <input
                 type="number"
                 min={0}

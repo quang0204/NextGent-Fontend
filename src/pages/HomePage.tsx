@@ -548,54 +548,7 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* 2. BRAND QUICK FILTER ROW (Lấy logo thương hiệu từ MinIO đổ vào bên cạnh tên) */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6">
-        <div className="bg-canvas border border-hairline-soft rounded-xxxl p-3 flex items-center gap-2.5 overflow-x-auto no-scrollbar shadow-xs">
-          <span className="text-xs font-bold text-steel uppercase tracking-wider px-3 flex-shrink-0">
-            Thương hiệu:
-          </span>
-          <button
-            onClick={() => setSelectedBrand('all')}
-            className={`px-4 py-2 rounded-full text-sm font-bold transition-all flex-shrink-0 cursor-pointer ${
-              selectedBrand === 'all'
-                ? 'bg-ink-deep text-canvas border-transparent shadow-subtle ring-2 ring-ink-deep/20'
-                : 'bg-canvas text-ink border border-hairline hover:border-slate hover:bg-surface-soft'
-            }`}
-          >
-            Tất cả
-          </button>
-          {brands.map((b) => {
-            const isSelected = selectedBrand.toLowerCase() === b.name.toLowerCase();
-            const brandLogo = resolveBrandLogo(b.logoUrl, b.name);
-            return (
-              <button
-                key={b.brandId}
-                onClick={() => setSelectedBrand(b.name)}
-                className={`inline-flex items-center gap-2 px-3.5 py-1.5 sm:py-2 rounded-full text-sm font-bold transition-all flex-shrink-0 cursor-pointer ${
-                  isSelected
-                    ? 'bg-ink-deep text-canvas border-transparent shadow-subtle ring-2 ring-ink-deep/20'
-                    : 'bg-canvas text-ink border border-hairline hover:border-slate hover:bg-surface-soft'
-                }`}
-              >
-                {brandLogo && (
-                  <span className="w-5 h-5 rounded-full bg-white flex items-center justify-center p-0.5 shrink-0 border border-hairline-soft/60 shadow-2xs overflow-hidden">
-                    <img
-                      src={brandLogo}
-                      alt={b.name}
-                      className="w-full h-full object-contain"
-                      loading="lazy"
-                      onError={(e) => {
-                        (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  </span>
-                )}
-                <span>{b.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+
 
       {/* 3. FLASH SALE SECTION (DESIGN-meta card-promo-strip) */}
       {flashSaleProducts.length > 0 && (

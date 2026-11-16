@@ -19,15 +19,23 @@ const formatOrderRom = (it: any): string => {
   return romVal > 0 ? `${romVal}GB` : '';
 };
 
-const mapBackendOrderToFrontend = (o: any, existing?: OrderDetail): OrderDetail => ({
-  orderId: o.orderId,
-  orderCode: o.orderCode,
-  status: (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION',
-  recipientName: o.recipientName || existing?.recipientName || 'Khách hàng',
-  recipientPhone: o.recipientPhone || existing?.recipientPhone || '',
-  shippingAddress: o.shippingAddress || existing?.shippingAddress || '',
-  paymentMethod: o.paymentMethod || existing?.paymentMethod || 'COD',
-  paymentStatus: o.paymentStatus || existing?.paymentStatus || 'UNPAID',
+const mapBackendOrderToFrontend = (o: any, existing?: OrderDetail): OrderDetail => {
+  const status = (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION';
+  let paymentStatus = o.paymentStatus || existing?.paymentStatus || 'UNPAID';
+  // Nếu đơn hàng đã hoàn tất giao hàng (COMPLETED), thanh toán COD / Chuyển khoản đã hoàn tất
+  if (status === 'COMPLETED' && paymentStatus !== 'REFUNDED' && paymentStatus !== 'PARTIALLY_REFUNDED') {
+    paymentStatus = 'PAID';
+  }
+
+  return {
+    orderId: o.orderId,
+    orderCode: o.orderCode,
+    status,
+    recipientName: o.recipientName || existing?.recipientName || 'Khách hàng',
+    recipientPhone: o.recipientPhone || existing?.recipientPhone || '',
+    shippingAddress: o.shippingAddress || existing?.shippingAddress || '',
+    paymentMethod: o.paymentMethod || existing?.paymentMethod || 'COD',
+    paymentStatus,
   shippingFee: o.shippingFee ?? existing?.shippingFee ?? 0,
   subtotal: o.subtotal ?? existing?.subtotal ?? o.totalAmount ?? 0,
   voucherDiscount: o.voucherDiscount ?? existing?.voucherDiscount ?? 0,
@@ -68,7 +76,8 @@ const mapBackendOrderToFrontend = (o: any, existing?: OrderDetail): OrderDetail 
         note: h.note || h.description || '',
       }))
     : (existing?.statusHistory || []),
-});
+  };
+};
 
 export const orderService = {
   /**
@@ -484,11 +493,11 @@ export const orderService = {
   async requestReturn(
     orderId: number,
     reason: string,
-    bankInfo?: { bankName?: string; accountNumber?: string; accountHolder?: string }
+    bankInfo?: { bankName?: string; accountNumber?: string; accountHolder?: string },
+    items?: Array<{ variantId?: number; productName: string; sku: string; quantity: number; unitPrice: number }>
   ): Promise<{ success: boolean; message: string }> {
-    return returnService.createReturnRequest({ orderId, reason, bankInfo });
-  }
-,
+    return returnService.createReturnRequest({ orderId, reason, bankInfo, items });
+  },
 
   /**
    * API 8.5: POST /api/v1/orders/{id}/notify-payment
@@ -531,6 +540,28 @@ export const orderService = {
       return {
         success: false,
         message: err.response?.data?.message || 'Không kết nối được máy chủ để xác nhận thanh toán. Vui lòng thử lại!'
+      };
+    }
+  },
+
+  /**
+   * API 8.9: Xác nhận nhận hàng hoàn kho & Hoàn tất hủy đơn (STAFF / ADMIN)
+   */
+  async receiveReturnOrder(orderId: number, note?: string): Promise<{ success: boolean; data?: any; message?: string }> {
+    try {
+      const res = await apiClient.post<{ success: boolean; data: any; message?: string }>(
+        `/admin/orders/${orderId}/receive-return`,
+        null,
+        { params: { note } }
+      );
+      sharedStore.processReturnRestock(orderId, true, note || 'Thủ kho xác nhận nhận hàng hoàn kho');
+      return res.data;
+    } catch (err: any) {
+      console.warn('[orderService.receiveReturnOrder] backend failed, falling back to local store', err);
+      const ok = sharedStore.processReturnRestock(orderId, true, note || 'Thủ kho xác nhận nhận hàng hoàn kho');
+      return {
+        success: ok,
+        message: err.response?.data?.message || (ok ? 'Đã tiếp nhận hàng hoàn kho thành công!' : 'Lỗi khi nhận hàng hoàn kho')
       };
     }
   }

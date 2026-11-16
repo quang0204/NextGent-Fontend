@@ -147,6 +147,7 @@ export interface PortalReturnRequest {
   rejectReason?: string;
   createdAt: string;
   evidenceImages?: string[];
+  isPartial?: boolean;
   bankInfo?: {
     bankName?: string;
     accountNumber?: string;

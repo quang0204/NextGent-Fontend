@@ -167,13 +167,18 @@ export const cleanLogNote = (note: string): string => {
 };
 
 export const sanitizeOrderNotes = (order: OrderDetail): OrderDetail => {
-  if (!order || !order.statusHistory) return order;
+  if (!order) return order;
+  const isCompleted = order.status === 'COMPLETED';
+  const isRefunded = order.paymentStatus === 'REFUNDED' || order.paymentStatus === 'PARTIALLY_REFUNDED';
+  const effectivePaymentStatus = (isCompleted && !isRefunded) ? 'PAID' : (order.paymentStatus || 'UNPAID');
+
   return {
     ...order,
-    statusHistory: order.statusHistory.map(h => ({
+    paymentStatus: effectivePaymentStatus,
+    statusHistory: order.statusHistory ? order.statusHistory.map(h => ({
       ...h,
       note: cleanLogNote(h.note)
-    }))
+    })) : []
   };
 };
 
@@ -898,6 +903,20 @@ export const sharedStore = {
           time: nowTimeStr,
           note: "Khách hàng đã nhận thiết bị thành công (Vận đơn " + ship.trackingCode + ": Giao thành công). Ghi nhận doanh thu thuần."
         });
+      } else if (status === 'DELIVERY_FAILED' || status === 'FAILED' || status === 'PICKUP_FAILED') {
+        ord.status = 'RETURNING';
+        ord.carrier = ship.carrier;
+        ord.trackingCode = ship.trackingCode;
+        ord.cancelReason = failReason ? `Giao hàng thất bại: ${failReason}` : 'Giao hàng thất bại';
+        if (ord.paymentStatus === 'PAID') {
+          ord.paymentStatus = 'REFUND_PENDING';
+        }
+        ord.statusHistory = ord.statusHistory || [];
+        ord.statusHistory.unshift({
+          status: 'RETURNING',
+          time: nowTimeStr,
+          note: `Giao hàng không thành công (Vận đơn ${ship.trackingCode}${failReason ? `: ${failReason}` : ''}). Kiện hàng đang hoàn về kho.`
+        });
       }
 
       ord.updatedAt = new Date().toISOString();
@@ -938,14 +957,67 @@ export const sharedStore = {
     return returnRequests;
   },
 
+  syncExternalReturns(remoteReturns: PortalReturnRequest[]) {
+    if (!Array.isArray(remoteReturns)) return;
+    for (const rr of remoteReturns) {
+      const idx = returnRequests.findIndex(r => r.returnId === rr.returnId || (r.orderCode && rr.orderCode && r.orderCode.replace(/^#/, '') === rr.orderCode.replace(/^#/, '')));
+      if (idx !== -1) {
+        returnRequests[idx] = { ...returnRequests[idx], ...rr };
+      } else {
+        returnRequests.unshift(rr);
+      }
+
+      // Đồng bộ sang order
+      const ord = orders.find(o => {
+        const matchId = o.orderId && rr.orderId && Number(o.orderId) === Number(rr.orderId);
+        const oCode = (o.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+        const rCode = (rr.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+        const matchCode = Boolean(oCode && rCode && (oCode === rCode || oCode.includes(rCode) || rCode.includes(oCode)));
+        return matchId || matchCode;
+      });
+
+      if (ord) {
+        ord.returnId = rr.returnId;
+        ord.returnStatus = rr.status;
+        ord.returnReason = rr.reason;
+        if (rr.rejectReason) ord.returnRejectReason = rr.rejectReason;
+        if (rr.inspectionResult) ord.returnInspectionResult = rr.inspectionResult;
+        if (rr.refundAmount !== undefined) ord.returnRefundAmount = rr.refundAmount;
+        if (rr.status === 'APPROVED') {
+          const isPartial = rr.refundAmount !== undefined && rr.refundAmount < ord.totalAmount;
+          ord.paymentStatus = isPartial ? 'PARTIALLY_REFUNDED' : 'REFUNDED';
+        }
+      }
+    }
+    saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
+    saveToStorage(STORAGE_KEY_ORDERS, orders);
+    notify();
+  },
+
   createReturnRequest(req: Omit<PortalReturnRequest, 'returnId' | 'status' | 'createdAt'>): PortalReturnRequest {
-    const newReq: PortalReturnRequest = {...req,
+    const newReq: PortalReturnRequest = {
+      ...req,
       returnId: Date.now(),
       status: 'PENDING',
       createdAt: new Date().toISOString()
     };
     returnRequests.unshift(newReq);
     saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
+
+    // Đồng bộ trực tiếp sang orders để giao diện trang Đơn hàng nhận diện ngay
+    const ord = orders.find(o => {
+      const matchId = o.orderId && req.orderId && Number(o.orderId) === Number(req.orderId);
+      const oCode = (o.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const rCode = (req.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const matchCode = Boolean(oCode && rCode && (oCode === rCode || oCode.includes(rCode) || rCode.includes(oCode)));
+      return matchId || matchCode;
+    });
+    if (ord) {
+      ord.returnId = newReq.returnId;
+      ord.returnStatus = 'PENDING';
+      ord.returnReason = req.reason;
+      saveToStorage(STORAGE_KEY_ORDERS, orders);
+    }
 
     notificationService.notifyOrderProgress({
       orderId: req.orderId,
@@ -996,6 +1068,27 @@ export const sharedStore = {
     r.refundAmount = refundAmount;
     saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
 
+    // Đồng bộ sang orders
+    const ord = orders.find(o => {
+      const matchId = o.orderId && r.orderId && Number(o.orderId) === Number(r.orderId);
+      const oCode = (o.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const rCode = (r.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const matchCode = Boolean(oCode && rCode && (oCode === rCode || oCode.includes(rCode) || rCode.includes(oCode)));
+      return matchId || matchCode;
+    });
+    if (ord) {
+      const allApprovedReturns = returnRequests.filter(rq => rq.status === 'APPROVED' && (
+        (rq.orderId && ord.orderId && Number(rq.orderId) === Number(ord.orderId)) ||
+        (rq.orderCode && ord.orderCode && rq.orderCode.replace(/^#/, '') === ord.orderCode.replace(/^#/, ''))
+      ));
+      const totalRefunded = allApprovedReturns.reduce((sum, rq) => sum + (rq.refundAmount || 0), 0);
+      const isPartial = totalRefunded < ord.totalAmount;
+      ord.paymentStatus = isPartial ? 'PARTIALLY_REFUNDED' : 'REFUNDED';
+      ord.returnStatus = 'APPROVED';
+      ord.returnRefundAmount = totalRefunded > 0 ? totalRefunded : refundAmount;
+      saveToStorage(STORAGE_KEY_ORDERS, orders);
+    }
+
     // Kích hoạt Phiếu nhập kho hoàn hàng
     const newMovement: StockMovementRecord = {
       txnId: Date.now(),
@@ -1039,6 +1132,20 @@ export const sharedStore = {
     r.status = 'REJECTED';
     r.rejectReason = rejectReason;
     saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
+
+    // Đồng bộ sang orders
+    const ord = orders.find(o => {
+      const matchId = o.orderId && r.orderId && Number(o.orderId) === Number(r.orderId);
+      const oCode = (o.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const rCode = (r.orderCode || '').trim().toLowerCase().replace(/^#/, '');
+      const matchCode = Boolean(oCode && rCode && (oCode === rCode || oCode.includes(rCode) || rCode.includes(oCode)));
+      return matchId || matchCode;
+    });
+    if (ord) {
+      ord.returnStatus = 'REJECTED';
+      ord.returnRejectReason = rejectReason;
+      saveToStorage(STORAGE_KEY_ORDERS, orders);
+    }
 
     notificationService.createNotification({
       userId: 1,

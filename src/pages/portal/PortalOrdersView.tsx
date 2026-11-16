@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { apiClient } from '../../services/apiClient';
 import { sharedStore, cleanLogNote } from '../../services/sharedStore';
 import { inventoryService } from '../../services/inventoryService';
 import { orderService } from '../../services/orderService';
@@ -409,6 +410,22 @@ export const PortalOrdersView: React.FC = () => {
         const res = await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
         apiSuccess = res?.success ?? true;
       }
+      // Đồng bộ hoàn tất giao hàng xuống Vận đơn Backend
+      else if (nextStatus === 'COMPLETED') {
+        const ship = shipments.find(s => s.orderId === orderId);
+        if (ship?.shipmentId) {
+          try {
+            const shipRes = await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
+              status: 'DELIVERED',
+              note: 'Xác nhận giao hàng thành công từ Bảng Đơn hàng'
+            });
+            apiSuccess = true;
+            apiMsg = shipRes.data?.message || 'Đã xác nhận giao hàng thành công!';
+          } catch (e: any) {
+            console.warn('[handleTransition-COMPLETED] backend shipment sync failed', e);
+          }
+        }
+      }
 
       const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
         performedBy: 'Nguyễn Thanh Hùng (Staff)'
@@ -517,6 +534,27 @@ export const PortalOrdersView: React.FC = () => {
     }
   };
 
+  // Xác nhận nhận kiện hàng hoàn về kho & Hoàn tất hủy đơn (API 8.9)
+  const handleReceiveReturn = async (order: OrderDetail) => {
+    const confirmMsg = `Xác nhận nhận lại kiện hàng đơn #${order.orderCode} từ bưu tá?\n\nHệ thống sẽ:\n1. Kiểm đếm và hoàn tồn kho vật lý (MB04).\n2. Chuyển trạng thái đơn sang ĐÃ HỦY.\n${order.paymentStatus === 'PAID' ? '3. Ghi nhận CHỜ HOÀN TIỀN cho khách hàng.' : ''}`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await orderService.receiveReturnOrder(order.orderId, 'Thủ kho nhận kiện hàng hoàn về và nhập lại kho');
+      if (res && res.success) {
+        setBulkActionFeedback(`✓ ${res.message || `Đã tiếp nhận hàng hoàn kho cho đơn #${order.orderCode}!`}`);
+        setTimeout(() => setBulkActionFeedback(null), 4000);
+        setOrders([...sharedStore.getOrders()]);
+        setShipments([...sharedStore.getShipments()]);
+        await loadAdminOrders();
+      } else {
+        alert(res?.message || 'Không thể xử lý nhận hàng hoàn kho.');
+      }
+    } catch (err: any) {
+      alert(err?.response?.data?.message || err?.message || 'Lỗi khi nhận hàng hoàn kho.');
+    }
+  };
+
   // Duyệt hàng loạt theo trạng thái đích
   const handleBulkApprove = (targetStatus: OrderStatus, actionName: string) => {
     if (selectedOrderIds.length === 0) return;
@@ -532,6 +570,14 @@ export const PortalOrdersView: React.FC = () => {
         orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
       } else if (targetStatus === 'SHIPPING' && (order.status === 'PREPARING' || order.status === 'PICKED_UP')) {
         orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+      } else if (targetStatus === 'COMPLETED' && order.status === 'SHIPPING') {
+        const ship = shipments.find(s => s.orderCode === order.orderCode || s.orderId === order.orderId);
+        if (ship?.shipmentId) {
+          apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
+            status: 'DELIVERED',
+            note: 'Duyệt hoàn tất giao hàng từ Bảng Đơn hàng'
+          }).catch((err: any) => console.warn('[bulk-delivered] sync failed', err));
+        }
       }
 
       const res = sharedStore.transitionOrderStatus(orderId, targetStatus, {
@@ -1167,6 +1213,18 @@ export const PortalOrdersView: React.FC = () => {
                             </span>
                           )}
 
+                          {/* 5.5. RETURNING: Đang hoàn về -> Nút Thao tác nhanh nhận hàng hoàn kho ngay ngoài danh sách */}
+                          {order.status === 'RETURNING' && (
+                            <button
+                              onClick={() => handleReceiveReturn(order)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] flex items-center gap-1 shadow-xs transition animate-pulse"
+                              title="Thủ kho kiểm tra kiện hàng từ bưu tá, nhập lại tồn kho MB04 và hoàn tất hủy đơn"
+                            >
+                              <Boxes size={12} />
+                              <span>Nhận hàng hoàn</span>
+                            </button>
+                          )}
+
                           {order.status === 'COMPLETED' && (
                             <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-md text-[10px] font-bold inline-flex items-center gap-1">
                               <CheckCircle2 size={11} className="text-emerald-600" />
@@ -1438,6 +1496,23 @@ export const PortalOrdersView: React.FC = () => {
                                order.status === 'PICKED_UP'? 'Bưu tá đã lấy hàng từ kho':
                                'Bưu tá đang giao hàng'} ({order.trackingCode || shipmentRecord?.trackingCode || 'Đã cấp mã VĐ'})
                             </span>
+                          </div>
+                        )}
+
+                        {order.status === 'RETURNING' && (
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 border border-orange-200 text-orange-700 rounded-xl text-xs font-semibold">
+                              <RotateCcw size={13} className="text-orange-600" />
+                              <span>Đang hoàn về ({order.trackingCode || shipmentRecord?.trackingCode || 'Vận đơn'})</span>
+                            </div>
+                            <button
+                              onClick={() => handleReceiveReturn(order)}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-xs transition"
+                              title="Thủ kho kiểm tra kiện hàng, nhập lại tồn kho MB04 và hoàn tất hủy đơn"
+                            >
+                              <Boxes size={14} />
+                              <span>Nhận hàng hoàn kho & Hủy đơn</span>
+                            </button>
                           </div>
                         )}
 
