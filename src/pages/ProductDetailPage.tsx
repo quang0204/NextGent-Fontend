@@ -17,18 +17,19 @@ import { useWishlistStore } from '../stores/wishlistStore';
 import { useCompareStore } from '../stores/compareStore';
 import { useToastStore } from '../stores/toastStore';
 import { useAuthStore } from '../stores/authStore';
-import {
-  ShieldCheck,
-  RotateCcw,
-  Truck,
-  Gift,
-  ShoppingBag,
+import { 
+  ShieldCheck, 
+  RotateCcw, 
+  Truck, 
+  Gift, 
+  ShoppingBag, 
   Heart,
   Scale,
-  CheckCircle,
-  Clock,
-  MessageSquare,
+  CheckCircle, 
+  Clock, 
+  MessageSquare, 
   Star,
+  Send,
   UserCheck,
   Zap,
   AlertCircle,

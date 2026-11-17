@@ -4,15 +4,23 @@ import { productService, applyActivePromotionsToProducts } from '../services/pro
 import { promotionService, getCountdownParts } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
-
-import {
-  Zap,
-  ChevronRight,
+import { formatVND } from '../components/common/PriceDisplay';
+import { 
+  Zap, 
+  ShieldCheck, 
+  Truck, 
+  RotateCcw, 
+  ChevronRight, 
   ChevronLeft,
+  ChevronDown, 
+  CreditCard,
+  Cpu,
   Smartphone,
   Laptop,
   Tablet,
-  Headphones
+  Headphones,
+  Flame,
+  Star
 } from 'lucide-react';
 
 const classifyProductCategory = (p: Product): 'phone' | 'laptop' | 'tablet' | 'accessory' => {
@@ -539,6 +547,8 @@ export const HomePage: React.FC = () => {
           </div>
         </div>
       </section>
+
+
 
       {/* 3. FLASH SALE SECTION (DESIGN-meta card-promo-strip) */}
       {flashSaleProducts.length > 0 && (

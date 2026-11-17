@@ -3,18 +3,22 @@ import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { productService, ProductFilterParams, parseSmartSearchQuery } from '../services/productService';
 import { Product, Brand } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
-import {
-  Filter,
-  SlidersHorizontal,
-  X,
-  ArrowUpDown,
-  ChevronRight,
+import { 
+  Filter, 
+  SlidersHorizontal, 
+  X, 
+  ArrowUpDown, 
+  ChevronRight, 
   ChevronLeft,
   ChevronsLeft,
   ChevronsRight,
   Check,
   Sparkles,
-  Wifi
+  Zap,
+  BatteryCharging,
+  Cpu,
+  Wifi,
+  Tag
 } from 'lucide-react';
 
 const getPriceRangesForCategory = (cat: string) => {

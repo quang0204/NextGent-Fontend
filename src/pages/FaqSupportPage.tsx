@@ -2,15 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { sharedStore } from '../services/sharedStore';
 import { faqService, ticketService } from '../services/feedbackService';
 import { PortalFaqItem } from '../types/portal';
-import {
-  HelpCircle,
-  ChevronDown,
-  ChevronUp,
-  Send,
-  CheckCircle,
-  PhoneCall,
-  Mail
-} from 'lucide-react';
+import { HelpCircle, ChevronDown, ChevronUp, Send, CheckCircle, ShieldCheck, PhoneCall, Mail } from 'lucide-react';
 
 export const FaqSupportPage: React.FC = () => {
   const [faqs, setFaqs] = useState<PortalFaqItem[]>(sharedStore.getFaqs().filter(f => f.isVisible));

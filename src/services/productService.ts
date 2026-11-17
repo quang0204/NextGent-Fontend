@@ -1,9 +1,5 @@
 import { apiClient } from './apiClient';
-import {
-  Product,
-  Brand,
-  AdminProductDetailResponse
-} from '../types/product';
+import { Product, ProductVariant, Brand, AdminProductDetailResponse } from '../types/product';
 import { ProductReview } from '../types/review';
 import { sharedStore } from './sharedStore';
 import { reviewService } from './feedbackService';
@@ -213,6 +209,7 @@ const mapApiProductToFrontend = (it: any): Product => {
     soldCount: it.soldCount ?? 0,
   };
 };
+
 
 const fetchActivePromotionsRaw = async (): Promise<any[]> => {
   try {

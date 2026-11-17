@@ -3,19 +3,21 @@ import { brandService, BrandItem, BrandPayload } from '../../services/brandServi
 import { sharedStore } from '../../services/sharedStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useToastStore } from '../../stores/toastStore';
-import {
-  Award,
-  Plus,
-  Search,
-  Edit3,
-  Trash2,
-  Eye,
-  EyeOff,
-  X,
-  AlertCircle,
+import { 
+  Award, 
+  Plus, 
+  Search, 
+  Edit3, 
+  Trash2, 
+  Eye, 
+  EyeOff, 
+  X, 
+  AlertCircle, 
   Package,
   Loader2,
-  UploadCloud
+  ExternalLink,
+  UploadCloud,
+  ImageIcon
 } from 'lucide-react';
 
 // Chuyển đổi tên sang slug

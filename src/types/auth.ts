@@ -1,4 +1,4 @@
-
+import { UserProfile, UserAddress } from './user';
 
 export interface ApiResponse<T = any> {
   success: boolean;

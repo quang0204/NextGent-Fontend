@@ -1,18 +1,19 @@
 import { Product, ProductVariant, Brand } from '../types/product';
 import { OrderDetail, OrderStatus, CreateOrderPayload, OrderResponse, OrderItemSnapshot } from '../types/order';
-import {
-  PortalInventoryItem,
-  StockAdjustmentRecord,
-  StockMovementRecord,
-  PortalVoucher,
-  PortalAuditLog,
+import { 
+  PortalInventoryItem, 
+  StockAdjustmentRecord, 
+  StockMovementRecord, 
+  PortalVoucher, 
+  PortalAuditLog, 
   PortalSupportTicket,
   PortalCategory,
   PortalBrandItem,
   PortalReturnRequest,
   PortalShipment,
   PortalFaqItem,
-  PortalPromotion
+  PortalPromotion,
+  PortalPromotionVariant
 } from '../types/portal';
 import { ProductReview } from '../types/review';
 import { BRANDS } from './mockData';
@@ -105,6 +106,8 @@ export const sharedStore = {
     return products;
   },
 
+
+
   setProducts(prods: Product[]) {
 
     products = prods;
@@ -166,6 +169,8 @@ export const sharedStore = {
     notify();
 
   },
+
+
 
   syncExternalProduct(prod: Product) {
 
@@ -263,6 +268,8 @@ export const sharedStore = {
     notify();
 
   },
+
+
 
   getBrands(category?: string): Brand[] {
     const sourceBrands: Brand[] = portalBrands.length > 0
@@ -578,6 +585,8 @@ export const sharedStore = {
   getShipments(): PortalShipment[] {
     return shipments;
   },
+
+
 
   syncExternalShipments(remoteShipments: PortalShipment[]) {
 
@@ -1498,6 +1507,8 @@ export const sharedStore = {
     saveToStorage(STORAGE_KEY_ORDERS, orders);
     saveToStorage(STORAGE_KEY_INVENTORY, inventories);
 
+
+
     notificationService.notifyOrderProgress({
       userId: (order as any).userId || 1,
       orderId: order.orderId,
@@ -1762,6 +1773,8 @@ export const sharedStore = {
       status: nextStatus,
       note: options?.reason || order.statusHistory?.[0]?.note,
     });
+
+
 
     order.updatedAt = new Date().toISOString();
     saveToStorage(STORAGE_KEY_ORDERS, orders);

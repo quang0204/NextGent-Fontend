@@ -1,25 +1,34 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { formatVND } from '../../components/common/PriceDisplay';
-import {
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-  RotateCcw,
+import { 
+  TrendingUp, 
+  AlertTriangle, 
+  CheckCircle2, 
+  RotateCcw, 
   ArrowUpRight,
   Package,
   Clock,
   Truck,
   HelpCircle,
   BarChart3,
+  ExternalLink,
   ShieldAlert,
   Flame,
+  Award,
+  Layers,
+  ArrowUpDown,
   Download,
   Search,
   Filter,
   Sparkles,
   Tag,
+  DollarSign,
+  ChevronRight,
+  Calendar,
+  Percent,
   X,
   Check,
+  Zap,
   Info
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';

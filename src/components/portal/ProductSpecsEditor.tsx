@@ -1,12 +1,6 @@
 import React, { useState } from 'react';
-import { ProductSpecGroup } from '../../types/product';
-import {
-  Plus,
-  Trash2,
-  Layers,
-  Eye,
-  EyeOff
-} from 'lucide-react';
+import { ProductSpecGroup, ProductSpecItem } from '../../types/product';
+import { Plus, Trash2, Layers, Eye, EyeOff, GripVertical } from 'lucide-react';
 
 interface ProductSpecsEditorProps {
   groups: ProductSpecGroup[];

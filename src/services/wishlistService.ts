@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { sharedStore } from './sharedStore';
+import { Product } from '../types/product';
 
 export interface WishlistItem {
   wishlistId: number;

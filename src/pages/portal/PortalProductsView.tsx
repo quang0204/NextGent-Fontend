@@ -6,29 +6,38 @@ import { brandService } from '../../services/brandService';
 import { inventoryService } from '../../services/inventoryService';
 import { Product, Brand, ProductVariant, ProductSpecGroup, VariantSchemaField } from '../../types/product';
 import { variantSchemaService } from '../../services/variantSchemaService';
-
+import { useToastStore } from '../../stores/toastStore';
 import { DynamicVariantInputs } from '../../components/portal/DynamicVariantInputs';
 import { ProductSpecsEditor } from '../../components/portal/ProductSpecsEditor';
 import { ProductImagesManager } from '../../components/portal/ProductImagesManager';
 import { PortalPagination } from '../../components/portal/PortalPagination';
 import { formatVND } from '../../components/common/PriceDisplay';
-import {
-  Smartphone,
-  Tag,
-  Plus,
-  Trash2,
-  Edit,
-  AlertCircle,
-  Search,
+import { 
+  Smartphone, 
+  Tag, 
+  Plus, 
+  Trash2, 
+  Edit, 
+  AlertCircle, 
+  ShieldAlert, 
+  Search, 
+  CheckCircle,
+  Eye,
+  EyeOff,
+  Layers,
   X,
   Camera,
   Upload,
   Image as ImageIcon,
   Check,
   Lock,
+  Unlock,
   Boxes,
   Loader2,
+  SlidersHorizontal,
+  FileText,
   Package,
+  RefreshCw,
   UploadCloud
 } from 'lucide-react';
 

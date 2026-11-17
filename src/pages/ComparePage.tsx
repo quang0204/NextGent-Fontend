@@ -5,13 +5,7 @@ import { productService } from '../services/productService';
 import { Product } from '../types/product';
 import { formatVND } from '../components/common/PriceDisplay';
 import { RatingStars } from '../components/common/RatingStars';
-import {
-  Scale,
-  Trash2,
-  Plus,
-  ArrowLeft,
-  X
-} from 'lucide-react';
+import { Scale, Trash2, Plus, ArrowLeft, Check, X } from 'lucide-react';
 
 export const ComparePage: React.FC = () => {
   const { productIds, removeFromCompare, clearCompare } = useCompareStore();

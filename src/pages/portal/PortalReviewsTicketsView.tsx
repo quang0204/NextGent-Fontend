@@ -1,16 +1,18 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  MessageSquare,
-  HelpCircle,
-  Star,
-  CheckCircle,
-  Eye,
-  EyeOff,
-  Send,
-  Clock,
-  Phone,
-  Search,
-  Filter,
+import { 
+  MessageSquare, 
+  HelpCircle, 
+  Star, 
+  CheckCircle, 
+  Eye, 
+  EyeOff, 
+  Send, 
+  Clock, 
+  User, 
+  Phone, 
+  Search, 
+  Filter, 
+  Check, 
   X,
   BadgeCheck
 } from 'lucide-react';

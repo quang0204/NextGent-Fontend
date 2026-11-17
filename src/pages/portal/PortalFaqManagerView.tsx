@@ -2,19 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { sharedStore } from '../../services/sharedStore';
 import { faqService } from '../../services/feedbackService';
 import { PortalFaqItem } from '../../types/portal';
-import {
-  HelpCircle,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  EyeOff,
-  ArrowUp,
-  ArrowDown,
-  Search,
-  X,
-  CheckCircle,
-  AlertCircle
+import { 
+  HelpCircle, 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Eye, 
+  EyeOff, 
+  ArrowUp, 
+  ArrowDown, 
+  Search, 
+  X, 
+  CheckCircle, 
+  AlertCircle,
+  MessageSquare
 } from 'lucide-react';
 
 export const PortalFaqManagerView: React.FC = () => {

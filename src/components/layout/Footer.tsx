@@ -1,15 +1,20 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Phone,
-  Mail,
-  MapPin,
-  CreditCard,
-  Truck,
+import { 
+  Phone, 
+  Mail, 
+  MapPin, 
+  ShieldCheck, 
+  CreditCard, 
+  RotateCcw, 
+  Truck, 
+  Headphones,
   GraduationCap,
+  Award,
   CheckCircle2,
   ChevronRight,
-  QrCode
+  QrCode,
+  Wallet
 } from 'lucide-react';
 
 export const Footer: React.FC = () => {

@@ -5,12 +5,14 @@ import { PortalVoucher, PortalPromotion } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { PromotionCampaignModal } from '../../components/portal/PromotionCampaignModal';
 import { PortalPagination } from '../../components/portal/PortalPagination';
-import {
-  Ticket,
-  Flame,
-  Plus,
-  Trash2,
-  Clock,
+import { 
+  Ticket, 
+  Flame, 
+  Plus, 
+  Trash2, 
+  CheckCircle, 
+  Clock, 
+  ShieldCheck, 
   AlertCircle,
   Calendar,
   Layers,
