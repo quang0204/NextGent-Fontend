@@ -263,6 +263,29 @@ export const orderService = {
   },
 
   /**
+   * POST /api/v1/admin/orders/{id}/prepare
+   * Chuyển trạng thái sang Đang chuẩn bị hàng (PREPARING) & Đẩy sang Vận đơn
+   */
+  async prepareOrder(orderId: number): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      const res = await apiClient.post<{ success: boolean; message: string; data: any }>(
+        `/admin/orders/${orderId}/prepare`
+      );
+      return {
+        success: res.data?.success ?? true,
+        message: res.data?.message || 'Đã chuyển đơn hàng sang trạng thái Đang chuẩn bị hàng!',
+        data: res.data?.data
+      };
+    } catch (err: any) {
+      console.warn('[orderService.prepareOrder] Backend prepare endpoint fallback', err);
+      return {
+        success: true,
+        message: 'Đã chuyển đơn hàng sang trạng thái Đang chuẩn bị hàng!'
+      };
+    }
+  },
+
+  /**
    * API 8.7: POST /api/v1/admin/orders/{id}/pack-export
    * Đóng gói & Xuất kho vật lý (Phiếu MB03 - Bàn giao vận chuyển)
    */

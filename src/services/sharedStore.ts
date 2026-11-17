@@ -316,7 +316,12 @@ export const sharedStore = {
   },
 
   getOrders(): OrderDetail[] {
-    return orders.map(sanitizeOrderNotes);
+    return [...orders].sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime() || 0;
+      const timeB = new Date(b.createdAt).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.orderId) || 0) - (Number(a.orderId) || 0);
+    }).map(sanitizeOrderNotes);
   },
 
   syncExternalOrders(remoteOrders: OrderDetail[]) {
@@ -324,11 +329,27 @@ export const sharedStore = {
     for (const ro of remoteOrders) {
       const idx = orders.findIndex(o => Number(o.orderId) === Number(ro.orderId) || o.orderCode === ro.orderCode);
       if (idx !== -1) {
-        orders[idx] = { ...orders[idx], ...ro };
+        const localStatus = orders[idx].status;
+        const preserveLocalPreparing = (localStatus === 'PREPARING' && ro.status === 'CONFIRMED');
+        const preserveLocalPickedUp = (localStatus === 'PICKED_UP' && (ro.status === 'CONFIRMED' || ro.status === 'PREPARING'));
+        const finalStatus = preserveLocalPreparing ? 'PREPARING' : (preserveLocalPickedUp ? 'PICKED_UP' : ro.status);
+        orders[idx] = { 
+          ...orders[idx], 
+          ...ro,
+          status: finalStatus,
+          statusHistory: (preserveLocalPreparing || preserveLocalPickedUp) ? orders[idx].statusHistory : (ro.statusHistory?.length ? ro.statusHistory : orders[idx].statusHistory)
+        };
       } else {
-        orders.unshift(ro);
+        orders.push(ro);
       }
     }
+    // Luôn sắp xếp đơn hàng mới nhất lên đầu
+    orders.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime() || 0;
+      const timeB = new Date(b.createdAt).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.orderId) || 0) - (Number(a.orderId) || 0);
+    });
     saveToStorage(STORAGE_KEY_ORDERS, orders);
   },
 

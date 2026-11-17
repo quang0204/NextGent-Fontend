@@ -228,7 +228,7 @@ export const PortalShipmentsView: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
 
   const filtered = useMemo(() => {
-    return shipments.filter(s => {
+    const list = shipments.filter(s => {
       const matchSearch = 
         (s.orderCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (s.trackingCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -246,6 +246,13 @@ export const PortalShipmentsView: React.FC = () => {
       }
       if (carrierFilter !== 'ALL' && s.carrier !== carrierFilter) return false;
       return true;
+    });
+
+    return list.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || 0).getTime() || 0;
+      const timeB = new Date(b.updatedAt || 0).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.shipmentId) || 0) - (Number(a.shipmentId) || 0);
     });
   }, [shipments, searchTerm, statusFilter, carrierFilter]);
 

@@ -211,8 +211,8 @@ export const PortalOrdersView: React.FC = () => {
         paymentStatus: 'ALL',
       });
       if (res?.content && res.content.length > 0) {
-        setOrders(res.content);
         sharedStore.syncExternalOrders(res.content);
+        setOrders([...sharedStore.getOrders()]);
       }
     } catch (err) {
       console.warn('[PortalOrdersView] loadAdminOrders error', err);
@@ -255,7 +255,7 @@ export const PortalOrdersView: React.FC = () => {
   // Helper tính trạng thái đơn hàng hiệu lực (kết hợp đồng bộ tiến trình vận đơn)
   const getEffectiveOrderStatus = (order: OrderDetail): OrderStatus => {
     const sh = getShipmentForOrder(order);
-    if (sh?.status === 'PICKED_UP' && order.status !== 'SHIPPING' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
+    if (sh?.status === 'PICKED_UP' && order.status !== 'COMPLETED' && order.status !== 'CANCELLED') {
       return 'PICKED_UP';
     }
     if (sh?.status === 'IN_TRANSIT' && (order.status === 'PREPARING' || order.status === 'PICKED_UP' || order.status === 'CONFIRMED')) {
@@ -316,7 +316,7 @@ export const PortalOrdersView: React.FC = () => {
 
   // Bộ lọc dữ liệu đơn hàng
   const filteredOrders = useMemo(() => {
-    return orders.filter(order => {
+    const list = orders.filter(order => {
       // 1. Tìm kiếm theo mã đơn, người nhận, số điện thoại
       const q = searchTerm.trim().toLowerCase();
       if (q) {
@@ -348,6 +348,14 @@ export const PortalOrdersView: React.FC = () => {
       }
 
       return true;
+    });
+
+    // Luôn sắp xếp đơn hàng mới nhất lên đầu danh sách (createdAt DESC, orderId DESC)
+    return list.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime() || 0;
+      const timeB = new Date(b.createdAt).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.orderId) || 0) - (Number(a.orderId) || 0);
     });
   }, [orders, shipments, searchTerm, selectedStatus, selectedPaymentStatus, dateFrom, dateTo]);
 
@@ -402,6 +410,11 @@ export const PortalOrdersView: React.FC = () => {
       // API 8.6: POST /api/v1/admin/orders/{id}/confirm
       if (nextStatus === 'CONFIRMED') {
         const res = await orderService.confirmOrder(orderId, { carrier: 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+        apiSuccess = res.success;
+        apiMsg = res.message;
+      }
+      else if (nextStatus === 'PREPARING') {
+        const res = await orderService.prepareOrder(orderId);
         apiSuccess = res.success;
         apiMsg = res.message;
       }
@@ -1157,7 +1170,7 @@ export const PortalOrdersView: React.FC = () => {
                           )}
 
                           {/* 3. CONFIRMED: Đã xác nhận -> Chuẩn bị hàng & Đẩy sang Bảng Vận đơn */}
-                          {order.status === 'CONFIRMED' && (
+                          {effectiveStatus === 'CONFIRMED' && (
                             <>
                               <button
                                 onClick={() => handleTransition(order.orderId, 'PREPARING')}
@@ -1278,7 +1291,8 @@ export const PortalOrdersView: React.FC = () => {
       {/* 4. DRAWER / MODAL CHI TIẾT ĐƠN HÀNG TOÀN DIỆN (KHU VỰC A ĐẾN G) */}
       {viewDetailModal && (() => {
         const order = viewDetailModal;
-        const statusObj = STATUS_PIPELINE.find(s => s.key === order.status) || STATUS_PIPELINE[0];
+        const effectiveStatus = getEffectiveOrderStatus(order);
+        const statusObj = STATUS_PIPELINE.find(s => s.key === effectiveStatus) || STATUS_PIPELINE[0];
         const paymentObj = PAYMENT_STATUS_MAP[order.paymentStatus] || PAYMENT_STATUS_MAP.UNPAID;
         const shipmentRecord = getShipmentForOrder(order);
         const returnRecord = getReturnRequestForOrder(order);
@@ -1467,7 +1481,7 @@ export const PortalOrdersView: React.FC = () => {
                           </>
                         )}
 
-                        {order.status === 'CONFIRMED' && (
+                        {effectiveStatus === 'CONFIRMED' && (
                           <>
                             <button
                               onClick={() => handleTransition(order.orderId, 'PREPARING')}
@@ -1488,12 +1502,12 @@ export const PortalOrdersView: React.FC = () => {
                           </>
                         )}
 
-                        {(order.status === 'PREPARING' || order.status === 'PICKED_UP' || order.status === 'SHIPPING') && (
+                        {(effectiveStatus === 'PREPARING' || effectiveStatus === 'PICKED_UP' || effectiveStatus === 'SHIPPING') && (
                           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-xs font-semibold">
                             <Truck size={13} className="text-blue-600" />
                             <span>
-                              {order.status === 'PREPARING'? 'Đang chuẩn bị hàng (Đã đẩy Vận đơn)':
-                               order.status === 'PICKED_UP'? 'Bưu tá đã lấy hàng từ kho':
+                              {effectiveStatus === 'PREPARING'? 'Đang chuẩn bị hàng (Đã đẩy Vận đơn)':
+                               effectiveStatus === 'PICKED_UP'? 'Bưu tá đã lấy hàng từ kho':
                                'Bưu tá đang giao hàng'} ({order.trackingCode || shipmentRecord?.trackingCode || 'Đã cấp mã VĐ'})
                             </span>
                           </div>
@@ -1782,7 +1796,7 @@ export const PortalOrdersView: React.FC = () => {
                             {order.status === 'CONFIRMED'? 'Nhấn nút "Bắt đầu chuẩn bị hàng & Đẩy VĐ" để bộ phận kho tiếp nhận đóng gói và hệ thống sẽ tự động khởi tạo vận đơn sang Quản lý Vận đơn.': 'Đơn hàng cần được duyệt xác nhận trước khi tiếp nhận chuẩn bị và đẩy sang Bảng Vận đơn.'}
                           </p>
                         </div>
-                        {order.status === 'CONFIRMED' && (
+                        {effectiveStatus === 'CONFIRMED' && (
                           <div className="pt-2">
                             <button
                               type="button"
