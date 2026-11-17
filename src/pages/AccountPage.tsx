@@ -7,24 +7,20 @@ import { PasswordInput } from '../components/common/PasswordInput';
 import { sharedStore } from '../services/sharedStore';
 import { userService } from '../services/userService';
 import { UserAddress, parseAddressComponents, formatFullAddress } from '../types/user';
-import { 
-  User, 
-  MapPin, 
-  Plus, 
-  Trash2, 
-  CheckCircle, 
-  CheckCircle2,
-  LogOut, 
+import {
+  User,
+  MapPin,
+  Plus,
+  Trash2,
+  CheckCircle,
+  LogOut,
   Edit3,
-  Phone,
-  Mail,
   X,
   AlertCircle,
   KeyRound,
   ShieldCheck,
   RotateCcw,
   Clock,
-  Smartphone,
   Loader2,
   Headphones
 } from 'lucide-react';
@@ -171,8 +167,6 @@ export const AccountPage: React.FC = () => {
   const [editDistrict, setEditDistrict] = useState('');
   const [editWard, setEditWard] = useState('');
   const [editIsDefault, setEditIsDefault] = useState(false);
-
-
 
   if (!user) {
     return (
@@ -538,8 +532,6 @@ export const AccountPage: React.FC = () => {
     deleteAddress(addressId);
   };
 
-
-
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       
@@ -597,8 +589,6 @@ export const AccountPage: React.FC = () => {
               {user.addresses.length}
             </span>
           </button>
-
-
 
           <button
             onClick={() => handleSelectTab('support')}
@@ -999,8 +989,6 @@ export const AccountPage: React.FC = () => {
               </div>
             </div>
           )}
-
-
 
           {/* TAB 4: PASSWORD (ĐỔI MẬT KHẨU) */}
           {activeTab === 'password' && (

@@ -1,14 +1,12 @@
 import { apiClient } from './apiClient';
-import { 
-  CreateOrderPayload, 
-  OrderResponse, 
-  OrderDetail, 
-  OrderStatus, 
-  AdminOrdersPageResponse,
-  OrderPipelineSummary 
+import {
+  CreateOrderPayload,
+  OrderResponse,
+  OrderDetail,
+  OrderStatus,
+  AdminOrdersPageResponse
 } from '../types/order';
 import { returnService } from './returnService';
-
 
 const formatOrderRom = (it: any): string => {
   if (it?.romSnapshot && it.romSnapshot !== 'undefinedGB' && it.romSnapshot !== '0GB') {

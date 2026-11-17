@@ -5,26 +5,15 @@ import { PortalShipment, ShipmentStatus } from '../../types/portal';
 import { OrderDetail } from '../../types/order';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { PortalPagination } from '../../components/portal/PortalPagination';
-import { 
-  Truck, 
-  Search, 
-  Filter, 
-  CheckCircle, 
-  AlertTriangle, 
-  Clock, 
-  MapPin, 
-  User, 
-  Phone, 
-  Edit, 
+import {
+  Truck,
+  Search,
+  CheckCircle,
+  AlertTriangle,
+  Edit,
   X,
-  ExternalLink,
   Boxes,
-  CheckCircle2,
-  XCircle,
-  AlertCircle,
-  ArrowRight,
-  RefreshCw,
-  PackageCheck
+  CheckCircle2
 } from 'lucide-react';
 
 export const PortalShipmentsView: React.FC = () => {

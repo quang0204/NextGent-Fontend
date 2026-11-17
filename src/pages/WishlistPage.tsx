@@ -4,7 +4,7 @@ import { useWishlistStore } from '../stores/wishlistStore';
 import { productService } from '../services/productService';
 import { Product } from '../types/product';
 import { ProductCard } from '../components/product/ProductCard';
-import { Heart, ArrowLeft, Trash2 } from 'lucide-react';
+import { Heart, ArrowLeft } from 'lucide-react';
 
 export const WishlistPage: React.FC = () => {
   const { productIds, toggleWishlist, syncWithBackend } = useWishlistStore();

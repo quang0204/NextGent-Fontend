@@ -5,17 +5,15 @@ import { orderService } from '../../services/orderService';
 import { PortalReturnRequest, ReturnRequestStatus } from '../../types/portal';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { PortalPagination } from '../../components/portal/PortalPagination';
-import { 
-  RotateCcw, 
-  Search, 
-  Filter, 
-  CheckCircle, 
-  XCircle, 
-  AlertTriangle, 
-  FileText, 
-  User, 
-  Package, 
-  Clock, 
+import {
+  RotateCcw,
+  Search,
+  Filter,
+  CheckCircle,
+  AlertTriangle,
+  FileText,
+  User,
+  Clock,
   X,
   ShieldCheck
 } from 'lucide-react';

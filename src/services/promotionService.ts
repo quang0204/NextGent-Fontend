@@ -1,5 +1,9 @@
 import { apiClient } from './apiClient';
-import { PortalPromotion, PortalVoucher, PromotionStatus, PortalPromotionVariant } from '../types/portal';
+import {
+  PortalVoucher,
+  PromotionStatus,
+  PortalPromotionVariant
+} from '../types/portal';
 import { sharedStore } from './sharedStore';
 
 export interface ActivePromoVariant {
@@ -119,7 +123,6 @@ export interface CreateVoucherPayload {
   expiredAt: string;
   isActive?: boolean;
 }
-
 
 const DB_PROMO_VARIANTS_MAP: Record<number, PortalPromotionVariant[]> = {};
 

@@ -9,19 +9,15 @@ import { promotionService } from '../services/promotionService';
 import { paymentService } from '../services/paymentService';
 import { formatVND } from '../components/common/PriceDisplay';
 import { UserAddress } from '../types/user';
-import { 
-  ShieldCheck, 
-  MapPin, 
-  CreditCard, 
-  Truck, 
-  Ticket, 
-  Clock, 
-  QrCode, 
+import {
+  MapPin,
+  CreditCard,
+  Truck,
+  Ticket,
+  Clock,
   CheckCircle,
   AlertCircle,
   AlertTriangle,
-  ChevronRight,
-  FileText,
   Check,
   Plus,
   X

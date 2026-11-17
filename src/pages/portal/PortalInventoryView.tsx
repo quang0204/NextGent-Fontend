@@ -7,16 +7,12 @@ import {
   StockMovementRecord 
 } from '../../types/portal';
 import { PortalPagination } from '../../components/portal/PortalPagination';
-import { 
-  Package, 
-  AlertTriangle, 
-  PlusCircle, 
-  FileText, 
-  Search, 
-  CheckCircle, 
-  History,
-  TrendingDown,
-  ShieldAlert,
+import {
+  AlertTriangle,
+  PlusCircle,
+  FileText,
+  Search,
+  CheckCircle,
   Printer,
   Eye
 } from 'lucide-react';

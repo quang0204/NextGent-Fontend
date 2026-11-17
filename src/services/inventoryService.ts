@@ -1,5 +1,5 @@
 import { apiClient } from './apiClient';
-import { PortalInventoryItem, StockAdjustmentRecord, StockMovementRecord } from '../types/portal';
+import { PortalInventoryItem, StockMovementRecord } from '../types/portal';
 import { sharedStore } from './sharedStore';
 
 export interface InventorySummary {

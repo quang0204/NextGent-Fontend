@@ -3,19 +3,15 @@ import { sharedStore } from '../../services/sharedStore';
 import { AdminPromotionItem, promotionService } from '../../services/promotionService';
 import { productService } from '../../services/productService';
 import { Product } from '../../types/product';
-import { PortalPromotion, PortalPromotionVariant, PromotionStatus } from '../../types/portal';
+import { PortalPromotionVariant, PromotionStatus } from '../../types/portal';
 import { formatVND } from '../common/PriceDisplay';
-import { 
-  X, 
-  Flame, 
-  Search, 
-  Check, 
-  Calendar, 
-  DollarSign, 
-  AlertCircle, 
-  Percent, 
-  Tag, 
-  Layers 
+import {
+  X,
+  Flame,
+  Search,
+  Calendar,
+  AlertCircle,
+  Layers
 } from 'lucide-react';
 
 export interface PromotionCampaignModalProps {

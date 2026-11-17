@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  History, 
-  Search, 
-  Filter, 
-  ShieldCheck, 
-  Clock, 
-  User, 
-  FileText, 
-  ArrowRight,
-  Database,
-  Lock
+import {
+  History,
+  Search,
+  Filter,
+  ShieldCheck,
+  User,
+  Database
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
 import { auditService } from '../../services/auditService';

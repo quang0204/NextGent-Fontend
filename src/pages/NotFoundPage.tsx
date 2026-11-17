@@ -1,6 +1,10 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { AlertCircle, Home, ShoppingBag, ArrowLeft, Search } from 'lucide-react';
+import {
+  AlertCircle,
+  Home,
+  ShoppingBag
+} from 'lucide-react';
 
 export const NotFoundPage: React.FC = () => {
   return (

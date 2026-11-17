@@ -10,18 +10,16 @@ import { useToastStore } from '../stores/toastStore';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../types/order';
 import { formatVND } from '../components/common/PriceDisplay';
 import { ReviewImageUploader, ReviewImageFile } from '../components/common/ReviewImageUploader';
-import { 
-  Search, 
-  Package, 
+import {
+  Search,
+  Package,
   CheckCircle,
-  CheckCircle2, 
-  Clock, 
-  Truck, 
-  AlertCircle, 
-  XCircle, 
-  QrCode, 
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  XCircle,
+  QrCode,
   RotateCcw,
-  ShieldCheck,
   FileText,
   Printer,
   ChevronRight,
@@ -1108,8 +1106,6 @@ export const OrderTrackingPage: React.FC = () => {
                     <span>Xem Phiếu xuất kho</span>
                   </button>
                 )}
-
-
 
                 {isCancellable && (
                   <button

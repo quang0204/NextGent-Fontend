@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { Search, ShoppingBag, User, Heart, Scale, ChevronDown, Sparkles, LogOut, X } from 'lucide-react';
+import {
+  Search,
+  ShoppingBag,
+  User,
+  Heart,
+  Scale,
+  ChevronDown,
+  LogOut,
+  X
+} from 'lucide-react';
 import { useCartStore } from '../../stores/cartStore';
 import { useWishlistStore } from '../../stores/wishlistStore';
 import { useCompareStore } from '../../stores/compareStore';

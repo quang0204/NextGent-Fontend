@@ -4,15 +4,14 @@ import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OtpInput } from '../components/common/OtpInput';
 import { PasswordInput } from '../components/common/PasswordInput';
-import { 
-  Phone, 
-  Mail, 
-  Lock, 
-  KeyRound, 
-  ArrowLeft, 
-  CheckCircle2, 
-  UserPlus, 
-  LogIn, 
+import {
+  Phone,
+  Mail,
+  KeyRound,
+  ArrowLeft,
+  CheckCircle2,
+  UserPlus,
+  LogIn,
   RotateCcw,
   Clock,
   Smartphone,
