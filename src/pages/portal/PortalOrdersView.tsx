@@ -44,6 +44,12 @@ import {
 // PIPELINE TRẠNG THÁI CHUẨN THƯƠNG MẠI ĐIỆN TỬ NEXTGEN SMART TECH
 const STATUS_PIPELINE: { key: OrderStatus; label: string; badgeClass: string; desc: string }[] = [
   { 
+    key: 'PENDING', 
+    label: 'Đang xử lý (Saga)', 
+    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+    desc: 'Hệ thống đang điều phối Saga qua Kafka (Trừ kho, thanh toán)'
+  },
+  { 
     key: 'PENDING_PAYMENT', 
     label: 'Chờ thanh toán', 
     badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -279,7 +285,7 @@ export const PortalOrdersView: React.FC = () => {
     if (sh) return sh.status;
 
     // 2. Quy tắc nghiệp vụ: Khi đơn chưa chuẩn bị hàng thì chưa đẩy sang vận đơn
-    if (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT' || order.status === 'CONFIRMED') {
+    if (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT' || order.status === 'CONFIRMED' || order.status === 'PENDING') {
       return 'NONE';
     }
 
@@ -295,7 +301,10 @@ export const PortalOrdersView: React.FC = () => {
   // KPI Metrics tính toán động từ dữ liệu thực tế (Không hardcode)
   const metrics = useMemo(() => {
     const totalCount = orders.length;
-    const waitingConfirmation = orders.filter(o => getEffectiveOrderStatus(o) === 'WAITING_CONFIRMATION').length;
+    const waitingConfirmation = orders.filter(o => {
+      const s = getEffectiveOrderStatus(o);
+      return s === 'WAITING_CONFIRMATION' || s === 'PENDING';
+    }).length;
     const inProcess = orders.filter(o => {
       const s = getEffectiveOrderStatus(o);
       return s === 'PREPARING' || s === 'PICKED_UP' || s === 'SHIPPING';
@@ -430,10 +439,11 @@ export const PortalOrdersView: React.FC = () => {
           try {
             const shipRes = await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
               status: 'DELIVERED',
-              note: 'Xác nhận giao hàng thành công từ Bảng Đơn hàng'
+              codCollected: true,
+              note: 'Xác nhận giao hàng thành công & thu tiền COD từ Bảng Đơn hàng'
             });
             apiSuccess = true;
-            apiMsg = shipRes.data?.message || 'Đã xác nhận giao hàng thành công!';
+            apiMsg = shipRes.data?.message || 'Đã xác nhận giao hàng thành công & thu tiền COD!';
           } catch (e: any) {
             console.warn('[handleTransition-COMPLETED] backend shipment sync failed', e);
           }
@@ -579,7 +589,7 @@ export const PortalOrdersView: React.FC = () => {
       const order = orders.find(o => o.orderId === orderId);
       if (!order) return;
 
-      if (targetStatus === 'CONFIRMED' && (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT')) {
+      if (targetStatus === 'CONFIRMED' && (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT' || order.status === 'PENDING')) {
         orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
       } else if (targetStatus === 'SHIPPING' && (order.status === 'PREPARING' || order.status === 'PICKED_UP')) {
         orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
@@ -588,7 +598,8 @@ export const PortalOrdersView: React.FC = () => {
         if (ship?.shipmentId) {
           apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
             status: 'DELIVERED',
-            note: 'Duyệt hoàn tất giao hàng từ Bảng Đơn hàng'
+            codCollected: true,
+            note: 'Duyệt hoàn tất giao hàng & thu tiền COD từ Bảng Đơn hàng'
           }).catch((err: any) => console.warn('[bulk-delivered] sync failed', err));
         }
       }
@@ -624,7 +635,7 @@ export const PortalOrdersView: React.FC = () => {
       if (!order) return;
 
       let nextStatus: OrderStatus | null = null;
-      if (order.status === 'WAITING_CONFIRMATION') nextStatus = 'CONFIRMED';
+      if (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING') nextStatus = 'CONFIRMED';
       else if (order.status === 'CONFIRMED') nextStatus = 'PREPARING';
       else if (order.status === 'PREPARING') nextStatus = 'SHIPPING';
       else if (order.status === 'SHIPPING') nextStatus = 'COMPLETED';
@@ -653,7 +664,7 @@ export const PortalOrdersView: React.FC = () => {
     }
   };
 
-  const selectedWaitingCount = orders.filter(o => selectedOrderIds.includes(o.orderId) && o.status === 'WAITING_CONFIRMATION').length;
+  const selectedWaitingCount = orders.filter(o => selectedOrderIds.includes(o.orderId) && (o.status === 'WAITING_CONFIRMATION' || o.status === 'PENDING')).length;
   const selectedPreparingCount = orders.filter(o => selectedOrderIds.includes(o.orderId) && o.status === 'PREPARING').length;
 
   return (
@@ -1145,8 +1156,8 @@ export const PortalOrdersView: React.FC = () => {
                             </button>
                           )}
 
-                          {/* 2. WAITING_CONFIRMATION: Chờ xác nhận -> Xác nhận chuyển sang Đã xác nhận */}
-                          {order.status === 'WAITING_CONFIRMATION' && (
+                          {/* 2. WAITING_CONFIRMATION / PENDING: Chờ xác nhận -> Xác nhận chuyển sang Đã xác nhận */}
+                          {(order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING') && (
                             <>
                               <button
                                 onClick={() => handleTransition(order.orderId, 'CONFIRMED')}
@@ -1460,7 +1471,7 @@ export const PortalOrdersView: React.FC = () => {
                           </button>
                         )}
 
-                        {order.status === 'WAITING_CONFIRMATION' && (
+                        {(order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING') && (
                           <>
                             <button
                               onClick={() => handleTransition(order.orderId, 'CONFIRMED')}
@@ -1780,7 +1791,7 @@ export const PortalOrdersView: React.FC = () => {
                     </div>
 
                     {/* TRƯỜNG HỢP 1: ĐƠN HÀNG CHƯA ĐẨY SANG BẢNG VẬN ĐƠN */}
-                    {(order.status === 'PENDING_PAYMENT' || order.status === 'WAITING_CONFIRMATION' || order.status === 'CONFIRMED') &&!shipmentRecord? (
+                    {(order.status === 'PENDING_PAYMENT' || order.status === 'WAITING_CONFIRMATION' || order.status === 'CONFIRMED' || order.status === 'PENDING') &&!shipmentRecord? (
                       <div className="bg-white border border-slate-200 rounded-2xl p-6 text-center space-y-3">
                         <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
                           <Package size={24} />

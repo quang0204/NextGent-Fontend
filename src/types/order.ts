@@ -1,4 +1,5 @@
 export type OrderStatus = 
+  | 'PENDING'                // Đang xử lý Saga (Kafka)
   | 'PENDING_PAYMENT'        // Chờ thanh toán (30 phút với QR)
   | 'WAITING_CONFIRMATION'   // Chờ xác nhận (COD)
   | 'CONFIRMED'              // Đã xác nhận 

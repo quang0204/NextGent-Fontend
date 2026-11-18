@@ -219,6 +219,54 @@ export const paymentService = {
   },
 
   /**
+   * API POST /api/v1/payments/{paymentId}/simulate-success
+   * Mô phỏng khách hàng thanh toán chuyển khoản thành công
+   */
+  async simulateSuccess(paymentId: number): Promise<SimulateCallbackData> {
+    const res = await apiClient.post<{
+      success: boolean;
+      data: SimulateCallbackData;
+    }>(`/payments/${paymentId}/simulate-success`);
+    if (res.data?.data) {
+      const d = res.data.data;
+      const order = sharedStore.getOrderByCode(d.orderCode) || sharedStore.getOrderById(d.orderId);
+      if (order) {
+        order.paymentStatus = 'PAID';
+        if (order.status === 'PENDING_PAYMENT') {
+          sharedStore.transitionOrderStatus(order.orderId, 'WAITING_CONFIRMATION', {
+            performedBy: 'Hệ thống thanh toán tự động (Simulate Success)',
+            reason: 'Khách hàng thanh toán qua QR',
+          });
+        }
+      }
+      return d;
+    }
+    throw new Error('Không nhận được phản hồi từ máy chủ thanh toán');
+  },
+
+  /**
+   * API POST /api/v1/payments/{paymentId}/simulate-failure
+   * Mô phỏng khách hàng thanh toán chuyển khoản thất bại / hủy
+   */
+  async simulateFailure(paymentId: number, reason?: string): Promise<SimulateCallbackData> {
+    const res = await apiClient.post<{
+      success: boolean;
+      data: SimulateCallbackData;
+    }>(`/payments/${paymentId}/simulate-failure`, null, {
+      params: { reason: reason || 'Khách hàng hủy thanh toán' }
+    });
+    if (res.data?.data) {
+      const d = res.data.data;
+      const order = sharedStore.getOrderByCode(d.orderCode) || sharedStore.getOrderById(d.orderId);
+      if (order) {
+        order.paymentStatus = 'FAILED';
+      }
+      return d;
+    }
+    throw new Error('Không nhận được phản hồi từ máy chủ thanh toán');
+  },
+
+  /**
    * API 10.3: GET /api/v1/admin/payments
    * Sổ cái thu chi & đối soát giao dịch (Portal - STAFF / ADMIN)
    */

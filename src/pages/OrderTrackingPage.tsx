@@ -1414,6 +1414,50 @@ export const OrderTrackingPage: React.FC = () => {
                           <span>{isNotifyingPayment ? 'Đang gửi thông báo...' : 'Tôi đã chuyển khoản thành công'}</span>
                         </button>
                       )}
+
+                      {/* Nút Giả lập thanh toán Backend (Saga & Outbox Demo) */}
+                      {paymentIntent?.paymentId && (
+                        <div className="mt-2 pt-2 border-t border-slate-200/80 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={isNotifyingPayment}
+                            onClick={async () => {
+                              setIsNotifyingPayment(true);
+                              try {
+                                await paymentService.simulateSuccess(paymentIntent.paymentId);
+                                await fetchOrder(order.orderCode);
+                                showToast("Giả lập thanh toán thành công! Backend đã kích hoạt Saga & Outbox.", 'success');
+                              } catch (err: any) {
+                                showToast(err.message || "Lỗi giả lập thanh toán", 'error');
+                              } finally {
+                                setIsNotifyingPayment(false);
+                              }
+                            }}
+                            className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
+                          >
+                            ⚡ Demo: Quét QR & TT Thành công
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isNotifyingPayment}
+                            onClick={async () => {
+                              setIsNotifyingPayment(true);
+                              try {
+                                await paymentService.simulateFailure(paymentIntent.paymentId, "Khách hàng từ chối thanh toán QR");
+                                await fetchOrder(order.orderCode);
+                                showToast("Đã giả lập hủy/thất bại thanh toán.", 'info');
+                              } catch (err: any) {
+                                showToast(err.message || "Lỗi giả lập hủy thanh toán", 'error');
+                              } finally {
+                                setIsNotifyingPayment(false);
+                              }
+                            }}
+                            className="py-1.5 px-3 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-[11px] font-bold transition"
+                          >
+                            Demo: TT Thất bại
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
