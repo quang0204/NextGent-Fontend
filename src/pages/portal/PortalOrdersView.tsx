@@ -567,8 +567,6 @@ export const PortalOrdersView: React.FC = () => {
       if (res && res.success) {
         setBulkActionFeedback(`✓ ${res.message || `Đã tiếp nhận hàng hoàn kho cho đơn #${order.orderCode}!`}`);
         setTimeout(() => setBulkActionFeedback(null), 4000);
-        setOrders([...sharedStore.getOrders()]);
-        setShipments([...sharedStore.getShipments()]);
         await loadAdminOrders();
       } else {
         alert(res?.message || 'Không thể xử lý nhận hàng hoàn kho.');

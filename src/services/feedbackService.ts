@@ -307,6 +307,26 @@ export const reviewService = {
   },
 
   /**
+   * API: GET /api/v1/reviews/my-reviewed-items
+   * Lấy danh sách ID các dòng đơn (orderItemId) mà user hiện tại đã đánh giá
+   */
+  async getMyReviewedItemIds(): Promise<number[]> {
+    try {
+      const res = await apiClient.get<{
+        success: boolean;
+        data: number[];
+      }>('/reviews/my-reviewed-items');
+      if (Array.isArray(res.data?.data)) {
+        return res.data.data.map(Number);
+      }
+      return [];
+    } catch (err) {
+      console.warn('[reviewService.getMyReviewedItemIds] failed', err);
+      return [];
+    }
+  },
+
+  /**
    * API 12.3: GET /api/v1/admin/reviews
    * Quản lý đánh giá toàn hệ thống (Portal - STAFF / ADMIN)
    */

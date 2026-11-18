@@ -5,6 +5,7 @@ import { returnService } from '../services/returnService';
 import { paymentService, PaymentIntentData } from '../services/paymentService';
 import { sharedStore, cleanLogNote } from '../services/sharedStore';
 import { productService } from '../services/productService';
+import { reviewService } from '../services/feedbackService';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../types/order';
@@ -554,19 +555,46 @@ export const OrderTrackingPage: React.FC = () => {
   const [reviewMessage, setReviewMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
-  const loadReviewedItems = () => {
+  const loadReviewedItems = async () => {
     try {
       const storedReviewed = localStorage.getItem('reviewed_order_item_ids');
-      const storedIds: number[] = storedReviewed ? JSON.parse(storedReviewed) : [];
+      const storedIds: number[] = storedReviewed ? JSON.parse(storedReviewed).map(Number) : [];
       const revs = sharedStore.getReviews(undefined, true);
       const storeIds = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
-      const combined = Array.from(new Set([...storedIds, ...storeIds]));
+
+      let serverIds: number[] = [];
+      try {
+        serverIds = await reviewService.getMyReviewedItemIds();
+      } catch {
+        // bỏ qua nếu lỗi mạng hoặc chưa đăng nhập
+      }
+
+      const combined = Array.from(new Set([...storedIds, ...storeIds, ...serverIds]));
       setReviewedOrderItemIds(combined);
     } catch {
       const revs = sharedStore.getReviews(undefined, true);
       const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
       setReviewedOrderItemIds(ids);
     }
+  };
+
+  const isItemReviewed = (item: OrderItemSnapshot, ord?: OrderDetail | null): boolean => {
+    if ((item as any)?.isReviewed) return true;
+    const numId = Number(item.orderItemId);
+    if (!isNaN(numId) && reviewedOrderItemIds.some((id) => Number(id) === numId)) {
+      return true;
+    }
+    const orderCode = ord?.orderCode || order?.orderCode;
+    if (orderCode) {
+      try {
+        if (localStorage.getItem(`reviewed_order_${orderCode}`) === 'true') return true;
+        if (localStorage.getItem(`reviewed_item_${orderCode}_${item.orderItemId}`) === 'true') return true;
+        if (localStorage.getItem(`reviewed_item_${orderCode}_${item.productId}`) === 'true') return true;
+      } catch {
+        // ignore
+      }
+    }
+    return false;
   };
 
   const loadAllOrders = async () => {
@@ -787,9 +815,14 @@ export const OrderTrackingPage: React.FC = () => {
       setReviewMessage({ text: res.message, type: 'success' });
       const newId = reviewModalItem.orderItemId;
       setReviewedOrderItemIds(prev => {
-        const next = Array.from(new Set([...prev, newId]));
+        const next = Array.from(new Set([...prev, Number(newId)]));
         try {
           localStorage.setItem('reviewed_order_item_ids', JSON.stringify(next));
+          if (reviewModalItem.orderCode) {
+            localStorage.setItem(`reviewed_order_${reviewModalItem.orderCode}`, 'true');
+            localStorage.setItem(`reviewed_item_${reviewModalItem.orderCode}_${newId}`, 'true');
+            localStorage.setItem(`reviewed_item_${reviewModalItem.orderCode}_${reviewModalItem.productId}`, 'true');
+          }
         } catch (e) {
           console.warn('Could not save reviewed_order_item_ids to localStorage', e);
         }
@@ -1626,7 +1659,7 @@ export const OrderTrackingPage: React.FC = () => {
 
                         {/* Nút Đánh giá sản phẩm (Hiện nếu sản phẩm KHÔNG hoàn thành công và KHÔNG đang chờ duyệt) */}
                         {order.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                          (reviewedOrderItemIds.includes(item.orderItemId) || (item as any).isReviewed) ? (
+                          isItemReviewed(item, order) ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/30 whitespace-nowrap">
                               <CheckCircle size={12} />
                               <span>Đã đánh giá</span>
@@ -1898,7 +1931,7 @@ export const OrderTrackingPage: React.FC = () => {
                                   </button>
                                 )}
                                 {ord.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                                  (reviewedOrderItemIds.includes(it.orderItemId) || (it as any).isReviewed) ? (
+                                  isItemReviewed(it, ord) ? (
                                     <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full border border-success/30 whitespace-nowrap">
                                       <CheckCircle size={11} />
                                       <span>Đã đánh giá</span>

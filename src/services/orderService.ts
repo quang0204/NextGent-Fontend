@@ -83,9 +83,16 @@ export const orderService = {
    * API 8.1: POST /api/v1/orders
    * Đặt hàng Checkout (Tạo Phiếu MB01 & Giữ Chỗ Tồn Kho)
    */
-  async createOrder(payload: CreateOrderPayload, _userRole = 'CUSTOMER', _userName = 'Khách hàng'): Promise<OrderResponse> {
+  async createOrder(payload: CreateOrderPayload, _userRole = 'CUSTOMER', _userName = 'Khách hàng', idempotencyKey?: string): Promise<OrderResponse> {
     try {
-      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload);
+      const key =
+        idempotencyKey ||
+        (typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `order-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload, {
+        headers: { 'Idempotency-Key': key }
+      });
       const d = response.data?.data;
       if (!d) {
         throw new Error('Phản hồi tạo đơn hàng từ máy chủ không hợp lệ!');
