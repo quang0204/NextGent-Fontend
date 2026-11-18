@@ -69,8 +69,8 @@ export const PortalShipmentsView: React.FC = () => {
           updatedBy: b.updatedBy,
           updatedAt: b.updatedAt
         }));
+        setShipments(backendItems);
         sharedStore.syncExternalShipments(backendItems);
-        setShipments([...sharedStore.getShipments()]);
       }
     } catch {
       // Giữ dữ liệu sharedStore mặc định nếu chưa đăng nhập hoặc mạng offline
@@ -91,57 +91,9 @@ export const PortalShipmentsView: React.FC = () => {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  const getNextAvailableStatuses = (currentStatus: ShipmentStatus): { value: ShipmentStatus; label: string }[] => {
-    switch (currentStatus) {
-      case 'PREPARING':
-      case 'WAITING_PICKUP':
-      case 'PENDING':
-        return [{ value: 'PICKED_UP', label: 'Đã lấy hàng (Bước tiếp theo: Bưu tá lấy hàng từ kho)' }];
-      case 'PICKED_UP':
-        return [{ value: 'IN_TRANSIT', label: 'Đang giao hàng (Bước tiếp theo: Bắt đầu giao tới khách)' }];
-      case 'IN_TRANSIT':
-        return [
-          { value: 'DELIVERED', label: 'Giao thành công (Khách đã nhận hàng)' },
-          { value: 'DELIVERY_FAILED', label: 'Giao thất bại (Chuyển hoàn về kho)' }
-        ];
-      case 'DELIVERY_FAILED':
-      case 'FAILED':
-      case 'PICKUP_FAILED':
-        return [{ value: 'IN_TRANSIT', label: 'Đang giao hàng lại (Giao lại cho khách)' }];
-      default:
-        return [];
-    }
-  };
-
-  const getStatusBadgeText = (status: ShipmentStatus) => {
-    switch (status) {
-      case 'PREPARING':
-      case 'WAITING_PICKUP':
-      case 'PENDING':
-        return 'Đang chuẩn bị hàng';
-      case 'PICKED_UP':
-        return 'Đã lấy hàng';
-      case 'IN_TRANSIT':
-        return 'Đang giao hàng';
-      case 'DELIVERED':
-        return 'Giao thành công';
-      case 'DELIVERY_FAILED':
-      case 'FAILED':
-      case 'PICKUP_FAILED':
-        return 'Giao thất bại';
-      default:
-        return status;
-    }
-  };
-
   const handleStartUpdate = (s: PortalShipment) => {
     setEditingShipment(s);
-    const available = getNextAvailableStatuses(s.status);
-    if (available.length > 0) {
-      setNewStatus(available[0].value);
-    } else {
-      setNewStatus(s.status);
-    }
+    setNewStatus(s.status);
     setFailReason(s.failReason || '');
   };
 
@@ -214,23 +166,6 @@ export const PortalShipmentsView: React.FC = () => {
       alert('Bắt buộc nhập nguyên nhân giao hàng thất bại (sai địa chỉ, không nghe máy...)!');
       return;
     }
-
-    // Kiểm tra tính hợp lệ từng bước, ngăn chặn tuyệt đối việc nhảy cóc trạng thái
-    const targetShipments = shipments.filter(s => selectedShipmentIds.includes(s.shipmentId));
-    const invalidItems = targetShipments.filter(s => {
-      const available = getNextAvailableStatuses(s.status).map(a => a.value);
-      return !available.includes(bulkStatusTarget);
-    });
-
-    if (invalidItems.length > 0) {
-      alert(
-        `Không thể duyệt hàng loạt! Có ${invalidItems.length} vận đơn không hợp lệ hoặc nhảy cóc trạng thái:\n` +
-        `- Vận đơn ${invalidItems[0].trackingCode} (Đơn #${invalidItems[0].orderCode}) hiện đang ở '${getStatusBadgeText(invalidItems[0].status)}', không thể chuyển sang '${getStatusBadgeText(bulkStatusTarget)}'.\n\n` +
-        `Tiến trình vận đơn bắt buộc tuần tự: Đang chuẩn bị -> Đã lấy hàng -> Đang giao -> Giao thành công / Thất bại.`
-      );
-      return;
-    }
-
     const apiStatus = bulkStatusTarget === 'PICKED_UP' ? 'PICKED' : bulkStatusTarget;
     setIsBulkUpdating(true);
     try {
@@ -732,24 +667,14 @@ export const PortalShipmentsView: React.FC = () => {
 
                     {/* Cột 7: Thao tác cập nhật */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      {isTerminalShipment(ship.status) ? (
-                        <span
-                          className="px-3 py-1.5 bg-slate-100 border border-slate-200 text-slate-400 rounded-xl font-medium text-xs inline-flex items-center gap-1.5 cursor-default"
-                          title="Vận đơn đã hoàn tất hành trình (không thể đổi trạng thái)"
-                        >
-                          <CheckCircle2 size={13} className="text-slate-400" />
-                          <span>Đã kết thúc</span>
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleStartUpdate(ship)}
-                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-200 text-blue-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition shadow-2xs"
-                          title="Cập nhật bước tiếp theo trong tiến trình vận chuyển"
-                        >
-                          <Edit size={13} />
-                          <span>Cập nhật tiến trình</span>
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleStartUpdate(ship)}
+                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-200 text-blue-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition shadow-2xs"
+                        title="Cập nhật tiến trình giao nhận và tự động đồng bộ sang Đơn hàng"
+                      >
+                        <Edit size={13} />
+                        <span>Cập nhật tiến trình</span>
+                      </button>
                     </td>
 
                   </tr>
@@ -817,87 +742,26 @@ export const PortalShipmentsView: React.FC = () => {
               </div>
             </div>
 
-            {/* Tiến trình vận đơn trực quan 4 bước */}
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2">
-              <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                <span>Tiến trình vận đơn</span>
-                <span className="text-blue-600 font-semibold normal-case">
-                  Hiện tại: <strong>{getStatusBadgeText(editingShipment.status)}</strong>
-                </span>
-              </div>
-              <div className="grid grid-cols-4 gap-1 text-[10px] font-bold text-center">
-                <div className={`p-1.5 rounded-lg border ${
-                  editingShipment.status === 'PREPARING' || editingShipment.status === 'WAITING_PICKUP' || editingShipment.status === 'PENDING'
-                    ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500/20'
-                    : 'bg-white text-slate-400 border-slate-200'
-                }`}>
-                  1. Chuẩn bị
-                </div>
-                <div className={`p-1.5 rounded-lg border ${
-                  editingShipment.status === 'PICKED_UP'
-                    ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500/20'
-                    : 'bg-white text-slate-400 border-slate-200'
-                }`}>
-                  2. Đã lấy hàng
-                </div>
-                <div className={`p-1.5 rounded-lg border ${
-                  editingShipment.status === 'IN_TRANSIT'
-                    ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-500/20'
-                    : 'bg-white text-slate-400 border-slate-200'
-                }`}>
-                  3. Đang giao
-                </div>
-                <div className={`p-1.5 rounded-lg border ${
-                  editingShipment.status === 'DELIVERED'
-                    ? 'bg-emerald-600 text-white border-emerald-600'
-                    : editingShipment.status === 'DELIVERY_FAILED' || editingShipment.status === 'FAILED' || editingShipment.status === 'PICKUP_FAILED'
-                    ? 'bg-rose-600 text-white border-rose-600'
-                    : 'bg-white text-slate-400 border-slate-200'
-                }`}>
-                  4. Kết thúc
-                </div>
-              </div>
-              <p className="text-[10px] text-slate-400 italic">
-                * Quy định vận hành: Chỉ được chuyển lên 1 bước tiếp theo, không được nhảy cóc hoặc lùi trạng thái.
-              </p>
-            </div>
-
             {/* Chọn trạng thái vận đơn */}
-            {(() => {
-              const available = getNextAvailableStatuses(editingShipment.status);
-              if (available.length === 0) {
-                return (
-                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs flex items-center gap-2">
-                    <AlertCircle size={15} className="text-amber-600 flex-shrink-0" />
-                    <span>
-                      Vận đơn này đã ở trạng thái kết thúc (<strong>{getStatusBadgeText(editingShipment.status)}</strong>), không thể thay đổi tiến trình tiếp.
-                    </span>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="space-y-1.5">
-                  <label className="block text-slate-700 font-bold">
-                    Chọn bước kế tiếp hợp lệ:
-                  </label>
-                  <select
-                    value={newStatus}
-                    onChange={(e) => {
-                      const s = e.target.value as ShipmentStatus;
-                      setNewStatus(s);
-                    }}
-                    className="w-full h-10 px-3 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-semibold focus:border-blue-600 focus:outline-none"
-                  >
-                    {available.map(opt => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              );
-            })()}
+            <div className="space-y-1.5">
+              <label className="block text-slate-700 font-bold">
+                Chọn trạng thái vận đơn mới:
+              </label>
+              <select
+                value={newStatus}
+                onChange={(e) => {
+                  const s = e.target.value as ShipmentStatus;
+                  setNewStatus(s);
+                }}
+                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-xl text-slate-800 text-xs font-semibold focus:border-blue-600 focus:outline-none"
+              >
+                <option value="PREPARING">Đang chuẩn bị hàng</option>
+                <option value="PICKED_UP">Đã lấy hàng</option>
+                <option value="IN_TRANSIT">Đang giao hàng</option>
+                <option value="DELIVERED">Giao thành công</option>
+                <option value="DELIVERY_FAILED">Giao thất bại</option>
+              </select>
+            </div>
 
             {/* Nhập lý do thất bại nếu chọn trạng thái fail */}
             {(newStatus === 'DELIVERY_FAILED' || newStatus === 'FAILED' || newStatus === 'PICKUP_FAILED') && (
@@ -960,8 +824,7 @@ export const PortalShipmentsView: React.FC = () => {
               </button>
               <button 
                 type="submit" 
-                disabled={getNextAvailableStatuses(editingShipment.status).length === 0}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold rounded-xl shadow-xs transition"
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition"
               >
                 Lưu & Tự động đồng bộ
               </button>
