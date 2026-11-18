@@ -555,9 +555,18 @@ export const OrderTrackingPage: React.FC = () => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
   const loadReviewedItems = () => {
-    const revs = sharedStore.getReviews(undefined, true);
-    const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
-    setReviewedOrderItemIds(ids);
+    try {
+      const storedReviewed = localStorage.getItem('reviewed_order_item_ids');
+      const storedIds: number[] = storedReviewed ? JSON.parse(storedReviewed) : [];
+      const revs = sharedStore.getReviews(undefined, true);
+      const storeIds = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
+      const combined = Array.from(new Set([...storedIds, ...storeIds]));
+      setReviewedOrderItemIds(combined);
+    } catch {
+      const revs = sharedStore.getReviews(undefined, true);
+      const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
+      setReviewedOrderItemIds(ids);
+    }
   };
 
   const loadAllOrders = async () => {
@@ -776,7 +785,27 @@ export const OrderTrackingPage: React.FC = () => {
 
     if (res.success) {
       setReviewMessage({ text: res.message, type: 'success' });
-      setReviewedOrderItemIds(prev => [...prev, reviewModalItem.orderItemId]);
+      const newId = reviewModalItem.orderItemId;
+      setReviewedOrderItemIds(prev => {
+        const next = Array.from(new Set([...prev, newId]));
+        try {
+          localStorage.setItem('reviewed_order_item_ids', JSON.stringify(next));
+        } catch (e) {
+          console.warn('Could not save reviewed_order_item_ids to localStorage', e);
+        }
+        return next;
+      });
+      // Ghi nhận vào sharedStore để đồng bộ
+      sharedStore.submitReview({
+        orderItemId: newId,
+        productId: reviewModalItem.productId,
+        userName: reviewModalItem.customerName,
+        phone: reviewModalItem.customerPhone,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+        productName: reviewModalItem.productName,
+        images: reviewImages.map(img => img.previewUrl)
+      });
       showToast("Cảm ơn bạn đã gửi đánh giá sản phẩm thành công!", "success");
       setTimeout(() => {
         setReviewModalItem(null);
@@ -1597,7 +1626,7 @@ export const OrderTrackingPage: React.FC = () => {
 
                         {/* Nút Đánh giá sản phẩm (Hiện nếu sản phẩm KHÔNG hoàn thành công và KHÔNG đang chờ duyệt) */}
                         {order.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                          reviewedOrderItemIds.includes(item.orderItemId) ? (
+                          (reviewedOrderItemIds.includes(item.orderItemId) || (item as any).isReviewed) ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/30 whitespace-nowrap">
                               <CheckCircle size={12} />
                               <span>Đã đánh giá</span>
@@ -1869,7 +1898,7 @@ export const OrderTrackingPage: React.FC = () => {
                                   </button>
                                 )}
                                 {ord.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                                  reviewedOrderItemIds.includes(it.orderItemId) ? (
+                                  (reviewedOrderItemIds.includes(it.orderItemId) || (it as any).isReviewed) ? (
                                     <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full border border-success/30 whitespace-nowrap">
                                       <CheckCircle size={11} />
                                       <span>Đã đánh giá</span>
