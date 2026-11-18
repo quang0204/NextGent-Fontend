@@ -164,7 +164,7 @@ const mapApiProductToFrontend = (it: any): Product => {
           onHandQty: onHand,
           reservedQty: reserved,
           imageUrl: v.imageUrl || thumbnail,
-          isActive: v.isActive ?? true,
+          isActive: v.isActive !== undefined ? v.isActive : (v.status ? v.status === 'ACTIVE' : true),
         };
       })
     : (it.availableColors || ['Mặc định']).map((color: string, cIdx: number) => ({
@@ -842,6 +842,41 @@ export const productService = {
       console.warn('[productService.updateAdminVariant] error', err);
       throw err;
     }
+  },
+
+  /**
+   * API 4.10: GET /api/v1/admin/products
+   * Quản trị danh sách sản phẩm (STAFF / ADMIN) - lấy đầy đủ cả sản phẩm và biến thể ACTIVE/INACTIVE
+   */
+  async getAdminProducts(params?: ProductFilterParams & { status?: string }): Promise<Product[]> {
+    try {
+      const queryParams: any = {
+        page: params?.page || 1,
+        limit: params?.limit || 50,
+        status: params?.status || 'ALL'
+      };
+      if (params?.search) queryParams.search = params.search;
+      if (params?.brandId) queryParams.brandId = params.brandId;
+      if (params?.categoryId) queryParams.categoryId = params.categoryId;
+      if (params?.minPrice !== undefined) queryParams.minPrice = params.minPrice;
+      if (params?.maxPrice !== undefined) queryParams.maxPrice = params.maxPrice;
+      if (params?.ram) queryParams.ram = params.ram;
+      if (params?.rom) queryParams.rom = params.rom;
+      if (params?.sortBy) queryParams.sortBy = params.sortBy;
+
+      const response = await apiClient.get<any>('/admin/products', { params: queryParams });
+      if (response.data?.data) {
+        const items = response.data.data.items || response.data.data;
+        if (Array.isArray(items)) {
+          const prods = items.map(mapApiProductToFrontend);
+          sharedStore.setProducts(prods);
+          return prods;
+        }
+      }
+    } catch (err) {
+      console.warn('[productService.getAdminProducts] Error fetching admin products, fallback to sharedStore', err);
+    }
+    return sharedStore.getProducts();
   },
 
   /**

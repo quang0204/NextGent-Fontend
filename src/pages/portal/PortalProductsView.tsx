@@ -276,7 +276,7 @@ export const PortalProductsView: React.FC = () => {
     fetchLiveCategories();
     fetchLiveBrands();
 
-    productService.getProducts().then(prods => {
+    productService.getAdminProducts().then(prods => {
       if (prods && prods.length > 0) {
         setProducts(prods);
       }
@@ -447,7 +447,21 @@ export const PortalProductsView: React.FC = () => {
       return;
     }
     await productService.updateProductStatus(p.productId, nextStatus, `Quản trị viên chuyển trạng thái sang ${nextStatus}`);
+
+    // Đồng bộ ngay trong sharedStore cho cả sản phẩm và tất cả biến thể
+    const updatedVariants = Array.isArray(p.variants)
+      ? p.variants.map(v => ({ ...v, isActive: nextStatus === 'ACTIVE' }))
+      : [];
+    sharedStore.updateProduct(p.productId, {
+      status: nextStatus,
+      variants: updatedVariants
+    });
     setProducts([...sharedStore.getProducts()]);
+
+    // Đồng bộ lại dữ liệu chuẩn từ Backend
+    productService.getAdminProducts().then(prods => {
+      if (prods && prods.length > 0) setProducts(prods);
+    });
   };
 
   // ================= QUẢN LÝ CHỈNH SỬA SẢN PHẨM & BIẾN THỂ ĐẦY ĐỦ =================
@@ -668,6 +682,9 @@ export const PortalProductsView: React.FC = () => {
       }));
 
       alert(`Đã cập nhật thành công biến thể SKU [${sku}]!`);
+      productService.getAdminProducts().then(prods => {
+        if (prods && prods.length > 0) setProducts(prods);
+      });
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Lỗi cập nhật biến thể';
       alert(`LỖI CẬP NHẬT BIẾN THỂ: ${msg}`);
@@ -913,6 +930,9 @@ export const PortalProductsView: React.FC = () => {
       });
 
       setProducts([...sharedStore.getProducts()]);
+      productService.getAdminProducts().then(prods => {
+        if (prods && prods.length > 0) setProducts(prods);
+      });
       alert(`Đã cập nhật thông tin sản phẩm và thông số kỹ thuật thành công!`);
       setEditingProduct(null);
     } catch (err: any) {
@@ -1051,6 +1071,9 @@ export const PortalProductsView: React.FC = () => {
       }));
 
       alert(`Đã cập nhật thông số và giá cho biến thể SKU ${editingVariant.variant.sku} thành công!`);
+      productService.getAdminProducts().then(prods => {
+        if (prods && prods.length > 0) setProducts(prods);
+      });
       setEditingVariant(null);
     }
   };

@@ -643,7 +643,16 @@ export const sharedStore = {
 
   createShipmentForOrder(order: OrderDetail, carrier = 'Giao Hàng Nhanh Express', staffName = 'Hệ thống tự động'): PortalShipment {
     const existing = shipments.find(s => s.orderId === order.orderId || s.orderCode === order.orderCode);
-    if (existing) return existing;
+    if (existing) {
+      existing.status = 'PREPARING';
+      existing.updatedAt = new Date().toISOString();
+      order.carrier = existing.carrier || carrier;
+      order.trackingCode = existing.trackingCode;
+      saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
+      saveToStorage(STORAGE_KEY_ORDERS, orders);
+      notify();
+      return existing;
+    }
 
     const newShipment: PortalShipment = {
       shipmentId: Date.now() + Math.floor(Math.random() * 100),
@@ -1572,6 +1581,7 @@ export const sharedStore = {
 
     // Kiểm tra tính tuần tự nghiêm ngặt (Hình 1.18)
     const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+      'PENDING': ['CONFIRMED', 'WAITING_CONFIRMATION', 'PENDING_PAYMENT', 'CANCELLED'],
       'PENDING_PAYMENT': ['WAITING_CONFIRMATION', 'CANCELLED'],
       'WAITING_CONFIRMATION': ['CONFIRMED', 'CANCELLED'],
       'CONFIRMED': ['PREPARING', 'CANCELLED'],
