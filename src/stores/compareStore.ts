@@ -95,6 +95,25 @@ export const useCompareStore = create<CompareStore>((set, get) => ({
       return { success: false, message: 'Chỉ được so sánh tối đa 3 sản phẩm cùng lúc' };
     }
 
+    // Không áp dụng so sánh cho ngành hàng Phụ kiện di động & Âm thanh
+    const isAccessory = Boolean(
+      Number(incomingRootId) === 4 ||
+      incomingRootName?.toLowerCase().includes('phụ kiện') ||
+      (isObj && (
+        (productOrId as any).categoryName?.toLowerCase().includes('phụ kiện') ||
+        (productOrId as any).categoryName?.toLowerCase().includes('tai nghe') ||
+        (productOrId as any).categoryName?.toLowerCase().includes('loa') ||
+        (productOrId as any).categoryName?.toLowerCase().includes('củ sạc') ||
+        (productOrId as any).categoryName?.toLowerCase().includes('cáp')
+      ))
+    );
+    if (isAccessory) {
+      return {
+        success: false,
+        message: 'Tính năng so sánh không áp dụng cho ngành hàng Phụ kiện di động & Âm thanh.',
+      };
+    }
+
     const currentRootId = get().rootCategoryId;
     const currentRootName = get().rootCategoryName;
 
