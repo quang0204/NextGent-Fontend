@@ -114,7 +114,9 @@ apiClient.interceptors.response.use(
       }
 
       try {
-        console.log(`[API REFRESH] 🔄 Đang làm mới Access Token từ ${API_BASE_URL}/auth/refresh-token`);
+        if (import.meta.env.DEV) {
+          console.log(`[API REFRESH] 🔄 Đang làm mới Access Token từ ${API_BASE_URL}/auth/refresh-token`);
+        }
         const refreshResponse = await axios.post(
           `${API_BASE_URL}/auth/refresh-token`,
           { refreshToken },

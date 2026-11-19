@@ -11,6 +11,7 @@ import { DynamicVariantInputs } from '../../components/portal/DynamicVariantInpu
 import { ProductSpecsEditor } from '../../components/portal/ProductSpecsEditor';
 import { ProductImagesManager } from '../../components/portal/ProductImagesManager';
 import { PortalPagination } from '../../components/portal/PortalPagination';
+import { StockAdjustmentModal } from '../../components/portal/StockAdjustmentModal';
 import { formatVND } from '../../components/common/PriceDisplay';
 import { 
   Smartphone, 
@@ -185,9 +186,6 @@ export const PortalProductsView: React.FC = () => {
 
   // Modal Điều chỉnh tồn kho (Stock Adjustment)
   const [adjustingVariant, setAdjustingVariant] = useState<any | null>(null);
-  const [adjustActualCount, setAdjustActualCount] = useState<number>(0);
-  const [adjustReason, setAdjustReason] = useState<string>('Kiểm kê định kỳ cân đối số lượng');
-  const [isSubmittingAdjust, setIsSubmittingAdjust] = useState<boolean>(false);
 
   // Modal Chỉnh sửa Biến thể SKU đã thêm (Ảnh, Giá, Thuộc tính động)
   const [editingVariant, setEditingVariant] = useState<{ prodId: number; variant: ProductVariant } | null>(null);
@@ -770,59 +768,25 @@ export const PortalProductsView: React.FC = () => {
 
   const handleOpenStockAdjust = (v: any) => {
     setAdjustingVariant(v);
-    const curStock = v.inventory?.onHandQty ?? v.onHandQty ?? 0;
-    setAdjustActualCount(curStock);
-    setAdjustReason('Kiểm kê định kỳ cân đối số lượng');
   };
 
-  const handleSubmitStockAdjust = async () => {
-    if (!adjustingVariant) return;
-    if (adjustActualCount < 0) {
-      alert('Số lượng tồn thực tế không được âm!');
-      return;
-    }
-    if (!adjustReason.trim()) {
-      alert('Vui lòng nhập lý do điều chỉnh tồn kho!');
-      return;
-    }
-
-    setIsSubmittingAdjust(true);
-    try {
-      const res = await inventoryService.createStockAdjustment({
-        variantId: adjustingVariant.variantId,
-        actualCount: adjustActualCount,
-        reason: adjustReason.trim()
-      });
-
-      if (res.success) {
-        setEditProdVariants(prev => prev.map(v => {
-          if (v.variantId === adjustingVariant.variantId) {
-            const reserved = v.inventory?.reservedQty ?? v.reservedQty ?? 0;
-            return {
-              ...v,
-              onHandQty: adjustActualCount,
-              availableQty: Math.max(0, adjustActualCount - reserved),
-              inventory: {
-                ...(v.inventory || {}),
-                onHandQty: adjustActualCount,
-                availableQty: Math.max(0, adjustActualCount - reserved)
-              }
-            };
+  const handleStockAdjustSuccess = (variantId: number, actualCount: number) => {
+    setEditProdVariants(prev => prev.map(v => {
+      if (v.variantId === variantId) {
+        const reserved = v.inventory?.reservedQty ?? v.reservedQty ?? 0;
+        return {
+          ...v,
+          onHandQty: actualCount,
+          availableQty: Math.max(0, actualCount - reserved),
+          inventory: {
+            ...(v.inventory || {}),
+            onHandQty: actualCount,
+            availableQty: Math.max(0, actualCount - reserved)
           }
-          return v;
-        }));
-
-        alert(res.message || 'Đã điều chỉnh cân đối tồn kho thành công!');
-        setAdjustingVariant(null);
-      } else {
-        alert(res.message || 'Không thể điều chỉnh tồn kho!');
+        };
       }
-    } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Lỗi khi điều chỉnh tồn kho';
-      alert(`LỖI ĐIỀU CHỈNH TỒN KHO: ${msg}`);
-    } finally {
-      setIsSubmittingAdjust(false);
-    }
+      return v;
+    }));
   };
 
   const handleSaveProductEdit = async () => {
@@ -2022,127 +1986,11 @@ export const PortalProductsView: React.FC = () => {
       )}
 
       {/* ================= MODAL ĐIỀU CHỈNH TỒN KHO CHO BIẾN THỂ ================= */}
-      {adjustingVariant && (
-        <div className="fixed inset-0 z-[70] bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
-                  <Package size={16} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
-                    Điều chỉnh tồn kho SKU
-                  </h3>
-                  <span className="text-[11px] font-mono text-indigo-600 font-bold">
-                    {adjustingVariant.sku}
-                  </span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAdjustingVariant(null)}
-                className="text-slate-400 hover:text-slate-700 p-1"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <span className="text-[11px] text-slate-500 block">Biến thể:</span>
-                <strong className="text-slate-800 text-xs block">
-                  {adjustingVariant.variantName || adjustingVariant.sku}
-                </strong>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Tồn kho hiện tại:</span>
-                  <strong className="text-base font-mono text-slate-900">
-                    {adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0}
-                  </strong>
-                </div>
-                <div>
-                  <span className="text-[10px] text-slate-500 block">Chênh lệch:</span>
-                  {(() => {
-                    const cur = adjustingVariant.inventory?.onHandQty ?? adjustingVariant.onHandQty ?? 0;
-                    const diff = adjustActualCount - cur;
-                    return (
-                      <strong className={`text-base font-mono ${diff > 0 ? 'text-emerald-600' : diff < 0 ? 'text-rose-600' : 'text-slate-500'}`}>
-                        {diff > 0 ? `+${diff}` : diff}
-                      </strong>
-                    );
-                  })()}
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                  Số lượng tồn thực tế sau kiểm kê *:
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  value={adjustActualCount}
-                  onChange={(e) => setAdjustActualCount(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-sm focus:outline-none focus:border-blue-600"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                  Lý do điều chỉnh *:
-                </label>
-                <select
-                  value={adjustReason}
-                  onChange={(e) => setAdjustReason(e.target.value)}
-                  className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs font-medium focus:outline-none focus:border-blue-600 mb-2"
-                >
-                  <option value="Kiểm kê định kỳ cân đối số lượng">Kiểm kê định kỳ cân đối số lượng</option>
-                  <option value="Hàng hỏng vỡ/lỗi linh kiện">Hàng hỏng vỡ/lỗi linh kiện</option>
-                  <option value="Sai lệch trong quá trình nhập kho">Sai lệch trong quá trình nhập kho</option>
-                  <option value="Trả hàng đối tác/nhà cung cấp">Trả hàng đối tác/nhà cung cấp</option>
-                  <option value="Lý do khác">Lý do khác...</option>
-                </select>
-                {adjustReason === 'Lý do khác' && (
-                  <input
-                    type="text"
-                    placeholder="Nhập lý do cụ thể..."
-                    onChange={(e) => setAdjustReason(e.target.value)}
-                    className="w-full h-8 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600"
-                  />
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2.5 justify-end pt-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setAdjustingVariant(null)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
-              >
-                Hủy bỏ
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitStockAdjust}
-                disabled={isSubmittingAdjust}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
-              >
-                {isSubmittingAdjust ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin" />
-                    <span>Đang cập nhật...</span>
-                  </>
-                ) : (
-                  <span>Xác nhận điều chỉnh</span>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <StockAdjustmentModal
+        variant={adjustingVariant}
+        onClose={() => setAdjustingVariant(null)}
+        onSuccess={handleStockAdjustSuccess}
+      />
 
       {/* ================= MODAL THÊM BIẾN THỂ MỚI TRONG SỬA SẢN PHẨM ================= */}
       {showAddVariantInEdit && (

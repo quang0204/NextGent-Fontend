@@ -1,4 +1,7 @@
 import React from 'react';
+import { formatVND } from '../../utils/orderFormatters';
+
+export { formatVND };
 
 interface PriceDisplayProps {
   salePrice: number;
@@ -7,14 +10,6 @@ interface PriceDisplayProps {
   showDiscountPercent?: boolean;
   className?: string;
 }
-
-export const formatVND = (amount: number): string => {
-  return new Intl.NumberFormat('vi-VN', {
-    style: 'currency',
-    currency: 'VND',
-    maximumFractionDigits: 0,
-  }).format(amount);
-};
 
 export const PriceDisplay: React.FC<PriceDisplayProps> = ({
   salePrice,

@@ -7,6 +7,7 @@ import { PasswordInput } from '../components/common/PasswordInput';
 import { sharedStore } from '../services/sharedStore';
 import { userService } from '../services/userService';
 import { UserAddress, parseAddressComponents, formatFullAddress } from '../types/user';
+import { isValidVietnamesePhone, isValidEmail } from '../utils/validators';
 import { 
   User, 
   MapPin, 
@@ -202,12 +203,12 @@ export const AccountPage: React.FC = () => {
       return;
     }
 
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (!isValidEmail(cleanEmail)) {
       setProfileError('Vui lòng nhập định dạng email hợp lệ (VD: user@example.com).');
       return;
     }
 
-    if (!cleanPhone || !/^(0[3|5|7|8|9])+([0-9]{8})$/.test(cleanPhone)) {
+    if (!isValidVietnamesePhone(cleanPhone)) {
       setProfileError('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số, VD: 0987654321).');
       return;
     }

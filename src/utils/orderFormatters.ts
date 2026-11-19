@@ -2,6 +2,16 @@
  * Utilities for formatting order-related data across customer & portal views
  */
 
+export const formatVND = (amount: number): string => {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+export const formatCurrencyVND = formatVND;
+
 export const cleanLogNote = (note?: string): string => {
   if (!note) return '';
   return note

@@ -19,6 +19,7 @@ import { ProductReview } from '../types/review';
 import { BRANDS } from './mockData';
 import { PORTAL_PROMOTIONS } from './portalMockData';
 import { notificationService } from './notificationService';
+import { formatCurrencyVND } from '../utils/orderFormatters';
 import { 
   getDefaultSeedState, 
   cleanLogNote, 
@@ -2152,7 +2153,3 @@ export const sharedStore = {
     saveToStorage(STORAGE_KEY_AUDIT, auditLogs);
   }
 };
-
-function formatCurrencyVND(amount: number): string {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-}
