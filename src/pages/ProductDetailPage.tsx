@@ -92,7 +92,7 @@ export const ProductDetailPage: React.FC = () => {
         }) || data.variants[0];
 
         setSelectedVariant(initialVariant);
-        setActiveImage(initialVariant?.imageUrl || data.thumbnail);
+        setActiveImage(data.thumbnail || initialVariant?.imageUrl);
         setRelatedProducts(related);
       }
       setReviews(
@@ -375,8 +375,8 @@ export const ProductDetailPage: React.FC = () => {
       {/* 3. MAIN PRODUCT INTERACTION GRID */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
-        {/* Left Gallery (5 cols) */}
-        <div className="lg:col-span-5 bg-canvas border border-hairline-soft rounded-xxl p-6 sticky top-24">
+        {/* Left Gallery (5 cols) - Chỉ sticky trên desktop lg, mobile cuộn tự nhiên tránh bị đè */}
+        <div className="lg:col-span-5 bg-canvas border border-hairline-soft rounded-xxl p-4 sm:p-6 lg:sticky lg:top-24">
           <div className="h-80 sm:h-96 flex items-center justify-center p-6 bg-surface-soft rounded-xl relative overflow-hidden">
             {product.isFlashSale && (
               <span className="absolute top-4 left-4 z-10 bg-warning text-ink-deep text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider shadow-xs flex items-center gap-1.5">
@@ -436,21 +436,21 @@ export const ProductDetailPage: React.FC = () => {
           
           <div className="rounded-xl border border-hairline-soft overflow-hidden">
             {product.isFlashSale && (
-              <div className="bg-ink-deep text-canvas px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+              <div className="bg-[#0b0f19] dark:bg-[#111827] text-white px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-warning text-ink-deep uppercase tracking-wider">
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 uppercase tracking-wider">
                     Flash Sale
                   </span>
-                  <span className="text-xs font-bold text-canvas">Giờ vàng giá sốc</span>
+                  <span className="text-xs font-bold text-white">Giờ vàng giá sốc</span>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs text-canvas/80">
-                  <span>Kết thúc sau:</span>
-                  <div className="flex items-center gap-1 font-mono font-bold text-warning text-xs">
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.hours}</span>
-                    <span>:</span>
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.minutes}</span>
-                    <span>:</span>
-                    <span className="bg-ink-button px-1.5 py-0.5 rounded text-canvas font-mono">{flashCountdown.seconds}</span>
+                <div className="flex items-center gap-2 text-xs bg-amber-400/15 border border-amber-400/40 px-3 py-1 rounded-full backdrop-blur-xs">
+                  <span className="text-amber-300 font-bold uppercase tracking-wider text-[10px]">Kết thúc sau:</span>
+                  <div className="flex items-center gap-1 font-mono font-black text-xs">
+                    <span className="bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-mono shadow-xs">{flashCountdown.hours}</span>
+                    <span className="text-amber-400 font-black animate-pulse">:</span>
+                    <span className="bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-mono shadow-xs">{flashCountdown.minutes}</span>
+                    <span className="text-amber-400 font-black animate-pulse">:</span>
+                    <span className="bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-mono shadow-xs">{flashCountdown.seconds}</span>
                   </div>
                 </div>
               </div>
@@ -509,27 +509,6 @@ export const ProductDetailPage: React.FC = () => {
               </div>
             </div>
           ) : null}
-
-          {/* Realtime Stock Alert Banner (Chỉ hiện khi sản phẩm còn kinh doanh) */}
-          {!isProductInactive && !isVariantInactive && (
-            <div className={`p-3.5 rounded-lg border flex items-center justify-between text-xs ${
-              isOutOfStock? 'bg-surface-soft border-critical/40 text-critical': 'bg-surface-soft border-hairline-soft text-charcoal'
-            }`}>
-              <div className="flex items-center gap-2.5">
-                <span className={`w-2 h-2 rounded-full ${isOutOfStock? 'bg-critical': 'bg-success animate-pulse'}`} />
-                <span>
-                  {isOutOfStock? (
-                    <strong className="font-bold">Phiên bản này hiện đang Tạm hết hàng</strong>
-                  ): (
-                    <>Tồn kho khả dụng: <strong className="text-ink-deep font-bold">{effectiveAvailableQty} máy</strong> (Đã trừ giữ chỗ)</>
-                  )}
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-steel">
-                Kho: {onHandDisplay} | Giữ: {reservedDisplay}
-              </span>
-            </div>
-          )}
 
           {/* Promotion / Gift Box */}
           {product.giftDescription && (

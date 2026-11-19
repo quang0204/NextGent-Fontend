@@ -386,6 +386,14 @@ export const PortalProductsView: React.FC = () => {
     const matchedCategory = categories.find(c => c.name.toLowerCase() === newCategory.toLowerCase());
     const matchedBrand = brands.find(b => b.name.toLowerCase() === newBrand.toLowerCase());
 
+    let trimmedThumb = newThumbnail.trim();
+    let finalNewGallery = newGallery.filter(url => url.trim().length > 0);
+    if (trimmedThumb) {
+      finalNewGallery = [trimmedThumb, ...finalNewGallery.filter(url => url !== trimmedThumb)];
+    } else if (finalNewGallery.length > 0) {
+      trimmedThumb = finalNewGallery[0];
+    }
+
     // API 4.5: Khai báo sản phẩm mới (Master-Detail)
     productService.createAdminProduct({
       categoryId: matchedCategory ? matchedCategory.id : 1,
@@ -394,9 +402,9 @@ export const PortalProductsView: React.FC = () => {
       description: newWarranty,
       warrantyPolicy: newWarranty,
       status: 'ACTIVE',
-      images: (newGallery.length > 0 ? newGallery : [newThumbnail]).map((img, idx) => ({
+      images: (finalNewGallery.length > 0 ? finalNewGallery : [trimmedThumb]).map((img, idx) => ({
         imageUrl: img,
-        isPrimary: idx === 0,
+        isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
         sortOrder: idx + 1,
       })),
       specs: newSpecGroups.flatMap(g => g.items.map((it, idx) => ({
@@ -821,7 +829,16 @@ export const PortalProductsView: React.FC = () => {
 
     setIsSavingProduct(true);
     try {
-      const finalGallery = editProdGallery.length > 0 ? editProdGallery : [editProdThumbnail.trim()];
+      let trimmedThumb = editProdThumbnail.trim();
+      let finalGallery = editProdGallery.filter(url => url.trim().length > 0);
+      if (trimmedThumb) {
+        finalGallery = [trimmedThumb, ...finalGallery.filter(url => url !== trimmedThumb)];
+      } else if (finalGallery.length > 0) {
+        trimmedThumb = finalGallery[0];
+      }
+      if (finalGallery.length === 0 && trimmedThumb) {
+        finalGallery = [trimmedThumb];
+      }
       const matchedEditCat = categories.find(c => c.name.toLowerCase() === editProdCategory.toLowerCase());
       const matchedEditBrand = brands.find(b => b.name.toLowerCase() === editProdBrand.toLowerCase());
 
@@ -841,7 +858,7 @@ export const PortalProductsView: React.FC = () => {
         warrantyPolicy: editProdDescription,
         images: finalGallery.map((img, idx) => ({
           imageUrl: img,
-          isPrimary: idx === 0,
+          isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
           sortOrder: idx + 1
         })),
         specs: specsPayload
@@ -853,6 +870,7 @@ export const PortalProductsView: React.FC = () => {
       }
 
       // Đồng bộ lưu các biến thể (bao gồm giá niêm yết gốc & giá bán hiện hành)
+      const oldThumb = editingProduct.thumbnail;
       for (const v of editProdVariants) {
         if (v && v.variantId) {
           const listPrice = Number(v.listPrice || 0);
@@ -860,6 +878,7 @@ export const PortalProductsView: React.FC = () => {
           const minThresh = Number(v.inventory?.minThreshold ?? v.minThreshold ?? 5);
           const effectiveList = listPrice > 0 ? listPrice : salePrice;
           const effectiveSale = salePrice > 0 ? salePrice : listPrice;
+          const varImageUrl = (!v.imageUrl || v.imageUrl === oldThumb) ? (trimmedThumb || v.imageUrl) : v.imageUrl;
           try {
             await productService.updateAdminVariant(v.variantId, {
               sku: (v.sku || '').trim().toUpperCase(),
@@ -873,7 +892,7 @@ export const PortalProductsView: React.FC = () => {
               romGb: v.romGb,
               connectionType: v.connectionType,
               attributes: v.attributes,
-              imageUrl: v.imageUrl || editProdThumbnail
+              imageUrl: varImageUrl
             });
             sharedStore.updateVariant(editingProduct.productId, v.variantId, {
               sku: (v.sku || '').trim().toUpperCase(),
@@ -884,6 +903,7 @@ export const PortalProductsView: React.FC = () => {
               romGb: v.romGb,
               connectionType: v.connectionType,
               attributes: v.attributes,
+              imageUrl: varImageUrl,
               isActive: v.isActive !== false
             });
           } catch (varErr) {
@@ -896,7 +916,7 @@ export const PortalProductsView: React.FC = () => {
         name: editProdName.trim(),
         categoryName: editProdCategory,
         brandName: editProdBrand,
-        thumbnail: editProdThumbnail.trim(),
+        thumbnail: trimmedThumb || finalGallery[0] || '',
         gallery: finalGallery,
         warrantyPolicy: editProdDescription,
         status: editProdStatus,
@@ -913,6 +933,9 @@ export const PortalProductsView: React.FC = () => {
       });
 
       setProducts([...sharedStore.getProducts()]);
+      productService.getProducts().then(prods => {
+        if (prods && prods.length > 0) setProducts(prods);
+      }).catch(() => {});
       alert(`Đã cập nhật thông tin sản phẩm và thông số kỹ thuật thành công!`);
       setEditingProduct(null);
     } catch (err: any) {
@@ -1172,7 +1195,7 @@ export const PortalProductsView: React.FC = () => {
                           <td className="p-3.5 w-16">
                             <div 
                               onClick={() => handleOpenEditProduct(p)}
-                              className="relative w-12 h-12 rounded-lg border border-slate-200 bg-slate-50 overflow-hidden group cursor-pointer shadow-xs"
+                              className="relative w-12 h-12 rounded-lg border border-slate-200 bg-white brand-logo-plate overflow-hidden group cursor-pointer shadow-xs"
                               title="Bấm để đổi ảnh sản phẩm & thư viện ảnh"
                             >
                               <img 

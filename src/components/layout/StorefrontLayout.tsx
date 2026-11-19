@@ -7,7 +7,7 @@ import { MobileBottomNav } from './MobileBottomNav';
 
 export const StorefrontLayout: React.FC = () => {
   return (
-    <div className="min-h-screen flex flex-col bg-canvas text-ink pb-14 md:pb-0">
+    <div className="min-h-screen flex flex-col bg-canvas text-ink pb-14 md:pb-0 overflow-x-hidden w-full max-w-[100vw]">
       <TopNotificationBar />
       <Header />
 

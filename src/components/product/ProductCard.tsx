@@ -62,7 +62,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
   const isInactive = product.status === 'INACTIVE' || product.status === 'DISCONTINUED' || (product as any).isActive === false;
 
   return (
-    <div className={`group bg-canvas border border-hairline-soft rounded-2xl flex flex-col justify-between hover:border-hairline transition-all duration-200 relative h-full w-full shadow-xs hover:shadow-subtle ${
+    <div className={`group bg-canvas text-ink border border-hairline-soft rounded-2xl flex flex-col justify-between hover:border-hairline transition-all duration-200 relative h-full w-full shadow-xs hover:shadow-subtle ${
       compact? 'p-2.5 sm:p-3': 'p-3.5 sm:p-4'
     } ${isInactive ? 'opacity-90' : ''}`}>
       
@@ -123,7 +123,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         }`}
       >
         <img
-          src={defaultVariant?.imageUrl || product.thumbnail}
+          src={product.thumbnail || defaultVariant?.imageUrl}
           alt={product.name}
           loading="lazy"
           className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"

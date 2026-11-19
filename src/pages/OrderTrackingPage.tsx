@@ -343,7 +343,7 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
   if (order?.status === 'RETURNING' || status === 'RETURNING') {
     return {
       label: 'Đang hoàn về kho',
-      bg: 'bg-orange-50 text-orange-700 border-orange-200',
+      bg: 'bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-800',
       dot: 'bg-orange-500'
     };
   }
@@ -352,7 +352,7 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
     if (ret.returnStatus === 'REJECTED') {
       return {
         label: 'Hoàn trả thất bại (Đã từ chối)',
-        bg: 'bg-rose-50 text-rose-700 border-rose-200',
+        bg: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800',
         dot: 'bg-rose-500'
       };
     }
@@ -360,26 +360,26 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
       if (ret.isPartial) {
         return {
           label: 'Hoàn tất',
-          bg: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+          bg: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800',
           dot: 'bg-indigo-500'
         };
       }
       return {
         label: 'Đã hoàn hàng / Hoàn tiền',
-        bg: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        bg: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
         dot: 'bg-emerald-500'
       };
     }
     if (ret.returnStatus === 'PENDING' || ret.returnStatus === 'INSPECTING') {
       return {
         label: ret.isPartial ? 'Đang xử lý đổi trả 1 phần' : 'Đang xử lý đổi trả',
-        bg: 'bg-purple-50 text-purple-700 border-purple-200',
+        bg: 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800',
         dot: 'bg-purple-500'
       };
     }
     return {
       label: 'Hoàn hàng / Trả hàng',
-      bg: 'bg-purple-50 text-purple-700 border-purple-200',
+      bg: 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-800',
       dot: 'bg-purple-500'
     };
   }
@@ -431,7 +431,7 @@ export const getStatusBadge = (status: OrderStatus, order?: OrderDetail) => {
     case 'CANCELLED':
       return {
         label: 'Đã hủy',
-        bg: 'bg-rose-50 text-rose-700 border-rose-200',
+        bg: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800',
         dot: 'bg-rose-500'
       };
     default:
@@ -1131,69 +1131,53 @@ export const OrderTrackingPage: React.FC = () => {
 
             {/* Trạng thái đơn hàng */}
             {order.status === 'RETURNING'? (
-              <div className="p-5 bg-orange-50/90 border-2 border-orange-300 rounded-2xl text-xs text-orange-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
+              <div className="p-5 bg-orange-50/90 dark:bg-orange-950/40 border-2 border-orange-300 dark:border-orange-800 rounded-2xl text-xs text-orange-950 dark:text-orange-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
                 <div className="flex items-start gap-3.5">
-                  <div className="w-11 h-11 rounded-xl bg-orange-100 border border-orange-200 text-orange-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
-                    <RotateCcw size={22} className="text-orange-600" />
+                  <div className="w-11 h-11 rounded-xl bg-orange-100 dark:bg-orange-900/50 border border-orange-200 dark:border-orange-700 text-orange-600 dark:text-orange-400 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
+                    <RotateCcw size={22} className="text-orange-600 dark:text-orange-400" />
                   </div>
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <strong className="text-sm font-black text-orange-900 uppercase tracking-tight">Giao hàng không thành công</strong>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-200 text-orange-800 border border-orange-300">
+                      <strong className="text-sm font-black text-orange-900 dark:text-orange-200 uppercase tracking-tight">Giao hàng không thành công</strong>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-200 dark:bg-orange-900/60 text-orange-800 dark:text-orange-300 border border-orange-300 dark:border-orange-700">
                         ĐANG HOÀN VỀ KHO
                       </span>
                     </div>
-                    <p className="text-xs text-orange-800 leading-relaxed">
-                      Lý do: <span className="font-semibold">{order.cancelReason || 'Không liên hệ được người nhận'}</span>.
-                      <span className="block text-slate-700 mt-1">Kiện hàng đang được bưu tá chuyển hoàn về kho NextGen. Bộ phận CSKH sẽ hỗ trợ bạn nếu bạn cần đặt lại hoặc nhận hỗ trợ.</span>
+                    <p className="text-xs text-orange-800 dark:text-orange-300 leading-relaxed">
+                      Lý do: <span className="font-semibold text-orange-950 dark:text-orange-100">{order.cancelReason || 'Không liên hệ được người nhận'}</span>.
+                      <span className="block text-slate-700 dark:text-slate-300 mt-1">Kiện hàng đang được bưu tá chuyển hoàn về kho NextGen. Bộ phận CSKH sẽ hỗ trợ bạn nếu bạn cần đặt lại hoặc nhận hỗ trợ.</span>
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <Link
-                    to="/products"
-                    className="flex-1 sm:flex-initial px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold text-center transition shadow-xs whitespace-nowrap"
-                  >
-                    Xem sản phẩm khác
-                  </Link>
-                </div>
               </div>
             ): checkIsReturnOrder(order)? (
-              <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900 flex items-start gap-2.5">
-                <RotateCcw size={18} className="text-purple-600 flex-shrink-0 mt-0.5" />
+              <div className="p-4 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-xl text-xs text-purple-900 dark:text-purple-200 flex items-start gap-2.5">
+                <RotateCcw size={18} className="text-purple-600 dark:text-purple-400 flex-shrink-0 mt-0.5" />
                 <div>
-                  <strong className="block text-purple-950 font-bold">Trạng thái: Trả hàng / Hoàn hàng </strong>
-                  <p className="text-[11px] text-purple-800 mt-0.5 leading-relaxed">
+                  <strong className="block text-purple-950 dark:text-purple-200 font-bold">Trạng thái: Trả hàng / Hoàn hàng </strong>
+                  <p className="text-[11px] text-purple-800 dark:text-purple-300 mt-0.5 leading-relaxed">
                     {order.cancelReason || 'Đơn hàng đã được bưu cục hoàn trả về kho bán lẻ hoặc đang có yêu cầu đổi trả bảo hành theo chính sách NextGen Smart Tech.'}
                   </p>
                 </div>
               </div>
             ): order.status === 'CANCELLED'? (
-              <div className="p-5 bg-rose-50/80 border-2 border-rose-300 rounded-2xl text-xs text-rose-950 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
+              <div className="p-5 bg-rose-50/90 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-900/60 rounded-2xl text-xs text-rose-950 dark:text-rose-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs animate-in fade-in duration-200">
                 <div className="flex items-start gap-3.5">
-                  <div className="w-11 h-11 rounded-xl bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
+                  <div className="w-11 h-11 rounded-xl bg-rose-100 dark:bg-rose-900/50 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-xs">
                     <XCircle size={24} />
                   </div>
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <strong className="text-sm font-black text-rose-900 uppercase tracking-tight">Đơn hàng này đã bị hủy</strong>
-                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 text-rose-800 border border-rose-300">
+                      <strong className="text-sm font-black text-rose-900 dark:text-rose-200 uppercase tracking-tight">Đơn hàng này đã bị hủy</strong>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-200 dark:bg-rose-900/70 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-700">
                         ĐÃ HỦY & NHẢ TỒN KHO
                       </span>
                     </div>
-                    <p className="text-xs text-rose-800 leading-relaxed">
-                      Lý do: <span className="font-semibold">{order.cancelReason || 'Hết hạn thời gian thanh toán qua mã QR (15 phút)'}</span>.
-                      <strong className="block text-emerald-800 font-extrabold mt-1">✓ Toàn bộ số lượng sản phẩm giữ chỗ đã được giải phóng và hoàn trả lại tồn kho khả dụng.</strong>
+                    <p className="text-xs text-rose-800 dark:text-rose-300 leading-relaxed">
+                      Lý do: <span className="font-semibold text-rose-950 dark:text-rose-100">{order.cancelReason || 'Hết hạn thời gian thanh toán qua mã QR (15 phút)'}</span>.
+                      <strong className="block text-emerald-800 dark:text-emerald-400 font-extrabold mt-1">✓ Toàn bộ số lượng sản phẩm giữ chỗ đã được giải phóng và hoàn trả lại tồn kho khả dụng.</strong>
                     </p>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <Link
-                    to="/products"
-                    className="flex-1 sm:flex-initial px-4 py-2 bg-slate-900 hover:bg-black text-white rounded-xl text-xs font-bold text-center transition shadow-xs whitespace-nowrap"
-                  >
-                    Tiếp tục mua sắm
-                  </Link>
                 </div>
               </div>
             ): (
@@ -1462,23 +1446,23 @@ export const OrderTrackingPage: React.FC = () => {
                 <span className="font-bold text-ink-deep uppercase tracking-wider block text-[11px]">Thanh toán & Giao vận:</span>
                 <div>Hình thức: <strong className="text-ink-deep">{order.paymentMethod === 'COD'? 'Thanh toán tiền mặt khi nhận hàng (COD)': 'Chuyển khoản VietQR'}</strong></div>
                 <div>Trạng thái TT: {order.paymentStatus === 'REFUNDED' ? (
-                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-300 text-xs">
+                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-md border border-rose-300 dark:border-rose-800 text-xs">
                     <CheckCircle2 size={12} /> Đã hoàn tiền
                   </span>
                 ) : order.paymentStatus === 'PARTIALLY_REFUNDED' ? (
-                  <span className="inline-flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-300 text-xs">
+                  <span className="inline-flex items-center gap-1 font-bold text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md border border-indigo-300 dark:border-indigo-800 text-xs">
                     <CheckCircle2 size={12} /> Đã hoàn tiền 1 phần
                   </span>
                 ) : (order.paymentStatus === 'PAID' || order.status === 'COMPLETED') ? (
-                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-300 text-xs">
+                  <span className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-800 text-xs">
                     <CheckCircle2 size={12} /> Đã thanh toán (Thành công)
                   </span>
                 ) : order.paymentStatus === 'PENDING' ? (
-                  <span className="inline-flex items-center gap-1 font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300 text-xs">
+                  <span className="inline-flex items-center gap-1 font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-300 dark:border-amber-800 text-xs">
                     <Clock size={12} /> Đang chờ đối soát (Đã chuyển khoản)
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-300 text-xs">
+                  <span className="inline-flex items-center gap-1 font-bold text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-md border border-rose-300 dark:border-rose-800 text-xs">
                     <AlertCircle size={12} /> Chưa thanh toán
                   </span>
                 )}</div>
@@ -1498,7 +1482,16 @@ export const OrderTrackingPage: React.FC = () => {
                   return (
                     <div key={item.orderItemId} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                       <div className="flex items-center gap-3">
-                        <img src={item.imageUrl} alt={item.productNameSnapshot} className="w-12 h-12 object-contain bg-surface-soft rounded-lg border border-hairline-soft p-1" />
+                        <img
+                          src={item.imageUrl || '/logo.png'}
+                          alt={item.productNameSnapshot}
+                          onError={(e) => {
+                            const target = e.currentTarget as HTMLImageElement;
+                            target.onerror = null;
+                            target.src = '/logo.png';
+                          }}
+                          className="w-12 h-12 object-contain bg-surface-soft rounded-lg border border-hairline-soft p-1 shrink-0"
+                        />
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
                             <h5 className="font-bold text-ink-deep">{item.productNameSnapshot}</h5>
@@ -1772,9 +1765,14 @@ export const OrderTrackingPage: React.FC = () => {
                         <div key={it.orderItemId} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-surface-soft/40 p-2.5 rounded-xl border border-hairline-soft/50">
                           <div className="flex items-center gap-3 min-w-0 flex-1">
                             <img
-                              src={it.imageUrl}
+                              src={it.imageUrl || '/logo.png'}
                               alt={it.productNameSnapshot}
-                              className="w-12 h-12 object-contain rounded-lg bg-canvas p-1 border border-hairline-soft flex-shrink-0"
+                              onError={(e) => {
+                                const target = e.currentTarget as HTMLImageElement;
+                                target.onerror = null;
+                                target.src = '/logo.png';
+                              }}
+                              className="w-12 h-12 object-contain rounded-lg bg-surface-soft p-1 border border-hairline-soft flex-shrink-0"
                             />
                             <div className="flex-1 min-w-0">
                               <strong className="text-ink-deep block text-xs font-bold line-clamp-1">{it.productNameSnapshot}</strong>
@@ -2078,7 +2076,12 @@ export const OrderTrackingPage: React.FC = () => {
                             <img
                               src={item.imageUrl}
                               alt={item.productName}
-                              className="w-10 h-10 object-contain rounded border border-hairline-soft p-0.5 bg-white shrink-0"
+                              onError={(e) => {
+                                const target = e.currentTarget as HTMLImageElement;
+                                target.onerror = null;
+                                target.src = '/logo.png';
+                              }}
+                              className="w-10 h-10 object-contain rounded border border-hairline-soft p-0.5 bg-surface-soft shrink-0"
                             />
                           )}
                           <div className="min-w-0">

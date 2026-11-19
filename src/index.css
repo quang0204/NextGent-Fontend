@@ -2,14 +2,50 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-canvas-rgb: 255 255 255;
+  --color-surface-soft-rgb: 241 244 247;
+  --color-ink-deep-rgb: 10 19 23;
+  --color-ink-rgb: 28 30 33;
+  --color-charcoal-rgb: 68 73 80;
+  --color-slate-rgb: 75 76 79;
+  --color-steel-rgb: 93 108 123;
+  --color-stone-rgb: 133 149 164;
+  --color-hairline-rgb: 206 208 212;
+  --color-hairline-soft-rgb: 222 227 233;
+  --color-disabled-text-rgb: 188 192 196;
+  --color-ink-button-rgb: 0 0 0;
+  color-scheme: light;
+}
+
+.dark {
+  --color-canvas-rgb: 11 15 25;       /* #0b0f19 - Deep dark canvas */
+  --color-surface-soft-rgb: 23 31 46;  /* #171f2e - Elevated surface cards */
+  --color-ink-deep-rgb: 248 250 252;  /* #f8fafc - Bright headings */
+  --color-ink-rgb: 226 232 240;       /* #e2e8f0 - High-contrast text */
+  --color-charcoal-rgb: 203 213 225;  /* #cbd5e1 - Secondary text */
+  --color-slate-rgb: 148 163 184;     /* #94a3b8 */
+  --color-steel-rgb: 148 163 184;     /* #94a3b8 - Secondary captions */
+  --color-stone-rgb: 100 116 139;     /* #64748b */
+  --color-hairline-rgb: 51 65 85;     /* #334155 - Input borders */
+  --color-hairline-soft-rgb: 30 41 59;/* #1e293b - Subtle borders */
+  --color-disabled-text-rgb: 71 85 105;
+  --color-ink-button-rgb: 0 100 224;
+  color-scheme: dark;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
+    max-width: 100vw;
     font-family: "Optimistic VF", Montserrat, Helvetica, Arial, "Noto Sans", sans-serif;
   }
 
   body {
     @apply bg-canvas text-ink antialiased;
+    overflow-x: hidden;
+    max-width: 100vw;
     font-family: "Optimistic VF", Montserrat, Helvetica, Arial, "Noto Sans", sans-serif;
     font-size: 16px;
     font-weight: 400;
@@ -32,34 +68,31 @@
   /* DESIGN-meta.md Heading Styles with ss01, ss02 */
   h1, h2, h3, h4, h5, h6 {
     font-feature-settings: "ss01", "ss02";
+    color: rgb(var(--color-ink-deep-rgb));
   }
 
   h1 {
     font-size: 36px;
     font-weight: 500;
     line-height: 1.28;
-    color: #0a1317;
   }
 
   h2 {
     font-size: 28px;
     font-weight: 300;
     line-height: 1.21;
-    color: #0a1317;
   }
 
   h3 {
     font-size: 24px;
     font-weight: 500;
     line-height: 1.25;
-    color: #0a1317;
   }
 
   h4 {
     font-size: 18px;
     font-weight: 700;
     line-height: 1.44;
-    color: #0a1317;
   }
 
   h5 {
@@ -67,7 +100,6 @@
     font-weight: 700;
     line-height: 1.50;
     letter-spacing: -0.16px;
-    color: #0a1317;
   }
 
   h6 {
@@ -75,7 +107,6 @@
     font-weight: 700;
     line-height: 1.43;
     letter-spacing: -0.14px;
-    color: #0a1317;
   }
 
   p {
@@ -88,7 +119,7 @@
   label {
     font-size: 14px;
     font-weight: 500;
-    color: #1c1e21;
+    color: rgb(var(--color-ink-rgb));
   }
 
   table {
@@ -188,6 +219,13 @@
   background: #8595a4;
 }
 
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
 /* Hide scrollbar for clean horizontal pill bars */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
@@ -196,6 +234,265 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* Dark mode helpers & overrides for legacy / utility classes */
+.dark .mix-blend-multiply {
+  mix-blend-mode: normal !important;
+}
+
+/* Global Dark theme overrides for Admin portal and nested standard cards */
+.dark .bg-white:not(.brand-logo-plate) {
+  background-color: #151f32 !important;
+  border-color: #27374e !important;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Brand logo plates: Always pure crisp white in both Light and Dark mode */
+.brand-logo-plate,
+.dark .brand-logo-plate,
+.dark [class*="brand-logo-plate"] {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+.brand-logo-plate img,
+.dark .brand-logo-plate img {
+  filter: none !important;
+  mix-blend-mode: normal !important;
+}
+
+.dark .bg-slate-50,
+.dark [class*="bg-slate-50"] {
+  background-color: #0e1626 !important;
+}
+.dark .bg-slate-100,
+.dark [class*="bg-slate-100"] {
+  background-color: #1c283d !important;
+}
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark [class*="border-slate-100"],
+.dark [class*="border-slate-200"] {
+  border-color: #27374e !important;
+}
+.dark .border-slate-300,
+.dark [class*="border-slate-300"] {
+  border-color: #384c68 !important;
+}
+.dark .text-slate-900,
+.dark .text-slate-800 {
+  color: #ffffff !important;
+}
+.dark .text-slate-700,
+.dark .text-slate-600 {
+  color: #cbd5e1 !important;
+}
+.dark .text-slate-500 {
+  color: #94a3b8 !important;
+}
+.dark .text-slate-400 {
+  color: #8899ac !important;
+}
+
+/* High-contrast vibrant colors for stats and status */
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-blue-900 {
+  color: #60a5fa !important;
+}
+.dark .text-emerald-600,
+.dark .text-emerald-700,
+.dark .text-emerald-800,
+.dark .text-emerald-900,
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-green-800 {
+  color: #34d399 !important;
+}
+.dark .text-cyan-600,
+.dark .text-cyan-700,
+.dark .text-cyan-800 {
+  color: #38bdf8 !important;
+}
+.dark .text-indigo-600,
+.dark .text-indigo-700,
+.dark .text-indigo-800 {
+  color: #818cf8 !important;
+}
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-yellow-600,
+.dark .text-yellow-700 {
+  color: #fbbf24 !important;
+}
+.dark .text-rose-600,
+.dark .text-rose-700,
+.dark .text-rose-800,
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800 {
+  color: #f87171 !important;
+}
+.dark .text-purple-600,
+.dark .text-purple-700,
+.dark .text-purple-800 {
+  color: #c084fc !important;
+}
+
+.dark .divide-slate-200 > :not([hidden]) ~ :not([hidden]),
+.dark [class*="divide-slate-200"] > :not([hidden]) ~ :not([hidden]),
+.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #233146 !important;
+}
+
+/* Inputs, Selects & Form controls in Dark Mode */
+.dark input:not([type="checkbox"]):not([type="radio"]),
+.dark select,
+.dark textarea {
+  background-color: #0d1524 !important;
+  border-color: #2d3e58 !important;
+  color: #f1f5f9 !important;
+}
+.dark input:not([type="checkbox"]):not([type="radio"]):focus,
+.dark select:focus,
+.dark textarea:focus {
+  background-color: #10192a !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25) !important;
+}
+.dark select option {
+  background-color: #151f32 !important;
+  color: #f8fafc !important;
+}
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.85);
+  cursor: pointer;
+}
+
+/* Table styling in Dark Mode */
+.dark thead.bg-slate-50,
+.dark thead[class*="bg-slate-50"],
+.dark thead {
+  background-color: #0e1626 !important;
+}
+.dark thead th {
+  color: #cbd5e1 !important;
+  font-weight: 700 !important;
+  border-color: #26364d !important;
+}
+.dark tbody tr:hover,
+.dark tr[class*="hover:bg-slate-50"]:hover {
+  background-color: #1e2b42 !important;
+}
+.dark td {
+  border-color: #233146 !important;
+}
+
+/* Dark mode alerts, pipeline blocks & badges: Sleek dark translucent tints */
+.dark .bg-amber-50,
+.dark [class*="bg-amber-50"],
+.dark [class*="bg-yellow-50"] {
+  background-color: rgba(245, 158, 11, 0.16) !important;
+}
+.dark .border-amber-200,
+.dark [class*="border-amber-100"],
+.dark [class*="border-amber-200"],
+.dark [class*="border-amber-300"] {
+  border-color: rgba(245, 158, 11, 0.35) !important;
+}
+
+.dark .bg-blue-50,
+.dark [class*="bg-blue-50"] {
+  background-color: rgba(59, 130, 246, 0.16) !important;
+}
+.dark .border-blue-200,
+.dark [class*="border-blue-100"],
+.dark [class*="border-blue-200"],
+.dark [class*="border-blue-300"] {
+  border-color: rgba(59, 130, 246, 0.35) !important;
+}
+
+.dark .bg-cyan-50,
+.dark [class*="bg-cyan-50"] {
+  background-color: rgba(6, 182, 212, 0.16) !important;
+}
+.dark .border-cyan-200,
+.dark [class*="border-cyan-100"],
+.dark [class*="border-cyan-200"] {
+  border-color: rgba(6, 182, 212, 0.35) !important;
+}
+
+.dark .bg-indigo-50,
+.dark [class*="bg-indigo-50"] {
+  background-color: rgba(99, 102, 241, 0.18) !important;
+}
+.dark .border-indigo-200,
+.dark [class*="border-indigo-100"],
+.dark [class*="border-indigo-200"],
+.dark [class*="border-indigo-300"] {
+  border-color: rgba(99, 102, 241, 0.38) !important;
+}
+
+.dark .bg-emerald-50,
+.dark [class*="bg-emerald-50"],
+.dark [class*="bg-green-50"] {
+  background-color: rgba(16, 185, 129, 0.16) !important;
+}
+.dark .border-emerald-200,
+.dark [class*="border-emerald-100"],
+.dark [class*="border-emerald-200"],
+.dark [class*="border-green-100"],
+.dark [class*="border-green-200"] {
+  border-color: rgba(16, 185, 129, 0.35) !important;
+}
+
+.dark .bg-rose-50,
+.dark [class*="bg-rose-50"],
+.dark [class*="bg-red-50"] {
+  background-color: rgba(239, 68, 68, 0.16) !important;
+}
+.dark .border-rose-200,
+.dark [class*="border-rose-100"],
+.dark [class*="border-rose-200"],
+.dark [class*="border-rose-300"],
+.dark [class*="border-red-100"],
+.dark [class*="border-red-200"] {
+  border-color: rgba(239, 68, 68, 0.35) !important;
+}
+
+.dark .bg-purple-50,
+.dark [class*="bg-purple-50"] {
+  background-color: rgba(168, 85, 247, 0.18) !important;
+}
+.dark .border-purple-200,
+.dark [class*="border-purple-100"],
+.dark [class*="border-purple-200"],
+.dark [class*="border-purple-300"] {
+  border-color: rgba(168, 85, 247, 0.38) !important;
+}
+
+/* Action buttons and floating dock */
+.dark button.bg-slate-100,
+.dark a.bg-slate-100 {
+  background-color: #1c283d !important;
+  border-color: #31425a !important;
+  color: #f1f5f9 !important;
+}
+.dark button.bg-slate-100:hover,
+.dark a.bg-slate-100:hover {
+  background-color: #27374e !important;
+  color: #ffffff !important;
+}
+
+.dark .bg-slate-900\/70,
+.dark .bg-slate-900\/80,
+.dark .bg-slate-900\/60 {
+  background-color: rgba(5, 8, 15, 0.82) !important;
+}
+
+/* Continuous Running Marquee Banner (Ticker chạy ngang liên tục) */
 
 /* Continuous Running Marquee Banner (Ticker chạy ngang liên tục) */
 @keyframes marquee-scroll {

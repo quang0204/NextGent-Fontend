@@ -153,6 +153,8 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
 
   const handleSetPrimary = (url: string) => {
     onChangeThumbnail(url);
+    const reordered = [url, ...gallery.filter((item) => item !== url)];
+    onChangeGallery(reordered);
   };
 
   const handleMove = (index: number, direction: 'UP' | 'DOWN') => {

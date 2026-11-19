@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { productService, applyActivePromotionsToProducts } from '../services/productService';
 import { promotionService, getCountdownParts } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
+import { resolveBrandLogo } from '../utils/brandUtils';
 import { ProductCard } from '../components/product/ProductCard';
 import { formatVND } from '../components/common/PriceDisplay';
 import { 
@@ -137,37 +138,6 @@ const HERO_BANNERS: HeroBannerSlide[] = [
     icon: Laptop,
   },
 ];
-
-const MINIO_BRAND_LOGOS: Record<string, string> = {
-  apple: 'http://localhost:9000/brands/brands/1/446bbd63-6d10-4009-8f6a-b00b55e89fd4-Apple_logo_black.svg',
-  samsung: 'http://localhost:9000/brands/brands/2/bbcd5610-2a04-4c41-ac54-53320f56c418-Samsung_old_logo_before_year_2015.svg.webp',
-  xiaomi: 'http://localhost:9000/brands/brands/3/bcc64df8-125d-479c-9eea-75ec88e8189c-images.png',
-  sony: 'http://localhost:9000/brands/brands/4/1a3dd88f-296b-437a-a454-bae91860c9d1-Sony_logo.svg',
-  asus: 'http://localhost:9000/brands/brands/5/33a9e35d-bf8d-4e8a-bb2c-c35e6488b179-ASUS_Corporate_Logo.svg.webp',
-  anker: 'http://localhost:9000/brands/brands/6/db4362ee-74ba-48db-8496-e1f74d0c963c-Anker_logo.svg.webp',
-  marshall: 'http://localhost:9000/brands/brands/7/974db7fb-bc24-4b43-9191-928d229edac6-Marshall_logo.svg.webp',
-};
-
-const resolveBrandLogo = (logoUrl?: string, brandName?: string): string | undefined => {
-  if (logoUrl && logoUrl.trim() !== '') {
-    if (logoUrl.startsWith('minio://brands/')) {
-      return `http://localhost:9000/brands/${logoUrl.replace('minio://brands/', '')}`;
-    }
-    if (logoUrl.startsWith('minio://')) {
-      return `http://localhost:9000/${logoUrl.replace('minio://', '')}`;
-    }
-    if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
-      return logoUrl;
-    }
-  }
-  if (brandName) {
-    const key = brandName.toLowerCase().trim();
-    if (MINIO_BRAND_LOGOS[key]) {
-      return MINIO_BRAND_LOGOS[key];
-    }
-  }
-  return undefined;
-};
 
 export const HomePage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -553,39 +523,39 @@ export const HomePage: React.FC = () => {
       {/* 3. FLASH SALE SECTION (DESIGN-meta card-promo-strip) */}
       {flashSaleProducts.length > 0 && (
         <section className="max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="bg-ink-deep border border-hairline-soft/20 rounded-xxxl p-6 sm:p-10 text-canvas relative">
+          <div className="bg-[#0b0f19] dark:bg-[#111827] border border-amber-500/20 rounded-2xl sm:rounded-xxxl p-4 sm:p-8 text-white relative overflow-hidden">
             
             {/* Flash Sale Header with Countdown & Controls */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-canvas/15">
-              <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-canvas/10 flex items-center justify-center text-warning flex-shrink-0">
-                  <Zap size={20} className="fill-warning text-warning" />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-400/10 flex items-center justify-center text-amber-400 flex-shrink-0">
+                  <Zap size={20} className="fill-amber-400 text-amber-400" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <h2 className="text-2xl sm:text-3xl font-medium tracking-tight text-canvas">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl sm:text-3xl font-bold tracking-tight text-white">
                       GIỜ VÀNG FLASH SALE
                     </h2>
-                    <span className="text-xs bg-warning text-ink-deep font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                    <span className="text-[11px] bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
                       Hôm nay
                     </span>
                   </div>
-                  <p className="text-xs text-canvas/70 mt-0.5">
+                  <p className="text-xs text-white/70 mt-0.5">
                     Số lượng giới hạn, khóa giữ chỗ kho khả dụng 30 phút ngay khi đặt mua
                   </p>
                 </div>
               </div>
 
-              {/* Digital Countdown Timer */}
-              <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
-                <div className="flex items-center gap-2.5 text-xs bg-canvas/10 border border-canvas/20 px-3.5 py-1.5 rounded-full">
-                  <span className="text-canvas/80 font-medium">Kết thúc trong:</span>
-                  <div className="flex items-center gap-1 font-mono font-bold text-warning text-sm">
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.hours}</span>
-                    <span>:</span>
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.minutes}</span>
-                    <span>:</span>
-                    <span className="bg-ink-button px-2 py-0.5 rounded text-canvas font-mono">{flashCountdown.seconds}</span>
+              {/* Digital Countdown Timer (Tone màu Vàng Hổ Phách sang trọng, rực rỡ cả Sáng & Tối) */}
+              <div className="flex items-center gap-3 self-start sm:self-auto">
+                <div className="flex items-center gap-2 sm:gap-2.5 text-xs bg-amber-400/15 border border-amber-400/40 px-3 sm:px-3.5 py-1.5 rounded-full backdrop-blur-xs shadow-xs">
+                  <span className="text-amber-300 font-bold uppercase tracking-wider text-[10px] sm:text-[11px] whitespace-nowrap">Kết thúc trong:</span>
+                  <div className="flex items-center gap-1 font-mono font-black text-xs sm:text-sm">
+                    <span className="bg-amber-400 text-slate-950 px-1.5 sm:px-2 py-0.5 rounded font-mono shadow-xs">{flashCountdown.hours}</span>
+                    <span className="text-amber-400 font-black animate-pulse">:</span>
+                    <span className="bg-amber-400 text-slate-950 px-1.5 sm:px-2 py-0.5 rounded font-mono shadow-xs">{flashCountdown.minutes}</span>
+                    <span className="text-amber-400 font-black animate-pulse">:</span>
+                    <span className="bg-amber-400 text-slate-950 px-1.5 sm:px-2 py-0.5 rounded font-mono shadow-xs">{flashCountdown.seconds}</span>
                   </div>
                 </div>
               </div>
