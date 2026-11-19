@@ -10,6 +10,11 @@ import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../types/order';
 import { formatVND } from '../components/common/PriceDisplay';
+import {
+  RETURN_POLICY_DAYS,
+  type ReturnTimeEligibility,
+  getOrderReturnTimeEligibility
+} from '../utils/orderFormatters';
 import { ReviewImageUploader, ReviewImageFile } from '../components/common/ReviewImageUploader';
 import { 
   Search, 
@@ -92,12 +97,6 @@ export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => 
   });
   return Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
 };
-
-import {
-  RETURN_POLICY_DAYS,
-  type ReturnTimeEligibility,
-  getOrderReturnTimeEligibility
-} from '../utils/orderFormatters';
 
 export {
   RETURN_POLICY_DAYS,

@@ -890,31 +890,6 @@ export const PortalProductsView: React.FC = () => {
           } catch (varErr) {
             console.warn('[PortalProductsView] Error saving variant in product edit', v.sku, varErr);
           }
-          await productService.updateAdminVariant(v.variantId, {
-            sku: (v.sku || '').trim().toUpperCase(),
-            listPrice: effectiveList,
-            salePrice: effectiveSale,
-            compareAtPrice: effectiveList,
-            minThreshold: minThresh,
-            isActive: v.isActive !== false,
-            color: v.color,
-            ramGb: v.ramGb,
-            romGb: v.romGb,
-            connectionType: v.connectionType,
-            attributes: v.attributes,
-            imageUrl: v.imageUrl || editProdThumbnail
-          });
-          sharedStore.updateVariant(editingProduct.productId, v.variantId, {
-            sku: (v.sku || '').trim().toUpperCase(),
-            listPrice: effectiveList,
-            salePrice: effectiveSale,
-            color: v.color,
-            ramGb: v.ramGb,
-            romGb: v.romGb,
-            connectionType: v.connectionType,
-            attributes: v.attributes,
-            isActive: v.isActive !== false
-          });
         }
       }
 
@@ -939,12 +914,9 @@ export const PortalProductsView: React.FC = () => {
       });
 
       setProducts([...sharedStore.getProducts()]);
-      productService.getProducts().then(prods => {
-        if (prods && prods.length > 0) setProducts(prods);
-      }).catch(() => {});
       productService.getAdminProducts().then(prods => {
         if (prods && prods.length > 0) setProducts(prods);
-      });
+      }).catch(() => {});
       alert(`Đã cập nhật thông tin sản phẩm và thông số kỹ thuật thành công!`);
       setEditingProduct(null);
     } catch (err: any) {
