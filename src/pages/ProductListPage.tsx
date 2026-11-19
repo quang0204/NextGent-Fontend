@@ -147,6 +147,27 @@ export const ProductListPage: React.FC = () => {
     return undefined;
   }, [categoriesTree, currentCategoryId]);
 
+  // Lọc thương hiệu theo danh mục đang chọn (qua categoryIds của bảng category_brands)
+  const categorySpecificBrands = useMemo(() => {
+    let targetCatId: number | undefined;
+    if (currentCategory === 'phone') targetCatId = 1;
+    else if (currentCategory === 'tablet') targetCatId = 2;
+    else if (currentCategory === 'laptop') targetCatId = 3;
+    else if (currentCategory === 'accessory') targetCatId = 4;
+    else if (currentCategoryId) {
+      for (const root of categoriesTree) {
+        if (root.categoryId === currentCategoryId || root.children?.some(ch => ch.categoryId === currentCategoryId)) {
+          targetCatId = root.categoryId;
+          break;
+        }
+      }
+    }
+
+    if (!targetCatId) return brands;
+    const filtered = brands.filter(b => b.categoryIds && b.categoryIds.includes(targetCatId!));
+    return filtered.length > 0 ? filtered : brands;
+  }, [brands, currentCategory, currentCategoryId, categoriesTree]);
+
   // Hỗ trợ chọn đồng thời nhiều hãng sản xuất
   const rawBrand = searchParams.get('brand');
   const selectedBrands: string[] = rawBrand && rawBrand !== 'all' ? rawBrand.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -671,7 +692,7 @@ export const ProductListPage: React.FC = () => {
                   {isAllBrands && <Check size={12} className="stroke-[3] text-primary" />}
                   <span>Tất cả</span>
                 </button>
-                {brands.map((b) => {
+                {categorySpecificBrands.map((b) => {
                   const isSelected = selectedBrands.some(sb => sb.toLowerCase() === b.name.toLowerCase());
                   const logoSrc = resolveBrandLogo(b.logoUrl, b.name);
                   return (
@@ -1300,7 +1321,7 @@ export const ProductListPage: React.FC = () => {
                   {isAllBrands && <Check size={12} className="stroke-[3] text-primary" />}
                   <span>Tất cả</span>
                 </button>
-                {brands.map((b) => {
+                {categorySpecificBrands.map((b) => {
                   const isSelected = selectedBrands.some(sb => sb.toLowerCase() === b.name.toLowerCase());
                   const logoSrc = resolveBrandLogo(b.logoUrl, b.name);
                   return (

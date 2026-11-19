@@ -712,12 +712,7 @@ export const productService = {
    */
   async getProductById(id: number): Promise<Product | null> {
     try {
-      let response;
-      try {
-        response = await apiClient.get<any>(`/product/${id}`);
-      } catch {
-        response = await apiClient.get<any>(`/products/${id}`);
-      }
+      const response = await apiClient.get<any>(`/products/${id}`);
       if (response.data?.data) {
         const mapped = mapApiProductToFrontend(response.data.data);
         const [withPromos] = await applyActivePromotionsToProducts([mapped]);
@@ -951,6 +946,7 @@ export const productService = {
           description: b.description,
           slug: b.slug,
           productCount: b.totalProducts || 0,
+          categoryIds: b.categoryIds || [],
           categorySlugs: ['phone', 'laptop', 'tablet', 'accessory']
         }));
       }

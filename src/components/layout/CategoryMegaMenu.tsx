@@ -249,6 +249,27 @@ export const CategoryMegaMenu: React.FC = () => {
   const tabletSubcategories = useMemo(() => getSubcategories('tablet'), [categoriesTree]);
   const accessorySubcategories = useMemo(() => getSubcategories('accessory'), [categoriesTree]);
 
+  // Lọc thương hiệu theo danh mục chuẩn RDBMS từ DB (qua categoryIds của bảng category_brands)
+  const phoneBrands = useMemo(() => {
+    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(1));
+    return list.length > 0 ? list : brands;
+  }, [brands]);
+
+  const tabletBrands = useMemo(() => {
+    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(2));
+    return list.length > 0 ? list : brands;
+  }, [brands]);
+
+  const laptopBrands = useMemo(() => {
+    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(3));
+    return list.length > 0 ? list : brands;
+  }, [brands]);
+
+  const accessoryBrands = useMemo(() => {
+    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(4));
+    return list.length > 0 ? list : brands;
+  }, [brands]);
+
   // Danh sách khoảng giá cố định (theo yêu cầu giữ nguyên trừ khoảng giá)
   const phonePriceRanges = [
     { label: 'Dưới 5 triệu', min: 0, max: 5000000 },
@@ -378,7 +399,7 @@ export const CategoryMegaMenu: React.FC = () => {
                         <span>Hãng điện thoại</span>
                       </h4>
                       <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {brands.map((brand) => {
+                        {phoneBrands.map((brand) => {
                           const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
                           return (
                             <button
@@ -499,7 +520,7 @@ export const CategoryMegaMenu: React.FC = () => {
                         <span>Thương hiệu Laptop</span>
                       </h4>
                       <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {brands.map((brand) => {
+                        {laptopBrands.map((brand) => {
                           const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
                           return (
                             <button
@@ -620,7 +641,7 @@ export const CategoryMegaMenu: React.FC = () => {
                         <span>Hãng máy tính bảng</span>
                       </h4>
                       <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {brands.map((brand) => {
+                        {tabletBrands.map((brand) => {
                           const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
                           return (
                             <button
@@ -759,7 +780,7 @@ export const CategoryMegaMenu: React.FC = () => {
                       <span>Thương hiệu phụ kiện nổi tiếng</span>
                     </h4>
                     <div className="grid grid-cols-2 gap-1.5 max-h-[300px] overflow-y-auto pr-1">
-                      {brands.map((brand) => {
+                      {accessoryBrands.map((brand) => {
                         const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
                         return (
                           <button

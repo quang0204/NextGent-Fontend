@@ -8,6 +8,7 @@ export interface BrandItem {
   description: string;
   isVisible: boolean;
   totalProducts: number;
+  categoryIds?: number[];
 }
 
 export interface BrandPayload {
@@ -17,6 +18,7 @@ export interface BrandPayload {
   logoUploadId?: string;
   description?: string;
   isVisible?: boolean;
+  categoryIds?: number[];
 }
 
 export interface PresignedUploadItem {
@@ -45,11 +47,13 @@ export interface ApiResponse<T> {
 }
 
 export const brandService = {
-  // API 3.6: Danh sách thương hiệu đối tác (Public/Admin)
-  async getBrands(includeHidden = true): Promise<ApiResponse<BrandItem[]>> {
-    const res = await apiClient.get<ApiResponse<BrandItem[]>>('/brands', {
-      params: { includeHidden },
-    });
+  // API 3.6: Danh sách thương hiệu đối tác (Public/Admin, hỗ trợ categoryId)
+  async getBrands(includeHidden = true, categoryId?: number): Promise<ApiResponse<BrandItem[]>> {
+    const params: Record<string, any> = { includeHidden };
+    if (categoryId !== undefined && categoryId !== null) {
+      params.categoryId = categoryId;
+    }
+    const res = await apiClient.get<ApiResponse<BrandItem[]>>('/brands', { params });
     return res.data;
   },
 

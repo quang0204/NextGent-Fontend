@@ -291,6 +291,7 @@ export const sharedStore = {
       isVisible: b.isVisible !== false,
 
       productCount: b.totalProducts || 0,
+      categoryIds: b.categoryIds || [],
 
       createdAt: new Date().toISOString()
 
@@ -312,6 +313,7 @@ export const sharedStore = {
             name: b.name,
             slug: b.slug || b.name.toLowerCase().replace(/\s+/g, '-'),
             logoUrl: b.logoUrl,
+            categoryIds: (b as any).categoryIds || [],
           }))
       : BRANDS;
 

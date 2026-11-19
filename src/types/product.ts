@@ -86,6 +86,7 @@ export interface Brand {
   slug: string;
   description?: string;
   isVisible?: boolean;
+  categoryIds?: number[];
 }
 
 export interface AdminProductDetailResponse {

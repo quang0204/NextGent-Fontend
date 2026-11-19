@@ -32,6 +32,14 @@ function generateSlug(str: string): string {
     .replace(/\s+/g, '-');
 }
 
+export const ROOT_CATEGORIES = [
+  { categoryId: 1, name: 'Điện thoại di động' },
+  { categoryId: 2, name: 'Máy tính bảng' },
+  { categoryId: 3, name: 'Laptop & PC' },
+  { categoryId: 4, name: 'Phụ kiện & Âm thanh' },
+  { categoryId: 15, name: 'Đồng hồ thông minh' },
+];
+
 export const PortalBrandsView: React.FC = () => {
   const { user } = useAuthStore();
   const { showToast } = useToastStore();
@@ -52,6 +60,7 @@ export const PortalBrandsView: React.FC = () => {
   const [uploadError, setUploadError] = useState('');
   const [description, setDescription] = useState('');
   const [isVisible, setIsVisible] = useState(true);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
@@ -107,6 +116,7 @@ export const PortalBrandsView: React.FC = () => {
     setUploadError('');
     setDescription('');
     setIsVisible(true);
+    setSelectedCategoryIds([]);
     setFormError('');
     setShowModal(true);
   };
@@ -120,6 +130,7 @@ export const PortalBrandsView: React.FC = () => {
     setUploadError('');
     setDescription(b.description || '');
     setIsVisible(b.isVisible !== false);
+    setSelectedCategoryIds(b.categoryIds || []);
     setFormError('');
     setShowModal(true);
   };
@@ -232,6 +243,7 @@ export const PortalBrandsView: React.FC = () => {
       logoUploadId: logoUploadId || undefined,
       description: description.trim(),
       isVisible: isVisible,
+      categoryIds: selectedCategoryIds,
     };
 
     if (editingBrand && editingBrand.isVisible && !isVisible && (editingBrand.totalProducts || 0) > 0) {
@@ -484,6 +496,18 @@ export const PortalBrandsView: React.FC = () => {
                         <div>
                           <div className="font-bold text-slate-900 text-sm leading-tight">{b.name}</div>
                           <div className="text-[11px] text-slate-400 font-mono mt-0.5">Mã #{b.brandId}</div>
+                          {b.categoryIds && b.categoryIds.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {b.categoryIds.map(cid => {
+                                const cat = ROOT_CATEGORIES.find(c => c.categoryId === cid);
+                                return (
+                                  <span key={cid} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200">
+                                    {cat?.name || `#${cid}`}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -718,6 +742,31 @@ export const PortalBrandsView: React.FC = () => {
                     className="w-full mt-1.5 h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-[11px] focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   />
                 </details>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                  Ngành hàng kinh doanh (Liên kết danh mục)
+                </label>
+                <div className="grid grid-cols-2 gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  {ROOT_CATEGORIES.map(cat => (
+                    <label key={cat.categoryId} className="flex items-center gap-2 cursor-pointer text-slate-700 hover:text-blue-600">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategoryIds.includes(cat.categoryId)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCategoryIds(prev => [...prev, cat.categoryId]);
+                          } else {
+                            setSelectedCategoryIds(prev => prev.filter(id => id !== cat.categoryId));
+                          }
+                        }}
+                        className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                      />
+                      <span className="text-[11px] font-medium">{cat.name}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <div>
