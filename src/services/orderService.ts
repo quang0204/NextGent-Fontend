@@ -85,12 +85,16 @@ export const orderService = {
    */
   async createOrder(payload: CreateOrderPayload, _userRole = 'CUSTOMER', _userName = 'Khách hàng', idempotencyKey?: string): Promise<OrderResponse> {
     try {
+      const normalizedPayload = {
+        ...payload,
+        paymentMethod: payload.paymentMethod === 'SIMULATED_TRANSFER' ? 'BANK_TRANSFER' : payload.paymentMethod,
+      };
       const key =
         idempotencyKey ||
         (typeof crypto !== 'undefined' && crypto.randomUUID
           ? crypto.randomUUID()
           : `order-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
-      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload, {
+      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', normalizedPayload, {
         headers: { 'Idempotency-Key': key }
       });
       const d = response.data?.data;

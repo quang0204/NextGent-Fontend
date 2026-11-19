@@ -28,7 +28,29 @@ import {
 
 export { cleanLogNote, sanitizeOrderNotes, sanitizeProducts };
 
-const saveToStorage = (_key: string, _data: any) => {};
+const saveToStorage = (key: string, data: any) => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, JSON.stringify(data));
+    }
+  } catch {
+    // ignore storage quota errors
+  }
+};
+
+const loadFromStorage = <T>(key: string, fallback: T): T => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const item = window.localStorage.getItem(key);
+      if (item) {
+        return JSON.parse(item);
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return fallback;
+};
 const STORAGE_KEY_PRODUCTS = 'ng_db_products_v3';
 const STORAGE_KEY_INVENTORY = 'ng_db_inventory_v2';
 const STORAGE_KEY_ORDERS = 'ng_db_orders_v2';
@@ -47,21 +69,21 @@ const STORAGE_KEY_PROMOTIONS = 'ng_db_promotions_v2';
 
 const initialSeed = getDefaultSeedState();
 
-let products: Product[] = initialSeed.products;
-let inventories: PortalInventoryItem[] = initialSeed.inventories;
-let orders: OrderDetail[] = initialSeed.orders;
-let vouchers: PortalVoucher[] = initialSeed.vouchers;
-let movements: StockMovementRecord[] = initialSeed.movements;
-let adjustments: StockAdjustmentRecord[] = initialSeed.adjustments;
-let auditLogs: PortalAuditLog[] = initialSeed.auditLogs;
-let tickets: PortalSupportTicket[] = initialSeed.tickets;
-let reviews: ProductReview[] = initialSeed.reviews;
-let categories: PortalCategory[] = initialSeed.categories;
-let portalBrands: PortalBrandItem[] = initialSeed.portalBrands;
-let shipments: PortalShipment[] = initialSeed.shipments;
-let returnRequests: PortalReturnRequest[] = initialSeed.returnRequests;
-let faqs: PortalFaqItem[] = initialSeed.faqs;
-let promotions: PortalPromotion[] = initialSeed.promotions;
+let products: Product[] = loadFromStorage(STORAGE_KEY_PRODUCTS, initialSeed.products);
+let inventories: PortalInventoryItem[] = loadFromStorage(STORAGE_KEY_INVENTORY, initialSeed.inventories);
+let orders: OrderDetail[] = loadFromStorage(STORAGE_KEY_ORDERS, initialSeed.orders);
+let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, initialSeed.vouchers);
+let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, initialSeed.movements);
+let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, initialSeed.adjustments);
+let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, initialSeed.auditLogs);
+let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, initialSeed.tickets);
+let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, initialSeed.reviews);
+let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, initialSeed.categories);
+let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, initialSeed.portalBrands);
+let shipments: PortalShipment[] = loadFromStorage(STORAGE_KEY_SHIPMENTS, initialSeed.shipments);
+let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, initialSeed.returnRequests);
+let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, initialSeed.faqs);
+let promotions: PortalPromotion[] = loadFromStorage(STORAGE_KEY_PROMOTIONS, initialSeed.promotions);
 
 // Listeners thông báo cập nhật
 type Listener = () => void;

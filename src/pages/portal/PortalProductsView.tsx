@@ -877,35 +877,31 @@ export const PortalProductsView: React.FC = () => {
           const minThresh = Number(v.inventory?.minThreshold ?? v.minThreshold ?? 5);
           const effectiveList = listPrice > 0 ? listPrice : salePrice;
           const effectiveSale = salePrice > 0 ? salePrice : listPrice;
-          try {
-            await productService.updateAdminVariant(v.variantId, {
-              sku: (v.sku || '').trim().toUpperCase(),
-              listPrice: effectiveList,
-              salePrice: effectiveSale,
-              compareAtPrice: effectiveList,
-              minThreshold: minThresh,
-              isActive: v.isActive !== false,
-              color: v.color,
-              ramGb: v.ramGb,
-              romGb: v.romGb,
-              connectionType: v.connectionType,
-              attributes: v.attributes,
-              imageUrl: v.imageUrl || editProdThumbnail
-            });
-            sharedStore.updateVariant(editingProduct.productId, v.variantId, {
-              sku: (v.sku || '').trim().toUpperCase(),
-              listPrice: effectiveList,
-              salePrice: effectiveSale,
-              color: v.color,
-              ramGb: v.ramGb,
-              romGb: v.romGb,
-              connectionType: v.connectionType,
-              attributes: v.attributes,
-              isActive: v.isActive !== false
-            });
-          } catch (varErr) {
-            console.warn('[PortalProductsView] Error saving variant in product edit', v.sku, varErr);
-          }
+          await productService.updateAdminVariant(v.variantId, {
+            sku: (v.sku || '').trim().toUpperCase(),
+            listPrice: effectiveList,
+            salePrice: effectiveSale,
+            compareAtPrice: effectiveList,
+            minThreshold: minThresh,
+            isActive: v.isActive !== false,
+            color: v.color,
+            ramGb: v.ramGb,
+            romGb: v.romGb,
+            connectionType: v.connectionType,
+            attributes: v.attributes,
+            imageUrl: v.imageUrl || editProdThumbnail
+          });
+          sharedStore.updateVariant(editingProduct.productId, v.variantId, {
+            sku: (v.sku || '').trim().toUpperCase(),
+            listPrice: effectiveList,
+            salePrice: effectiveSale,
+            color: v.color,
+            ramGb: v.ramGb,
+            romGb: v.romGb,
+            connectionType: v.connectionType,
+            attributes: v.attributes,
+            isActive: v.isActive !== false
+          });
         }
       }
 
