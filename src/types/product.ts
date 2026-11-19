@@ -50,6 +50,9 @@ export interface Product {
   brandName: string;
   categoryName: string;
   categoryId?: number;
+  rootCategoryId?: number;
+  rootCategoryName?: string;
+  parentCategoryId?: number;
   brandId?: number;
   description?: string;
   status?: 'ACTIVE' | 'INACTIVE' | string;

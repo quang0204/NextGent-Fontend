@@ -345,7 +345,7 @@ export const ProductDetailPage: React.FC = () => {
       removeFromCompare(product.productId);
       showToast('Đã xóa khỏi danh sách so sánh', 'info');
     } else {
-      const res = addToCompare(product.productId);
+      const res = addToCompare(product, selectedVariant?.variantId);
       if (!res.success) {
         showToast(res.message, 'warning');
       } else {

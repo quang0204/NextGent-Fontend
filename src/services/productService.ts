@@ -218,6 +218,9 @@ const mapApiProductToFrontend = (it: any): Product => {
     brandName,
     categoryName,
     categoryId: it.category?.categoryId || it.categoryId,
+    parentCategoryId: it.category?.parentId ?? null,
+    rootCategoryId: it.category?.rootCategoryId || (it.category?.parentId ? it.category.parentId : (it.category?.categoryId || it.categoryId)),
+    rootCategoryName: it.category?.rootCategoryName || (it.category?.parentName ? it.category.parentName : categoryName),
     brandId: it.brand?.brandId || it.brandId,
     description: it.description,
     status: it.status || (it.isAvailable !== false ? 'ACTIVE' : 'INACTIVE'),
@@ -1007,10 +1010,32 @@ export const productService = {
     return sharedStore.submitReview(rest);
   },
 
-  // Lấy danh sách sản phẩm so sánh
-  async getCompareProducts(ids: number[]): Promise<Product[]> {
+  // Lấy danh sách sản phẩm so sánh (hỗ trợ Backend API và fallback sharedStore)
+  async getCompareProducts(ids: number[]): Promise<{ rootCategory?: any; products: Product[] }> {
+    if (!ids || ids.length === 0) {
+      return { products: [] };
+    }
+    try {
+      const res = await apiClient.get<any>('/products/compare', {
+        params: { ids: ids.join(',') },
+      });
+      if (res.data?.success && res.data?.data) {
+        const compareData = res.data.data;
+        const rawProducts = compareData.products || [];
+        const products = rawProducts.map(mapApiProductToFrontend);
+        return {
+          rootCategory: compareData.rootCategory,
+          products,
+        };
+      }
+    } catch (err: any) {
+      console.warn('Backend compare API error, falling back to local store:', err);
+    }
     const prods = sharedStore.getProducts();
-    return prods.filter(p => ids.includes(p.productId));
+    const matched = prods.filter(p => ids.includes(p.productId));
+    return {
+      products: matched,
+    };
   },
 
   // =========================================================================
