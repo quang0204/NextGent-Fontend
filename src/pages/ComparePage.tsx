@@ -195,10 +195,28 @@ export const ComparePage: React.FC = () => {
     return match?.value?.trim() || '—';
   };
 
-  // Danh sách sản phẩm gợi ý thêm vào bảng so sánh (bắt buộc cùng danh mục cha)
+  // Danh sách sản phẩm gợi ý thêm vào bảng so sánh (bắt buộc cùng danh mục cha, không áp dụng cho phụ kiện)
   const candidateProducts = useMemo(() => {
     return allProducts.filter((p) => {
       if (productIds.includes(p.productId)) return false;
+
+      // Loại bỏ sản phẩm ngành hàng phụ kiện
+      const pRoot = (p.rootCategoryName || p.categoryName || '').toLowerCase();
+      const pCat = (p.categoryName || '').toLowerCase();
+      const pRootId = p.rootCategoryId ?? p.parentCategoryId ?? p.categoryId;
+      if (
+        pRootId === 4 ||
+        p.categoryId === 4 ||
+        p.parentCategoryId === 4 ||
+        pRoot.includes('phụ kiện') ||
+        pCat.includes('phụ kiện') ||
+        pCat.includes('tai nghe') ||
+        pCat.includes('loa') ||
+        pCat.includes('củ sạc') ||
+        pCat.includes('cáp')
+      ) {
+        return false;
+      }
 
       // Kiểm tra cùng rootCategoryId
       if (currentRootId !== null && p.rootCategoryId !== undefined && p.rootCategoryId !== null) {

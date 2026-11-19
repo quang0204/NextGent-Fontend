@@ -137,6 +137,28 @@ export const ProductDetailPage: React.FC = () => {
 
   const currentReviewCount = reviews.length > 0 ? reviews.length : (product?.reviewCount || 0);
 
+  // Xác định sản phẩm có thuộc ngành hàng Phụ kiện di động hay không (để ẩn nút So sánh)
+  const isAccessory = useMemo(() => {
+    if (!product) return false;
+    const catName = (product.categoryName || '').toLowerCase();
+    const rootCatName = (product.rootCategoryName || '').toLowerCase();
+    const rootId = product.rootCategoryId ?? product.parentCategoryId ?? product.categoryId;
+
+    return (
+      rootId === 4 ||
+      product.categoryId === 4 ||
+      product.parentCategoryId === 4 ||
+      rootCatName.includes('phụ kiện') ||
+      catName.includes('phụ kiện') ||
+      catName.includes('tai nghe') ||
+      catName.includes('loa') ||
+      catName.includes('củ sạc') ||
+      catName.includes('cáp') ||
+      catName.includes('sạc') ||
+      catName.includes('âm thanh')
+    );
+  }, [product]);
+
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 animate-pulse" aria-hidden="true">
@@ -407,16 +429,18 @@ export const ProductDetailPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 text-xs">
-          {/* Nút so sánh */}
-          <button
-            onClick={handleToggleCompare}
-            className={`px-4 py-2 rounded-full border text-xs font-bold transition-all flex items-center gap-2 ${
-              isCompared? 'bg-ink-deep border-ink-deep text-canvas': 'bg-canvas border-hairline-soft text-charcoal hover:border-charcoal'
-            }`}
-          >
-            <Scale size={14} />
-            <span>{isCompared? 'Đang so sánh': 'So sánh'}</span>
-          </button>
+          {/* Nút so sánh (ẩn đối với ngành hàng Phụ kiện di động) */}
+          {!isAccessory && (
+            <button
+              onClick={handleToggleCompare}
+              className={`px-4 py-2 rounded-full border text-xs font-bold transition-all flex items-center gap-2 ${
+                isCompared? 'bg-ink-deep border-ink-deep text-canvas': 'bg-canvas border-hairline-soft text-charcoal hover:border-charcoal'
+              }`}
+            >
+              <Scale size={14} />
+              <span>{isCompared? 'Đang so sánh': 'So sánh'}</span>
+            </button>
+          )}
 
           {/* Nút yêu thích */}
           <button
