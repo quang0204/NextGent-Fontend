@@ -10,6 +10,7 @@ import { productService } from '../../services/productService';
 import { Product } from '../../types/product';
 import { formatVND } from '../common/PriceDisplay';
 import { NotificationBell } from '../common/NotificationBell';
+import { ThemeToggle } from '../common/ThemeToggle';
 import { CategoryMegaMenu } from './CategoryMegaMenu';
 
 export const Header: React.FC = () => {
@@ -103,14 +104,14 @@ export const Header: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3 sm:gap-6">
         
         {/* Brand Logo Premium */}
-        <Link to="/" className="flex items-center gap-2.5 flex-shrink-0 group">
+        <Link to="/" className="flex items-center gap-1.5 sm:gap-2.5 flex-shrink-0 group">
           <img
             src="/logo.png"
             alt="NextGen Smart Tech"
-            className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-contain shadow-xs border border-hairline-soft group-hover:scale-105 transition-transform"
+            className="w-8 h-8 sm:w-11 sm:h-11 rounded-xl object-contain shadow-xs border border-hairline-soft group-hover:scale-105 transition-transform"
           />
           <div className="flex flex-col">
-            <span className="text-lg sm:text-xl font-bold tracking-tight text-ink-deep leading-none">
+            <span className="text-base sm:text-xl font-bold tracking-tight text-ink-deep leading-none">
               Next<span className="text-primary">Gen</span>
             </span>
             <span className="text-[10px] text-steel font-bold tracking-wider hidden sm:block mt-0.5 uppercase">
@@ -153,9 +154,11 @@ export const Header: React.FC = () => {
           )}
           <button
             type="submit"
-            className="absolute right-1 top-1/2 -translate-y-1/2 bg-ink-button hover:bg-charcoal text-on-ink-button text-xs font-bold px-3.5 py-1.5 rounded-full transition-colors"
+            title="Tìm kiếm sản phẩm"
+            className="absolute right-1 top-1/2 -translate-y-1/2 bg-ink-button hover:bg-charcoal text-on-ink-button text-xs font-bold px-2.5 sm:px-3.5 py-1.5 rounded-full transition-colors flex items-center justify-center gap-1"
           >
-            Tìm kiếm
+            <Search size={13} className="sm:hidden" />
+            <span className="hidden sm:inline">Tìm kiếm</span>
           </button>
 
           {/* Dropdown Gợi ý sản phẩm ("Sản phẩm đề xuất") */}
@@ -195,7 +198,7 @@ export const Header: React.FC = () => {
                     return (
                       <Link
                         key={prod.productId}
-                        to={`/products/${prod.productId}`}
+                        to={`/product/${prod.productId}`}
                         onClick={() => setShowSuggestions(false)}
                         className="flex items-start gap-3.5 py-2.5 px-2 -mx-2 rounded-xl hover:bg-surface-soft transition-colors group"
                       >
@@ -242,15 +245,15 @@ export const Header: React.FC = () => {
         </form>
 
         {/* Action icons */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           
-          {/* So sánh */}
+          {/* So sánh cấu hình (Hiển thị đầy đủ cả Mobile & Desktop) */}
           <Link
             to="/compare"
-            className="btn-icon-circular relative"
+            className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-canvas border border-hairline-soft text-ink flex items-center justify-center hover:bg-surface-soft active:bg-hairline-soft transition-colors relative flex-shrink-0"
             title="So sánh cấu hình sản phẩm"
           >
-            <Scale size={18} />
+            <Scale size={16} className="sm:w-[18px] sm:h-[18px]" />
             {compareCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-primary text-on-primary text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                 {compareCount}
@@ -258,13 +261,13 @@ export const Header: React.FC = () => {
             )}
           </Link>
 
-          {/* Yêu thích */}
+          {/* Danh sách yêu thích (Hiển thị đầy đủ cả Mobile & Desktop) */}
           <Link
             to="/wishlist"
-            className="btn-icon-circular relative"
+            className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-canvas border border-hairline-soft text-ink flex items-center justify-center hover:bg-surface-soft active:bg-hairline-soft transition-colors relative flex-shrink-0"
             title="Danh sách sản phẩm yêu thích"
           >
-            <Heart size={18} />
+            <Heart size={16} className="sm:w-[18px] sm:h-[18px]" />
             {wishlistCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-critical text-on-primary text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center">
                 {wishlistCount}
@@ -272,11 +275,16 @@ export const Header: React.FC = () => {
             )}
           </Link>
 
-          {/* Thông báo (Bảng Notifications) */}
-          <NotificationBell />
+          {/* Nút chuyển đổi Giao diện Tối / Sáng */}
+          <ThemeToggle />
 
-          {/* User Account Popover */}
-          <div className="relative group">
+          {/* Thông báo (Bảng Notifications - hiện trên màn hình tablet/desktop, mobile xem trong Account) */}
+          <div className="hidden md:flex items-center">
+            <NotificationBell />
+          </div>
+
+          {/* User Account Popover (hiện trên màn hình tablet/desktop, mobile dùng thanh MobileBottomNav) */}
+          <div className="relative group hidden md:block">
             <Link
               to={isAuthenticated? "/account": "/auth"}
               className="flex items-center gap-2 text-xs font-bold text-ink hover:text-ink-deep px-3 py-1.5 rounded-full border border-hairline-soft hover:bg-surface-soft transition-colors"
@@ -366,10 +374,10 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          {/* Cart Pill Button (DESIGN-meta commerce buy affordance) */}
+          {/* Cart Pill Button (Hiện trên tablet/desktop, mobile dùng thanh MobileBottomNav) */}
           <Link
             to="/cart"
-            className="flex items-center gap-2 bg-primary hover:bg-primary-deep active:bg-primary-deep text-on-primary px-4 py-2 rounded-full transition-colors"
+            className="hidden md:flex items-center gap-2 bg-primary hover:bg-primary-deep active:bg-primary-deep text-on-primary px-4 py-2 rounded-full transition-colors flex-shrink-0"
           >
             <div className="relative">
               <ShoppingBag size={17} />
@@ -379,7 +387,7 @@ export const Header: React.FC = () => {
                 </span>
               )}
             </div>
-            <span className="text-xs font-bold hidden md:inline">Giỏ hàng</span>
+            <span className="text-xs font-bold hidden lg:inline">Giỏ hàng</span>
           </Link>
 
         </div>

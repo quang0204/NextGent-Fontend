@@ -242,6 +242,15 @@ export const sharedStore = {
     } else if (data.status === 'ACTIVE' && Array.isArray(updated.variants)) {
       updated.variants = updated.variants.map(v => ({ ...v, isActive: true }));
     }
+    if (data.thumbnail && Array.isArray(updated.variants)) {
+      const oldThumb = products[idx].thumbnail;
+      updated.variants = updated.variants.map(v => {
+        if (!v.imageUrl || v.imageUrl === oldThumb) {
+          return { ...v, imageUrl: data.thumbnail || '' };
+        }
+        return v;
+      });
+    }
     products[idx] = updated;
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
     notify();

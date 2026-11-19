@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { productService, ProductFilterParams, parseSmartSearchQuery } from '../services/productService';
+import { categoryService, CategoryItem } from '../services/categoryService';
 import { Product, Brand } from '../types/product';
+import { resolveBrandLogo } from '../utils/brandUtils';
 import { ProductCard } from '../components/product/ProductCard';
 import { 
   Filter, 
@@ -18,7 +20,14 @@ import {
   BatteryCharging,
   Cpu,
   Wifi,
-  Tag
+  Tag,
+  Layers,
+  LayoutGrid,
+  Smartphone,
+  Laptop,
+  Tablet,
+  Headphones,
+  Flame
 } from 'lucide-react';
 
 const getPriceRangesForCategory = (cat: string) => {
@@ -61,13 +70,36 @@ const getPriceRangesForCategory = (cat: string) => {
 
 const ITEMS_PER_PAGE = 9;
 
+// Chuẩn kết nối cố định cho Phụ kiện di động
+const ACCESSORY_CONNECTION_TYPES = [
+  'USB-C',
+  'Lightning',
+  'USB-A',
+  'Bluetooth 5.3',
+  '3.5mm',
+  'MagSafe',
+  'Wireless 2.4G'
+];
+
 export const ProductListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
+  const [categoriesTree, setCategoriesTree] = useState<CategoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+
+  // Tải cây danh mục từ DB
+  useEffect(() => {
+    categoryService.getCategories(false)
+      .then((res) => {
+        if (res?.data && Array.isArray(res.data)) {
+          setCategoriesTree(res.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Lấy các params từ URL
   const rawCategory = searchParams.get('category');
@@ -75,7 +107,45 @@ export const ProductListPage: React.FC = () => {
   const currentSearch = (searchParams.get('q') || '').trim();
   const isSearchMode = Boolean(currentSearch);
   const parsedSearch = parseSmartSearchQuery(currentSearch);
-  const currentCategory = rawCategory || (isSearchMode || isSale ? 'all' : 'phone');
+  const currentCategory = rawCategory || 'all';
+  const currentCategoryId = searchParams.get('categoryId') ? Number(searchParams.get('categoryId')) : undefined;
+
+  // Danh mục con thuộc ngành hàng hiện tại (hoặc tất cả ngành hàng khi currentCategory === 'all')
+  const subcategories = useMemo(() => {
+    if (isSale) return [];
+    if (currentCategory === 'all') {
+      return categoriesTree.map(cat => ({
+        categoryId: cat.categoryId,
+        parentId: null,
+        name: cat.name,
+        slug: cat.slug,
+        description: cat.description,
+        isVisible: cat.isVisible,
+        productCount: cat.productCount,
+        children: cat.children
+      }));
+    }
+    const rootMatches: Record<string, (c: CategoryItem) => boolean> = {
+      phone: (c) => c.categoryId === 1 || c.slug === 'dien-thoai-di-dong' || c.name.toLowerCase().includes('điện thoại'),
+      tablet: (c) => c.categoryId === 2 || c.slug === 'may-tinh-bang' || c.name.toLowerCase().includes('máy tính bảng') || c.name.toLowerCase().includes('tablet'),
+      laptop: (c) => c.categoryId === 3 || c.slug === 'laptop-pc' || c.name.toLowerCase().includes('laptop'),
+      accessory: (c) => c.categoryId === 4 || c.slug === 'phu-kien-am-thanh' || c.name.toLowerCase().includes('phụ kiện'),
+    };
+    const matcher = rootMatches[currentCategory];
+    if (!matcher) return [];
+    const root = categoriesTree.find(matcher);
+    return root?.children || [];
+  }, [categoriesTree, currentCategory, isSale]);
+
+  const selectedCategoryName = useMemo(() => {
+    if (!currentCategoryId) return undefined;
+    for (const root of categoriesTree) {
+      if (root.categoryId === currentCategoryId) return root.name;
+      const child = root.children?.find(ch => ch.categoryId === currentCategoryId);
+      if (child) return child.name;
+    }
+    return undefined;
+  }, [categoriesTree, currentCategoryId]);
 
   // Hỗ trợ chọn đồng thời nhiều hãng sản xuất
   const rawBrand = searchParams.get('brand');
@@ -116,16 +186,17 @@ export const ProductListPage: React.FC = () => {
         return;
       }
 
-      const catKey = isSale ? 'sale' : currentCategory;
-      const brandList = await productService.getBrands(catKey);
+      // Hiện tất cả thương hiệu có trong bảng thương hiệu DB
+      const brandList = await productService.getBrands();
 
-      // Chỉ lọc theo các brand hợp lệ với ngành hàng hiện tại
+      // Chỉ lọc theo các brand hợp lệ
       const validSelectedBrands = selectedBrands.filter(b =>
         brandList.some(item => item.name.toLowerCase() === b.toLowerCase())
       );
 
       const prodList = await productService.getProducts({
         category: isSale ? undefined : (currentCategory === 'all' ? undefined : currentCategory),
+        categoryId: currentCategoryId,
         isFlashSale: isSale ? true : undefined,
         brands: validSelectedBrands.length > 0 ? validSelectedBrands : undefined,
         sort: currentSort,
@@ -151,6 +222,7 @@ export const ProductListPage: React.FC = () => {
     isSearchMode,
     isSale,
     currentCategory,
+    currentCategoryId,
     currentMinPrice,
     currentMaxPrice,
     currentRom,
@@ -225,6 +297,7 @@ export const ProductListPage: React.FC = () => {
 
   const hasActiveFilters = 
     !isSearchMode && (
+      currentCategoryId !== undefined ||
       selectedBrands.length > 0 || 
       currentMinPrice !== undefined || 
       currentMaxPrice !== undefined || 
@@ -331,19 +404,88 @@ export const ProductListPage: React.FC = () => {
         )}
       </div>
 
+      {/* 3. Category Navigation Pill Tabs: Chuyển đổi nhanh và toàn diện các ngành hàng kinh doanh */}
+      {!isSearchMode && (
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 pt-1 -mt-2">
+          {[
+            { id: 'all', label: 'Tất cả sản phẩm', icon: LayoutGrid, path: '/products' },
+            { id: 'phone', label: 'Điện thoại', icon: Smartphone, path: '/products?category=phone' },
+            { id: 'laptop', label: 'Laptop', icon: Laptop, path: '/products?category=laptop' },
+            { id: 'tablet', label: 'Máy tính bảng', icon: Tablet, path: '/products?category=tablet' },
+            { id: 'accessory', label: 'Phụ kiện di động', icon: Headphones, path: '/products?category=accessory' },
+            { id: 'sale', label: 'Flash Sale ⚡', icon: Flame, path: '/products?sale=true' },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const isTabActive = tab.id === 'sale' ? isSale : (!isSale && currentCategory === tab.id);
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => navigate(tab.path)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all whitespace-nowrap border flex-shrink-0 cursor-pointer ${
+                  isTabActive
+                    ? 'bg-ink-deep text-canvas border-ink-deep shadow-xs'
+                    : 'bg-canvas text-ink border-hairline-soft hover:border-slate hover:bg-surface-soft'
+                }`}
+              >
+                <Icon
+                  size={14}
+                  className={
+                    isTabActive
+                      ? tab.id === 'sale'
+                        ? 'text-warning fill-warning'
+                        : 'text-canvas'
+                      : tab.id === 'sale'
+                      ? 'text-critical'
+                      : 'text-primary'
+                  }
+                />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* 4. Active Filter Chips (Chỉ hiển thị khi KHÔNG ở chế độ tìm kiếm) */}
       {!isSearchMode && hasActiveFilters && (
         <div className="flex flex-wrap items-center gap-2 text-xs bg-surface-soft/60 border border-hairline-soft p-3 rounded-2xl">
           <span className="font-bold text-steel uppercase text-[11px] tracking-wider mr-1">Đang chọn:</span>
           
-          {selectedBrands.map(b => (
-            <span key={b} className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
-              <span>Hãng: {b}</span>
-              <button type="button" onClick={() => handleToggleBrand(b)} className="text-steel hover:text-critical">
+          {currentCategoryId && (
+            <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+              <span>Danh mục: {selectedCategoryName || currentCategoryId}</span>
+              <button type="button" onClick={() => updateParam('categoryId', undefined)} className="text-steel hover:text-critical">
                 <X size={13} />
               </button>
             </span>
-          ))}
+          )}
+
+          {selectedBrands.map(b => {
+            const brandObj = brands.find(br => br.name.toLowerCase() === b.toLowerCase());
+            const logoSrc = resolveBrandLogo(brandObj?.logoUrl, b);
+            return (
+              <span key={b} className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
+                {logoSrc && (
+                  <span className="w-4 h-4 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0">
+                    <img
+                      src={logoSrc}
+                      alt={b}
+                      className="max-w-full max-h-full object-contain"
+                      onError={(e) => {
+                        (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  </span>
+                )}
+                <span>Hãng: {b}</span>
+                <button type="button" onClick={() => handleToggleBrand(b)} className="text-steel hover:text-critical">
+                  <X size={13} />
+                </button>
+              </span>
+            );
+          })}
 
           {(currentMinPrice !== undefined || currentMaxPrice !== undefined) && (
             <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
@@ -394,7 +536,7 @@ export const ProductListPage: React.FC = () => {
 
           {currentConnectionType && (
             <span className="inline-flex items-center gap-1.5 bg-canvas border border-hairline-soft px-2.5 py-1 rounded-lg text-ink font-bold shadow-xs">
-              <span>Kết nối: {currentConnectionType.toUpperCase()}</span>
+              <span>Kết nối: {currentConnectionType}</span>
               <button type="button" onClick={() => updateParam('conn', undefined)} className="text-steel hover:text-critical">
                 <X size={13} />
               </button>
@@ -454,6 +596,58 @@ export const ProductListPage: React.FC = () => {
               )}
             </div>
 
+            {/* 0. DANH MỤC SẢN PHẨM */}
+            {subcategories.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2.5">
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={13} className="text-primary" />
+                    <span>Danh mục sản phẩm</span>
+                  </h4>
+                  {currentCategoryId && (
+                    <button
+                      type="button"
+                      onClick={() => updateParam('categoryId', undefined)}
+                      className="text-[11px] text-critical hover:underline font-bold"
+                    >
+                      Tất cả
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => updateParam('categoryId', undefined)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                      !currentCategoryId
+                        ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
+                        : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                    }`}
+                  >
+                    Tất cả
+                  </button>
+                  {subcategories.map((sub) => {
+                    const isSelected = currentCategoryId === sub.categoryId;
+                    return (
+                      <button
+                        key={sub.categoryId}
+                        type="button"
+                        onClick={() => updateParam('categoryId', isSelected ? undefined : String(sub.categoryId))}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
+                            : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} className="stroke-[3]" />}
+                        <span>{sub.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* 1. THƯƠNG HIỆU */}
             <div>
               <div className="flex items-center justify-between mb-2.5">
@@ -464,32 +658,46 @@ export const ProductListPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleToggleBrand('all')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
                     isAllBrands
-                      ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
-                      : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                      ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs'
+                      : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal hover:bg-surface-soft/50'
                   }`}
                 >
-                  Tất cả
+                  {isAllBrands && <Check size={12} className="stroke-[3] text-primary" />}
+                  <span>Tất cả</span>
                 </button>
                 {brands.map((b) => {
                   const isSelected = selectedBrands.some(sb => sb.toLowerCase() === b.name.toLowerCase());
+                  const logoSrc = resolveBrandLogo(b.logoUrl, b.name);
                   return (
                     <button
                       key={b.brandId}
                       type="button"
                       onClick={() => handleToggleBrand(b.name)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${
                         isSelected
-                          ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
-                          : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
+                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs'
+                          : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal hover:bg-surface-soft/50'
                       }`}
                     >
-                      {isSelected && <Check size={12} className="stroke-[3]" />}
+                      {isSelected && <Check size={12} className="stroke-[3] text-primary shrink-0" />}
+                      {logoSrc && (
+                        <span className="w-6 h-6 rounded-md brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
+                          <img
+                            src={logoSrc}
+                            alt={b.name}
+                            className="max-w-full max-h-full object-contain"
+                            onError={(e) => {
+                              (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        </span>
+                      )}
                       <span>{b.name}</span>
                     </button>
                   );
@@ -788,25 +996,34 @@ export const ProductListPage: React.FC = () => {
               <div className="pt-4 border-t border-hairline-soft space-y-4">
                 {/* Chuẩn kết nối */}
                 <div>
-                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider mb-2">Chuẩn sạc & Kết nối</h4>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {[
-                      { key: 'usb-c', label: 'USB-C GaN' },
-                      { key: 'lightning', label: 'Lightning' },
-                      { key: 'magsafe', label: 'MagSafe Không dây' },
-                      { key: 'bluetooth', label: 'Bluetooth' },
-                    ].map((item) => {
-                      const isSelected = currentConnectionType === item.key;
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Chuẩn sạc & Kết nối</h4>
+                    {currentConnectionType && (
+                      <button
+                        type="button"
+                        onClick={() => updateParam('conn', undefined)}
+                        className="text-[11px] text-critical hover:underline font-bold"
+                      >
+                        Bỏ chọn
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ACCESSORY_CONNECTION_TYPES.map((conn) => {
+                      const isSelected = currentConnectionType?.toLowerCase() === conn.toLowerCase();
                       return (
                         <button
-                          key={item.key}
+                          key={conn}
                           type="button"
-                          onClick={() => updateParam('conn', isSelected ? undefined : item.key)}
-                          className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all border text-center ${
-                            isSelected ? 'border-primary bg-primary text-canvas' : 'border-hairline-soft bg-canvas text-charcoal hover:border-primary'
+                          onClick={() => updateParam('conn', isSelected ? undefined : conn)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
+                            isSelected
+                              ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs'
+                              : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal hover:bg-surface-soft/50'
                           }`}
                         >
-                          {item.label}
+                          {isSelected && <Check size={12} className="stroke-[3] text-primary" />}
+                          <span>{conn}</span>
                         </button>
                       );
                     })}
@@ -1012,6 +1229,54 @@ export const ProductListPage: React.FC = () => {
               </button>
             </div>
 
+            {/* Danh mục con */}
+            {subcategories.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider flex items-center gap-1.5">
+                    <Layers size={13} className="text-primary" />
+                    <span>Danh mục</span>
+                  </h4>
+                  {currentCategoryId && (
+                    <button
+                      type="button"
+                      onClick={() => updateParam('categoryId', undefined)}
+                      className="text-[11px] text-critical hover:underline font-bold"
+                    >
+                      Tất cả
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => updateParam('categoryId', undefined)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
+                      !currentCategoryId ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                    }`}
+                  >
+                    Tất cả
+                  </button>
+                  {subcategories.map((sub) => {
+                    const isSelected = currentCategoryId === sub.categoryId;
+                    return (
+                      <button
+                        key={sub.categoryId}
+                        type="button"
+                        onClick={() => updateParam('categoryId', isSelected ? undefined : String(sub.categoryId))}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                          isSelected ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} className="stroke-[3]" />}
+                        <span>{sub.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Hãng */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -1022,28 +1287,46 @@ export const ProductListPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => handleToggleBrand('all')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
-                    isAllBrands ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                    isAllBrands 
+                      ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs' 
+                      : 'border-hairline-soft bg-canvas text-ink'
                   }`}
                 >
-                  Tất cả
+                  {isAllBrands && <Check size={12} className="stroke-[3] text-primary" />}
+                  <span>Tất cả</span>
                 </button>
                 {brands.map((b) => {
                   const isSelected = selectedBrands.some(sb => sb.toLowerCase() === b.name.toLowerCase());
+                  const logoSrc = resolveBrandLogo(b.logoUrl, b.name);
                   return (
                     <button
                       key={b.brandId}
                       type="button"
                       onClick={() => handleToggleBrand(b.name)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
-                        isSelected ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-2 ${
+                        isSelected 
+                          ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs' 
+                          : 'border-hairline-soft bg-canvas text-ink'
                       }`}
                     >
-                      {isSelected && <Check size={12} className="stroke-[3]" />}
+                      {isSelected && <Check size={12} className="stroke-[3] text-primary shrink-0" />}
+                      {logoSrc && (
+                        <span className="w-6 h-6 rounded-md brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
+                          <img
+                            src={logoSrc}
+                            alt={b.name}
+                            className="max-w-full max-h-full object-contain"
+                            onError={(e) => {
+                              (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        </span>
+                      )}
                       <span>{b.name}</span>
                     </button>
                   );
@@ -1094,6 +1377,44 @@ export const ProductListPage: React.FC = () => {
                       {rom >= 1024 ? '1 TB' : `${rom} GB`}
                     </button>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Chuẩn sạc & Kết nối (Mobile Phụ kiện) */}
+            {currentCategory === 'accessory' && (
+              <div className="pt-3 border-t border-hairline-soft space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-ink-deep uppercase tracking-wider">Chuẩn sạc & Kết nối</h4>
+                  {currentConnectionType && (
+                    <button
+                      type="button"
+                      onClick={() => updateParam('conn', undefined)}
+                      className="text-[11px] text-critical hover:underline font-bold"
+                    >
+                      Bỏ chọn
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ACCESSORY_CONNECTION_TYPES.map((conn) => {
+                    const isSelected = currentConnectionType?.toLowerCase() === conn.toLowerCase();
+                    return (
+                      <button
+                        key={conn}
+                        type="button"
+                        onClick={() => updateParam('conn', isSelected ? undefined : conn)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'border-primary bg-primary/10 text-primary ring-1 ring-primary shadow-xs'
+                            : 'border-hairline-soft bg-canvas text-ink'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} className="stroke-[3] text-primary" />}
+                        <span>{conn}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}

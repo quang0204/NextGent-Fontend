@@ -120,10 +120,16 @@ export interface UpdateAdminVariantPayload {
 const mapApiProductToFrontend = (it: any): Product => {
   const brandName = it.brand?.name || it.brandName || (typeof it.brand === 'string' ? it.brand : 'Khác');
   const categoryName = it.category?.name || it.categoryName || (typeof it.category === 'string' ? it.category : 'Điện thoại');
-  const thumbnail = it.primaryImage || it.thumbnail || (it.images?.[0]?.imageUrl) || (typeof it.images?.[0] === 'string' ? it.images[0] : '') || '';
-  const gallery = it.images && it.images.length > 0
+  const primaryFromImages = Array.isArray(it.images)
+    ? (it.images.find((img: any) => img?.isPrimary)?.imageUrl || (typeof it.images[0] === 'string' ? it.images[0] : it.images[0]?.imageUrl))
+    : '';
+  const thumbnail = it.primaryImage || it.thumbnail || primaryFromImages || '';
+  let gallery = it.images && it.images.length > 0
     ? it.images.map((img: any) => typeof img === 'string' ? img : img.imageUrl)
     : [thumbnail].filter(Boolean);
+  if (thumbnail && gallery.includes(thumbnail)) {
+    gallery = [thumbnail, ...gallery.filter((g: string) => g !== thumbnail)];
+  }
 
   const specGroups = it.specs && Array.isArray(it.specs)
     ? it.specs.map((g: any) => ({
@@ -184,6 +190,28 @@ const mapApiProductToFrontend = (it: any): Product => {
         isActive: it.isAvailable ?? true,
       }));
 
+  // Tính toán số sao trung bình thực tế từ Database API hoặc đánh giá cục bộ
+  let finalRating = 0;
+  let finalReviewCount = 0;
+
+  // 1. Ưu tiên điểm đánh giá thực tế từ Database Backend
+  if (typeof it.rating === 'number' && it.rating > 0) {
+    finalRating = Number(Number(it.rating).toFixed(1));
+    finalReviewCount = typeof it.reviewCount === 'number' ? it.reviewCount : 0;
+  }
+
+  // 2. Kết hợp với đánh giá cục bộ trong sharedStore (nếu backend chưa cập nhật kịp)
+  const prodReviews = sharedStore.getReviews(it.productId, false);
+  if (prodReviews && prodReviews.length > 0) {
+    if (finalReviewCount === 0) {
+      finalReviewCount = prodReviews.length;
+      const totalScore = prodReviews.reduce((sum, r) => sum + (Number(r.rating) || 5), 0);
+      finalRating = Number((totalScore / finalReviewCount).toFixed(1));
+    } else {
+      finalReviewCount = Math.max(finalReviewCount, prodReviews.length);
+    }
+  }
+
   return {
     productId: it.productId,
     name: it.name,
@@ -197,8 +225,8 @@ const mapApiProductToFrontend = (it: any): Product => {
     thumbnail,
     gallery,
     variants,
-    rating: it.rating ?? 5,
-    reviewCount: it.reviewCount ?? 0,
+    rating: finalRating,
+    reviewCount: finalReviewCount,
     specGroups,
     highlights: it.highlights || [
       `Màn hình: ${it.specs?.[0]?.items?.[0]?.specValue || 'OLED'}`,
@@ -443,8 +471,11 @@ export const productService = {
     const effectiveFlashSale = params?.isFlashSale !== undefined ? params.isFlashSale : parsedSearch?.isFlashSale;
     const effectiveInstallment = params?.isInstallment0 !== undefined ? params.isInstallment0 : parsedSearch?.isInstallment0;
 
-    // 1. Lọc danh mục (bao gồm cả danh mục nhận diện từ câu tìm kiếm)
-    if (effectiveCategory && effectiveCategory !== 'all') {
+    // 1. Lọc danh mục (bao gồm cả danh mục nhận diện từ câu tìm kiếm hoặc categoryId)
+    if (params?.categoryId) {
+      const targetId = Number(params.categoryId);
+      results = results.filter(p => Number(p.categoryId) === targetId);
+    } else if (effectiveCategory && effectiveCategory !== 'all') {
       const catFiltered = results.filter(p => matchesCategory(p, effectiveCategory));
       if (catFiltered.length > 0 || !params?.search) {
         results = catFiltered;
@@ -518,13 +549,19 @@ export const productService = {
       });
     }
 
-    // 8. Lọc theo Chuẩn kết nối (Wifi, 5G, USB-C, Lightning, Bluetooth...)
+    // 8. Lọc theo Chuẩn kết nối (USB-C, Lightning, MagSafe, Bluetooth, Wifi, 5G...)
     if (effectiveConn) {
       const lowerConn = effectiveConn.toLowerCase();
       results = results.filter(p => 
-        p.variants.some(v => v.connectionType?.toLowerCase().includes(lowerConn)) ||
+        p.variants.some(v => 
+          v.connectionType?.toLowerCase().includes(lowerConn) ||
+          lowerConn.includes(v.connectionType?.toLowerCase() || '') ||
+          v.variantName?.toLowerCase().includes(lowerConn) ||
+          JSON.stringify(v.attributes || {}).toLowerCase().includes(lowerConn)
+        ) ||
         JSON.stringify(p.specGroups || []).toLowerCase().includes(lowerConn) ||
-        p.name.toLowerCase().includes(lowerConn)
+        p.name.toLowerCase().includes(lowerConn) ||
+        p.description?.toLowerCase().includes(lowerConn)
       );
     }
 
@@ -675,7 +712,12 @@ export const productService = {
    */
   async getProductById(id: number): Promise<Product | null> {
     try {
-      const response = await apiClient.get<any>(`/products/${id}`);
+      let response;
+      try {
+        response = await apiClient.get<any>(`/product/${id}`);
+      } catch {
+        response = await apiClient.get<any>(`/products/${id}`);
+      }
       if (response.data?.data) {
         const mapped = mapApiProductToFrontend(response.data.data);
         const [withPromos] = await applyActivePromotionsToProducts([mapped]);
@@ -739,7 +781,7 @@ export const productService = {
         imageUrl: img,
         objectKey: img,
         bucket: 'products',
-        isPrimary: idx === 0,
+        isPrimary: local.thumbnail ? img === local.thumbnail : idx === 0,
         sortOrder: idx + 1
       })),
       specs: (local.specGroups || []).flatMap(g => (g.items || []).map((it, idx) => ({

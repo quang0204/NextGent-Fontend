@@ -27,6 +27,7 @@ import {
 
 import { sharedStore } from '../services/sharedStore';
 import { useAuthStore } from '../stores/authStore';
+import { ThemeToggle } from '../components/common/ThemeToggle';
 import { PortalDashboardView } from './portal/PortalDashboardView';
 import { PortalOrdersView } from './portal/PortalOrdersView';
 import { PortalInventoryView } from './portal/PortalInventoryView';
@@ -197,10 +198,10 @@ export const AdminPortalPage: React.FC = () => {
   const currentTabInfo = navSections.flatMap(s => s.items).find(item => item.id === activeTab);
 
   return (
-    <div className="min-h-screen bg-surface-soft flex flex-col font-sans text-ink antialiased">
+    <div className="min-h-screen bg-surface-soft dark:bg-[#0b0f19] flex flex-col font-sans text-ink antialiased">
       
       {/* Top Navbar */}
-      <header className="bg-canvas text-ink sticky top-0 z-40 border-b border-hairline-soft shadow-xs backdrop-blur-xs">
+      <header className="bg-canvas dark:bg-[#111827] text-ink sticky top-0 z-40 border-b border-hairline-soft dark:border-[#1e293b] shadow-xs backdrop-blur-xs">
         <div className="w-full px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           
           <div className="flex items-center gap-3 sm:gap-4">
@@ -246,6 +247,8 @@ export const AdminPortalPage: React.FC = () => {
               </span>
             </div>
 
+            <ThemeToggle />
+
             <Link
               to="/"
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-charcoal hover:text-ink bg-canvas hover:bg-surface-soft border border-hairline-soft rounded-full transition"
@@ -275,7 +278,7 @@ export const AdminPortalPage: React.FC = () => {
       <div className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 flex gap-6 items-start">
         
         {/* Desktop Sidebar */}
-        <aside className="w-64 bg-canvas border border-hairline-soft rounded-xxl p-3.5 shadow-none flex-shrink-0 hidden lg:block sticky top-22">
+        <aside className="w-64 bg-canvas dark:bg-[#111827] border border-hairline-soft dark:border-[#1e293b] rounded-xxl p-3.5 shadow-none flex-shrink-0 hidden lg:block sticky top-22">
           
           <div className="space-y-5">
             {navSections.map((section, idx) => {
@@ -284,7 +287,7 @@ export const AdminPortalPage: React.FC = () => {
 
               return (
                 <div key={idx} className="space-y-1.5">
-                  <div className="text-[10px] font-bold text-steel uppercase tracking-wider px-3 py-1">
+                  <div className="text-[10px] font-bold text-steel dark:text-slate-400 uppercase tracking-wider px-3 py-1">
                     {section.sectionTitle}
                   </div>
 
@@ -298,19 +301,19 @@ export const AdminPortalPage: React.FC = () => {
                           key={item.id}
                           onClick={() => setActiveTab(item.id)}
                           className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-full text-xs font-semibold transition-all text-left group ${
-                            isActive? 'bg-ink-deep text-canvas shadow-xs font-bold': 'text-charcoal hover:bg-surface-soft hover:text-ink'
+                            isActive? 'bg-primary text-white shadow-xs font-bold': 'text-charcoal dark:text-slate-300 hover:bg-surface-soft dark:hover:bg-[#1a2333] hover:text-ink dark:hover:text-white'
                           }`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <Icon size={16} className={`flex-shrink-0 transition-colors ${
-                              isActive? 'text-canvas': 'text-steel group-hover:text-charcoal'
+                              isActive? 'text-white': 'text-steel group-hover:text-charcoal dark:group-hover:text-white'
                             }`} />
                             <span className="truncate">{item.label}</span>
                           </div>
 
                           {item.badge && (
                             <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-bold flex-shrink-0 ${
-                              isActive? 'bg-canvas/20 text-canvas': 'bg-surface-soft text-steel group-hover:bg-hairline-soft'
+                              isActive? 'bg-white/20 text-white': 'bg-surface-soft dark:bg-[#1f2b3e] text-steel dark:text-slate-300 group-hover:bg-hairline-soft'
                             }`}>
                               {item.badge}
                             </span>
@@ -353,7 +356,7 @@ export const AdminPortalPage: React.FC = () => {
 
                   return (
                     <div key={idx} className="space-y-1">
-                      <div className="text-[10px] font-bold text-steel uppercase tracking-wider px-2">
+                      <div className="text-[10px] font-bold text-steel dark:text-slate-400 uppercase tracking-wider px-2">
                         {section.sectionTitle}
                       </div>
                       <nav className="space-y-1">
@@ -368,7 +371,7 @@ export const AdminPortalPage: React.FC = () => {
                                 setIsMobileSidebarOpen(false);
                               }}
                               className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-full text-xs font-semibold text-left transition ${
-                                isActive? 'bg-ink-deep text-canvas font-bold': 'text-charcoal hover:bg-surface-soft'
+                                isActive? 'bg-primary text-white font-bold': 'text-charcoal dark:text-slate-300 hover:bg-surface-soft dark:hover:bg-[#1a2333]'
                               }`}
                             >
                               <div className="flex items-center gap-2.5">
@@ -377,7 +380,7 @@ export const AdminPortalPage: React.FC = () => {
                               </div>
                               {item.badge && (
                                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
-                                  isActive? 'bg-canvas/20 text-canvas': 'bg-surface-soft text-steel'
+                                  isActive? 'bg-white/20 text-white': 'bg-surface-soft dark:bg-[#1f2b3e] text-steel dark:text-slate-300'
                                 }`}>
                                   {item.badge}
                                 </span>

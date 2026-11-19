@@ -465,7 +465,7 @@ export const PortalBrandsView: React.FC = () => {
                     {/* Logo & Tên */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 p-1 flex items-center justify-center flex-shrink-0 overflow-hidden shadow-2xs">
+                        <div className="w-10 h-10 rounded-xl bg-white border border-slate-200 p-1 flex items-center justify-center flex-shrink-0 overflow-hidden shadow-2xs brand-logo-plate">
                           {b.logoUrl ? (
                             <img
                               src={b.logoUrl}
@@ -678,7 +678,7 @@ export const PortalBrandsView: React.FC = () => {
                 {logoUrl && (
                   <div className="mt-3 p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between shadow-2xs">
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-12 h-12 rounded-lg bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0">
+                      <div className="w-12 h-12 rounded-lg bg-white border border-slate-200 p-1 flex items-center justify-center shrink-0 brand-logo-plate">
                         <img
                           src={logoUrl}
                           alt="Logo Preview"

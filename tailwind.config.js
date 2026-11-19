@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
@@ -7,12 +8,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        // DESIGN-meta.md Core Tokens
+        // DESIGN-meta.md Core Tokens (Dynamic Theme with CSS RGB Variables)
         primary: '#0064e0',            // Cobalt primary - Buy CTAs only
         'primary-deep': '#0457cb',     // Pressed/dark-surface variant
         'primary-soft': '#0091ff',     // Translucent tint
         'on-primary': '#ffffff',
-        'ink-button': '#000000',       // Marketing CTA black pill
+        'ink-button': 'rgb(var(--color-ink-button-rgb, 0 0 0) / <alpha-value>)',
         'on-ink-button': '#ffffff',
         'fb-blue': '#1876f2',          // Radio/checkbox active
         'meta-link': '#385898',
@@ -24,22 +25,22 @@ export default {
         'warning-bg': '#ffe200',
         critical: '#e41e3f',
         'critical-strong': '#f0284a',
-        canvas: '#ffffff',             // Stark white canvas
-        'surface-soft': '#f1f4f7',     // Soft cloud surface
-        'ink-deep': '#0a1317',         // Deep ink headlines
-        ink: '#1c1e21',                // Standard body text
-        charcoal: '#444950',           // Tertiary body / pressed marketing CTA
-        slate: '#4b4c4f',
-        steel: '#5d6c7b',              // Captions & secondary links
-        stone: '#8595a4',              // Disabled / stone labels
-        hairline: '#ced0d4',           // 1px input & form border
-        'hairline-soft': '#dee3e9',    // Subtle card & section divider
-        'disabled-text': '#bcc0c4',
+        canvas: 'rgb(var(--color-canvas-rgb, 255 255 255) / <alpha-value>)',
+        'surface-soft': 'rgb(var(--color-surface-soft-rgb, 241 244 247) / <alpha-value>)',
+        'ink-deep': 'rgb(var(--color-ink-deep-rgb, 10 19 23) / <alpha-value>)',
+        ink: 'rgb(var(--color-ink-rgb, 28 30 33) / <alpha-value>)',
+        charcoal: 'rgb(var(--color-charcoal-rgb, 68 73 80) / <alpha-value>)',
+        slate: 'rgb(var(--color-slate-rgb, 75 76 79) / <alpha-value>)',
+        steel: 'rgb(var(--color-steel-rgb, 93 108 123) / <alpha-value>)',
+        stone: 'rgb(var(--color-stone-rgb, 133 149 164) / <alpha-value>)',
+        hairline: 'rgb(var(--color-hairline-rgb, 206 208 212) / <alpha-value>)',
+        'hairline-soft': 'rgb(var(--color-hairline-soft-rgb, 222 227 233) / <alpha-value>)',
+        'disabled-text': 'rgb(var(--color-disabled-text-rgb, 188 192 196) / <alpha-value>)',
 
         // Compatibility Aliases
         brand: {
-          50: '#f1f4f7',
-          100: '#dee3e9',
+          50: 'rgb(var(--color-surface-soft-rgb, 241 244 247) / <alpha-value>)',
+          100: 'rgb(var(--color-hairline-soft-rgb, 222 227 233) / <alpha-value>)',
           500: '#0064e0',
           600: '#0457cb',
           700: '#0049ab',
@@ -53,10 +54,10 @@ export default {
           navy: '#0a1317',
         },
         surface: {
-          bg: '#ffffff',
-          card: '#ffffff',
-          muted: '#f1f4f7',
-          border: '#dee3e9',
+          bg: 'rgb(var(--color-canvas-rgb, 255 255 255) / <alpha-value>)',
+          card: 'rgb(var(--color-canvas-rgb, 255 255 255) / <alpha-value>)',
+          muted: 'rgb(var(--color-surface-soft-rgb, 241 244 247) / <alpha-value>)',
+          border: 'rgb(var(--color-hairline-soft-rgb, 222 227 233) / <alpha-value>)',
           dark: '#0a1317',
         }
       },
