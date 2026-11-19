@@ -41,6 +41,7 @@ const getInitialWishlist = (): { productIds: number[]; userId: number | null } =
 };
 
 const initial = getInitialWishlist();
+const wishlistPendingMap: Record<number, boolean> = {};
 
 export const useWishlistStore = create<WishlistStore>((set, get) => ({
   productIds: initial.productIds,
@@ -70,10 +71,17 @@ export const useWishlistStore = create<WishlistStore>((set, get) => ({
     localStorage.setItem(key, JSON.stringify(updated));
     set({ productIds: updated });
 
-    // Gọi API 13.2 ngầm để đồng bộ backend
-    wishlistService.toggleWishlist(productId).catch(err => {
-      console.warn('[wishlistStore] toggleWishlist API failed, kept local state', err);
-    });
+    // Chống race condition khi click nhanh: Chỉ gửi API ngầm nếu không có request cùng productId đang chạy
+    if (!wishlistPendingMap[productId]) {
+      wishlistPendingMap[productId] = true;
+      wishlistService.toggleWishlist(productId)
+        .catch(err => {
+          console.warn('[wishlistStore] toggleWishlist API failed, kept local state', err);
+        })
+        .finally(() => {
+          delete wishlistPendingMap[productId];
+        });
+    }
 
     return !exists;
   },

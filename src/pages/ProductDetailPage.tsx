@@ -25,7 +25,8 @@ import {
   ShoppingBag, 
   Heart,
   Scale,
-  CheckCircle, 
+  CheckCircle,
+  Check,
   Clock, 
   MessageSquare, 
   Star,
@@ -67,6 +68,7 @@ export const ProductDetailPage: React.FC = () => {
   const [holdSecondsLeft, setHoldSecondsLeft] = useState<number>(1800);
   const [flashSaleEndAt, setFlashSaleEndAt] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [isAddingToCart, setIsAddingToCart] = useState(false);
 
   useEffect(() => {
     const fetchDetail = async () => {
@@ -228,6 +230,7 @@ export const ProductDetailPage: React.FC = () => {
   const isCompared = isInCompare(product.productId);
 
   const handleAddToCart = async () => {
+    if (isAddingToCart) return;
     if (isProductInactive) {
       showToast('Sản phẩm này hiện đã ngừng kinh doanh!', 'error');
       return;
@@ -240,33 +243,41 @@ export const ProductDetailPage: React.FC = () => {
       showToast('Phiên bản này hiện đang hết hàng!', 'error');
       return;
     }
-    const res = await addItemToCart({
-      id: `${product.productId}-${selectedVariant.variantId}`,
-      productId: product.productId,
-      variantId: selectedVariant.variantId,
-      productName: product.name,
-      sku: selectedVariant.sku,
-      color: selectedVariant.color,
-      storage: !selectedVariant.romGb || selectedVariant.romGb <= 0 ? 'Tiêu chuẩn' : (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`),
-      price: selectedVariant.salePrice,
-      originalPrice: selectedVariant.listPrice,
-      imageUrl: selectedVariant.imageUrl,
-      quantity: 1,
-      availableQty: effectiveAvailableQty,
-    });
 
-    // Nếu là người dùng vãng lai (chưa đăng nhập): lập tức chuyển hướng sang đăng nhập / đăng ký
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      showToast('Đã lưu vào giỏ hàng! Vui lòng đăng nhập hoặc đăng ký để tiếp tục mua hàng.', 'info');
-      navigate('/auth?redirect=/cart');
-      return;
-    }
+    setIsAddingToCart(true);
+    try {
+      const res = await addItemToCart({
+        id: `${product.productId}-${selectedVariant.variantId}`,
+        productId: product.productId,
+        variantId: selectedVariant.variantId,
+        productName: product.name,
+        sku: selectedVariant.sku,
+        color: selectedVariant.color,
+        storage: !selectedVariant.romGb || selectedVariant.romGb <= 0 ? 'Tiêu chuẩn' : (selectedVariant.romGb >= 1024 ? '1TB' : `${selectedVariant.romGb}GB`),
+        price: selectedVariant.salePrice,
+        originalPrice: selectedVariant.listPrice,
+        imageUrl: selectedVariant.imageUrl,
+        quantity: 1,
+        availableQty: effectiveAvailableQty,
+      });
 
-    if (res.success) {
-      showToast(res.message, 'success');
-    } else {
-      showToast(res.message, 'warning');
+      // Nếu là người dùng vãng lai (chưa đăng nhập): lập tức chuyển hướng sang đăng nhập / đăng ký
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        showToast('Đã lưu vào giỏ hàng! Vui lòng đăng nhập hoặc đăng ký để tiếp tục mua hàng.', 'info');
+        navigate('/auth?redirect=/cart');
+        return;
+      }
+
+      if (res.success) {
+        showToast(res.message, 'success');
+      } else {
+        showToast(res.message, 'warning');
+      }
+    } finally {
+      setTimeout(() => {
+        setIsAddingToCart(false);
+      }, 350);
     }
   };
 
@@ -587,13 +598,21 @@ export const ProductDetailPage: React.FC = () => {
           {/* Action Buy Buttons: 2 nút MUA NGAY & THÊM VÀO GIỎ HÀNG */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
             <button
-              disabled={isActionDisabled}
+              disabled={isActionDisabled || isAddingToCart}
               onClick={handleAddToCart}
-              className="btn-secondary py-3.5 px-6 rounded-full font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className={`btn-secondary py-3.5 px-6 rounded-full font-bold text-sm disabled:opacity-40 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 ${
+                isAddingToCart ? 'border-success text-success bg-surface-soft' : ''
+              }`}
             >
-              <ShoppingBag size={16} />
+              {isAddingToCart ? (
+                <Check size={16} className="text-success stroke-[3]" />
+              ) : (
+                <ShoppingBag size={16} />
+              )}
               <span>
-                {isProductInactive
+                {isAddingToCart
+                  ? 'ĐÃ THÊM VÀO GIỎ ✓'
+                  : isProductInactive
                   ? 'NGỪNG KINH DOANH'
                   : isVariantInactive
                   ? 'PHIÊN BẢN NGỪNG BÁN'

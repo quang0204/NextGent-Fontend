@@ -63,6 +63,9 @@ const getInitialBuyNow = (): CartItem | null => {
 const initial = getInitialItems();
 const initialBuyNow = getInitialBuyNow();
 
+// Debounce timers per item for optimistic quantity sync
+const qtyDebounceTimers: Record<string, any> = {};
+
 export const useCartStore = create<CartStore>((set, get) => ({
   items: initial.items,
   isLoading: false,
@@ -242,26 +245,9 @@ export const useCartStore = create<CartStore>((set, get) => ({
     const itemToUpdate = get().items.find((i) => i.id === id);
     if (!itemToUpdate) return { success: false, message: 'Sản phẩm không có trong giỏ hàng' };
 
-    const newQty = itemToUpdate.quantity + delta;
-    const cartItemId = itemToUpdate.cartItemId || (Number(id) > 0 ? Number(id) : null);
-
-    // 1. Đã đăng nhập: Gọi API 7.3 PUT /api/v1/cart/items/{itemId}
-    if (isUserAuthenticated() && cartItemId) {
-      try {
-        // Khi newQty <= 0, API tự động xóa món này
-        await cartService.updateQuantity(cartItemId, newQty);
-        await get().fetchCart();
-        return { success: true };
-      } catch (err: any) {
-        const errMsg = err.response?.data?.message || 'Kho không đủ hàng khả dụng!';
-        return { success: false, message: errMsg };
-      }
-    }
-
-    // 2. Chế độ khách vãng lai
-    if (newQty < 1) {
-      return { success: false };
-    }
+    const oldQty = itemToUpdate.quantity;
+    const newQty = oldQty + delta;
+    if (newQty < 1) return { success: false };
 
     if (newQty > itemToUpdate.availableQty) {
       return {
@@ -270,15 +256,44 @@ export const useCartStore = create<CartStore>((set, get) => ({
       };
     }
 
+    // 1. Phản hồi tức thì 0ms trên giao diện (Optimistic UI)
     const updated = get().items.map((item) => {
       if (item.id === id) {
         return { ...item, quantity: newQty };
       }
       return item;
     });
-
     cartService.saveLocalCartItems(updated, get().currentUserId);
     set({ items: updated });
+
+    // 2. Nếu đã đăng nhập: Debounce 350ms trước khi gửi API lên server, loại bỏ 100% race conditions khi click nhanh
+    const cartItemId = itemToUpdate.cartItemId || (Number(id) > 0 ? Number(id) : null);
+    if (isUserAuthenticated() && cartItemId) {
+      if (qtyDebounceTimers[id]) {
+        clearTimeout(qtyDebounceTimers[id]);
+      }
+
+      qtyDebounceTimers[id] = setTimeout(async () => {
+        try {
+          await cartService.updateQuantity(cartItemId, newQty);
+        } catch (err: any) {
+          // Rollback nếu server từ chối (ví dụ hết hàng)
+          const fallback = get().items.map((item) => {
+            if (item.id === id) {
+              return { ...item, quantity: oldQty };
+            }
+            return item;
+          });
+          cartService.saveLocalCartItems(fallback, get().currentUserId);
+          set({ items: fallback });
+          const errMsg = err.response?.data?.message || 'Kho không đủ hàng khả dụng!';
+          useToastStore.getState().showToast(errMsg, 'error');
+        } finally {
+          delete qtyDebounceTimers[id];
+        }
+      }, 350);
+    }
+
     return { success: true };
   },
 

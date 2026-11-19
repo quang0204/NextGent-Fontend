@@ -299,7 +299,7 @@ export const ProductListPage: React.FC = () => {
     if (key !== 'page') {
       newParams.delete('page');
     }
-    setSearchParams(newParams);
+    setSearchParams(newParams, { replace: true });
   };
 
   const handleToggleBrand = (brandName: string) => {
@@ -332,7 +332,7 @@ export const ProductListPage: React.FC = () => {
     else newParams.set('maxPrice', String(max));
 
     newParams.delete('page');
-    setSearchParams(newParams);
+    setSearchParams(newParams, { replace: true });
   };
 
   const handleClearPrice = () => {
@@ -343,7 +343,7 @@ export const ProductListPage: React.FC = () => {
     const newParams = new URLSearchParams();
     if (rawCategory) newParams.set('category', rawCategory);
     if (isSale) newParams.set('sale', 'true');
-    setSearchParams(newParams);
+    setSearchParams(newParams, { replace: true });
   };
 
   const hasActiveFilters = 
@@ -378,7 +378,7 @@ export const ProductListPage: React.FC = () => {
     } else {
       newParams.set('page', String(target));
     }
-    setSearchParams(newParams);
+    setSearchParams(newParams, { replace: true });
     if (productsGridRef.current) {
       const rect = productsGridRef.current.getBoundingClientRect();
       if (rect.top < 0) {

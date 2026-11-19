@@ -37,6 +37,7 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    scrollbar-gutter: stable;
     overflow-x: hidden;
     max-width: 100vw;
     font-family: "Optimistic VF", Montserrat, Helvetica, Arial, "Noto Sans", sans-serif;
