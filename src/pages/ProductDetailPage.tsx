@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productService } from '../services/productService';
 import { promotionService, getCountdownParts } from '../services/promotionService';
@@ -127,11 +127,74 @@ export const ProductDetailPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [product?.isFlashSale]);
 
+  const currentAverageRating = useMemo(() => {
+    if (reviews.length > 0) {
+      const sum = reviews.reduce((s, r) => s + (Number(r.rating) || 0), 0);
+      return Number((sum / reviews.length).toFixed(1));
+    }
+    return product?.rating || 0;
+  }, [reviews, product?.rating]);
+
+  const currentReviewCount = reviews.length > 0 ? reviews.length : (product?.reviewCount || 0);
+
   if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 text-center text-steel">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-        <p className="font-semibold text-charcoal">Đang tải thông tin sản phẩm...</p>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 animate-pulse" aria-hidden="true">
+        {/* Breadcrumb skeleton */}
+        <div className="flex items-center gap-2">
+          <div className="h-4 w-16 bg-surface-soft rounded" />
+          <span className="text-hairline">/</span>
+          <div className="h-4 w-20 bg-surface-soft rounded" />
+          <span className="text-hairline">/</span>
+          <div className="h-4 w-32 bg-surface-soft rounded" />
+        </div>
+
+        {/* Header Title skeleton */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-hairline-soft">
+          <div className="space-y-2">
+            <div className="h-8 w-72 sm:w-96 bg-surface-soft rounded-lg" />
+            <div className="h-4 w-48 bg-surface-soft rounded" />
+          </div>
+          <div className="flex gap-2">
+            <div className="h-9 w-24 bg-surface-soft rounded-full" />
+            <div className="h-9 w-24 bg-surface-soft rounded-full" />
+          </div>
+        </div>
+
+        {/* Grid skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          {/* Left Gallery (5 cols) */}
+          <div className="lg:col-span-5 bg-canvas border border-hairline-soft rounded-xxl p-4 sm:p-6 space-y-4">
+            <div className="h-80 sm:h-96 bg-surface-soft rounded-xl" />
+            <div className="flex gap-2.5 justify-center">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="w-14 h-14 rounded-lg bg-surface-soft border border-hairline-soft" />
+              ))}
+            </div>
+            <div className="p-4 bg-surface-soft rounded-xl space-y-2">
+              <div className="h-3.5 w-full bg-hairline-soft/60 rounded" />
+              <div className="h-3.5 w-4/5 bg-hairline-soft/60 rounded" />
+              <div className="h-3.5 w-3/4 bg-hairline-soft/60 rounded" />
+            </div>
+          </div>
+
+          {/* Right Column (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="h-28 bg-surface-soft rounded-xl border border-hairline-soft" />
+            <div className="bg-canvas border border-hairline-soft rounded-xl p-5 space-y-4">
+              <div className="h-4 w-32 bg-surface-soft rounded" />
+              <div className="flex gap-2">
+                <div className="h-10 w-24 bg-surface-soft rounded-xl" />
+                <div className="h-10 w-24 bg-surface-soft rounded-xl" />
+                <div className="h-10 w-24 bg-surface-soft rounded-xl" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="h-14 bg-surface-soft rounded-xl" />
+              <div className="h-14 bg-surface-soft rounded-xl" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -334,12 +397,8 @@ export const ProductDetailPage: React.FC = () => {
           </h1>
           <div className="flex items-center gap-3 mt-1.5 text-xs text-steel">
             <RatingStars
-              rating={
-                reviews.length > 0
-                  ? Number((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length).toFixed(1))
-                  : product.rating
-              }
-              reviewCount={reviews.length}
+              rating={currentAverageRating}
+              reviewCount={currentReviewCount}
               size={14}
             />
             <span className="text-hairline">|</span>
@@ -585,7 +644,7 @@ export const ProductDetailPage: React.FC = () => {
           <div>
             <h3 className="text-lg font-medium text-ink-deep tracking-tight flex items-center gap-2.5">
               <MessageSquare size={18} className="text-primary" />
-              <span>Khách hàng đánh giá & Nhận xét thực tế ({reviews.length})</span>
+              <span>Khách hàng đánh giá & Nhận xét thực tế ({currentReviewCount})</span>
             </h3>
             <p className="text-xs text-steel mt-1">
               Chỉ những khách hàng đã mua sản phẩm và đơn hàng đạt trạng thái <strong>Hoàn tất</strong> mới được xác thực đánh giá.
@@ -605,6 +664,54 @@ export const ProductDetailPage: React.FC = () => {
             {showReviewForm? 'Đóng biểu mẫu': 'Viết đánh giá của bạn'}
           </button>
         </div>
+
+        {/* Rating Overview Summary Box */}
+        {currentReviewCount > 0 ? (
+          <div className="flex flex-col sm:flex-row items-center gap-6 p-5 bg-surface-soft/60 border border-hairline-soft rounded-2xl">
+            <div className="flex flex-col items-center justify-center sm:border-r sm:border-hairline-soft sm:pr-8 text-center min-w-[150px]">
+              <span className="text-4xl font-extrabold text-ink-deep dark:text-amber-300 tracking-tight leading-none">
+                {currentAverageRating.toFixed(1)}
+              </span>
+              <div className="mt-2.5">
+                <RatingStars rating={currentAverageRating} reviewCount={currentReviewCount} hideCount size={16} />
+              </div>
+              <span className="text-xs text-steel mt-2 font-medium">
+                {currentReviewCount} lượt đánh giá thực tế
+              </span>
+            </div>
+
+            {/* Star Distribution Bars */}
+            <div className="flex-1 w-full space-y-1.5 text-xs">
+              {[5, 4, 3, 2, 1].map((star) => {
+                const count = reviews.filter((r) => Math.round(Number(r.rating) || 0) === star).length;
+                const percent = currentReviewCount > 0 ? Math.round((count / currentReviewCount) * 100) : 0;
+                return (
+                  <div key={star} className="flex items-center gap-2.5">
+                    <span className="w-12 text-steel font-medium text-right flex items-center justify-end gap-1">
+                      {star} <Star size={11} className="fill-amber-400 text-amber-400" />
+                    </span>
+                    <div className="flex-1 h-2 bg-hairline-soft/80 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-amber-400 rounded-full transition-all duration-300"
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                    <span className="w-12 text-[11px] text-steel font-mono text-left">
+                      {count} ({percent}%)
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="p-6 text-center bg-surface-soft/40 border border-hairline-soft/60 rounded-2xl flex flex-col items-center justify-center">
+            <RatingStars rating={0} reviewCount={0} size={18} />
+            <p className="text-xs text-steel mt-2">
+              Sản phẩm hiện chưa có đánh giá nào. Hãy là người đầu tiên trải nghiệm và chia sẻ nhận xét!
+            </p>
+          </div>
+        )}
 
         {/* Review Form Drawer/Collapse */}
         {showReviewForm && (

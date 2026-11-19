@@ -234,7 +234,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           <div className={`flex items-center justify-between text-[11px] border-t border-hairline-soft/60 ${
             compact? 'mt-1 pt-1 min-h-[20px]': 'mt-2 pt-1.5 min-h-[24px]'
           }`}>
-            <RatingStars rating={product.rating} reviewCount={compact? 0: product.reviewCount} size={compact? 10: 11} />
+            <RatingStars rating={product.rating} reviewCount={product.reviewCount} hideCount={compact} size={compact? 10: 11} />
             <span className="text-steel font-mono text-[10px]">Đã bán {product.soldCount ?? 0}</span>
           </div>
         </div>

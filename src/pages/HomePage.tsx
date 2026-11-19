@@ -5,6 +5,7 @@ import { promotionService, getCountdownParts } from '../services/promotionServic
 import { Product, Brand } from '../types/product';
 import { resolveBrandLogo } from '../utils/brandUtils';
 import { ProductCard } from '../components/product/ProductCard';
+import { ProductCardSkeleton } from '../components/product/ProductCardSkeleton';
 import { formatVND } from '../components/common/PriceDisplay';
 import { 
   Zap, 
@@ -387,22 +388,27 @@ export const HomePage: React.FC = () => {
             {HERO_BANNERS.map((banner) => {
               const Icon = banner.icon;
               return (
-                <Link
+                <div
                   key={banner.id}
-                  to={banner.targetUrl}
-                  className="w-full flex-shrink-0 relative aspect-[16/9] sm:aspect-[1.85/1] md:aspect-[1.95/1] flex items-center justify-center bg-[#06142e] overflow-hidden cursor-pointer"
+                  className="w-full flex-shrink-0 relative aspect-[16/9] sm:aspect-[1.85/1] md:aspect-[1.95/1] flex items-center justify-center bg-[#06142e] overflow-hidden"
                 >
-                  {/* Ảnh Banner MinIO phủ đều viền (object-cover) - Không còn vệt đen hai bên, giữ trọn chi tiết */}
-                  <img
-                    src={banner.minioUrl}
-                    alt={banner.title}
-                    className="w-full h-full object-cover object-center select-none transition-transform duration-700 group-hover:scale-[1.015]"
-                    onError={(e) => {
-                      if (e.currentTarget.src !== banner.fallbackUrl) {
-                        e.currentTarget.src = banner.fallbackUrl;
-                      }
-                    }}
-                  />
+                  {/* Ảnh Banner MinIO phủ đều viền (object-cover) */}
+                  <Link
+                    to={banner.targetUrl}
+                    aria-label={banner.title}
+                    className="absolute inset-0 z-0 cursor-pointer"
+                  >
+                    <img
+                      src={banner.minioUrl}
+                      alt={banner.title}
+                      className="w-full h-full object-cover object-center select-none transition-transform duration-700 group-hover:scale-[1.015]"
+                      onError={(e) => {
+                        if (e.currentTarget.src !== banner.fallbackUrl) {
+                          e.currentTarget.src = banner.fallbackUrl;
+                        }
+                      }}
+                    />
+                  </Link>
 
                   {/* Thanh thông điệp & Nút CTA rực rỡ cùng hàng ở đáy banner */}
                   <div className="absolute bottom-3 left-3 right-3 sm:bottom-4 sm:left-6 sm:right-6 md:bottom-5 md:left-8 md:right-8 z-10 pointer-events-auto">
@@ -435,6 +441,7 @@ export const HomePage: React.FC = () => {
                         {HERO_BANNERS.map((_, idx) => (
                           <button
                             key={idx}
+                            type="button"
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -452,7 +459,8 @@ export const HomePage: React.FC = () => {
 
                       {/* Nút CTA cực kỳ nổi bật với Gradient rực rỡ & Hiệu ứng viền sáng */}
                       <div className="shrink-0 w-full md:w-auto">
-                        <span
+                        <Link
+                          to={banner.targetUrl}
                           className={`inline-flex items-center justify-center gap-2 w-full md:w-auto px-6 sm:px-8 py-2.5 sm:py-3 rounded-full font-black text-xs sm:text-sm md:text-base text-white shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105 active:scale-95 uppercase tracking-wide cursor-pointer border border-white/30 ${
                             banner.type === 'FLASH_SALE'
                               ? 'bg-gradient-to-r from-red-600 via-orange-500 to-amber-400 hover:from-red-500 hover:to-amber-300 shadow-orange-500/50 ring-2 ring-amber-300/70 animate-pulse'
@@ -462,12 +470,12 @@ export const HomePage: React.FC = () => {
                           <Icon size={18} className={banner.type === 'FLASH_SALE' ? 'fill-white text-white' : 'text-white'} />
                           <span>{banner.ctaText}</span>
                           <ChevronRight size={18} className="transition-transform group-hover:translate-x-1" />
-                        </span>
+                        </Link>
                       </div>
 
                     </div>
                   </div>
-                </Link>
+                </div>
               );
             })}
           </div>
@@ -611,12 +619,24 @@ export const HomePage: React.FC = () => {
       {/* 4. MAIN CATEGORY SECTIONS (Từng ngành hàng: 4 sản phẩm bán chạy nhất + nút Xem tất cả) */}
       <div className="space-y-12 sm:space-y-16">
         {isLoading ? (
-          <section className="max-w-7xl mx-auto px-4 sm:px-6">
-            <div className="py-24 text-center text-steel text-sm">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="font-semibold text-ink">Đang tải danh mục thiết bị công nghệ...</p>
-            </div>
-          </section>
+          <div className="space-y-12 sm:space-y-16">
+            {[1, 2].map((idx) => (
+              <section key={idx} className="max-w-7xl mx-auto px-4 sm:px-6 animate-pulse">
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-3 mb-6 pb-4 border-b border-hairline-soft">
+                  <div className="space-y-2">
+                    <div className="h-6 w-48 bg-surface-soft rounded-lg" />
+                    <div className="h-4 w-72 bg-surface-soft rounded" />
+                  </div>
+                  <div className="h-9 w-32 bg-surface-soft rounded-full" />
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-5 items-stretch">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <ProductCardSkeleton key={i} />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         ) : categorySections.length === 0 ? (
           <section className="max-w-7xl mx-auto px-4 sm:px-6">
             <div className="py-16 bg-surface-soft rounded-xxxl border border-hairline-soft text-center text-steel text-sm px-4">

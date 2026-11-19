@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useSearchParams, Link, useNavigate } from 'react-router-dom';
 import { productService, ProductFilterParams, parseSmartSearchQuery } from '../services/productService';
 import { categoryService, CategoryItem } from '../services/categoryService';
 import { Product, Brand } from '../types/product';
 import { resolveBrandLogo } from '../utils/brandUtils';
 import { ProductCard } from '../components/product/ProductCard';
+import { ProductCardSkeleton } from '../components/product/ProductCardSkeleton';
 import { 
   Filter, 
   SlidersHorizontal, 
@@ -87,15 +88,25 @@ export const ProductListPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categoriesTree, setCategoriesTree] = useState<CategoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [isFiltering, setIsFiltering] = useState(false);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
+  const productsGridRef = useRef<HTMLDivElement>(null);
 
-  // Tải cây danh mục từ DB
+  // Tải cây danh mục và thương hiệu từ DB một lần khi mount
   useEffect(() => {
     categoryService.getCategories(false)
       .then((res) => {
         if (res?.data && Array.isArray(res.data)) {
           setCategoriesTree(res.data);
+        }
+      })
+      .catch(() => {});
+
+    productService.getBrands()
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setBrands(res);
         }
       })
       .catch(() => {});
@@ -193,8 +204,14 @@ export const ProductListPage: React.FC = () => {
   const priceRanges = getPriceRangesForCategory(isSale ? 'sale' : currentCategory);
 
   useEffect(() => {
+    let cancelled = false;
     const fetch = async () => {
-      setIsLoading(true);
+      if (products.length > 0) {
+        setIsFiltering(true);
+      } else {
+        setIsInitialLoading(true);
+      }
+
       if (isSearchMode) {
         // Khi tìm kiếm: không áp dụng bộ lọc sản phẩm thủ công, chỉ dùng Smart Search + sắp xếp
         const prodList = await productService.getProducts({
@@ -202,17 +219,25 @@ export const ProductListPage: React.FC = () => {
           sort: currentSort,
           limit: 100
         });
-        setProducts(prodList);
-        setIsLoading(false);
+        if (!cancelled) {
+          setProducts(prodList);
+          setIsInitialLoading(false);
+          setIsFiltering(false);
+        }
         return;
       }
 
-      // Hiện tất cả thương hiệu có trong bảng thương hiệu DB
-      const brandList = await productService.getBrands();
+      let currentBrandList = brands;
+      if (currentBrandList.length === 0) {
+        currentBrandList = await productService.getBrands().catch(() => []);
+        if (!cancelled && currentBrandList.length > 0) {
+          setBrands(currentBrandList);
+        }
+      }
 
       // Chỉ lọc theo các brand hợp lệ
       const validSelectedBrands = selectedBrands.filter(b =>
-        brandList.some(item => item.name.toLowerCase() === b.toLowerCase())
+        currentBrandList.some(item => item.name.toLowerCase() === b.toLowerCase())
       );
 
       const prodList = await productService.getProducts({
@@ -233,13 +258,18 @@ export const ProductListPage: React.FC = () => {
         limit: 100
       });
 
-      setBrands(brandList);
-      setProducts(prodList);
-      setIsLoading(false);
+      if (!cancelled) {
+        setProducts(prodList);
+        setIsInitialLoading(false);
+        setIsFiltering(false);
+      }
     };
     fetch();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
-    searchParams,
     isSearchMode,
     isSale,
     currentCategory,
@@ -349,7 +379,12 @@ export const ProductListPage: React.FC = () => {
       newParams.set('page', String(target));
     }
     setSearchParams(newParams);
-    window.scrollTo({ top: 120, behavior: 'smooth' });
+    if (productsGridRef.current) {
+      const rect = productsGridRef.current.getBoundingClientRect();
+      if (rect.top < 0) {
+        productsGridRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   };
 
   const categoryTitle = 
@@ -1092,7 +1127,7 @@ export const ProductListPage: React.FC = () => {
         {/* ========================================= */}
         {/* MAIN PRODUCT GRID (12 cols khi tìm kiếm)  */}
         {/* ========================================= */}
-        <div className={isSearchMode ? "lg:col-span-12 space-y-6" : "lg:col-span-9 space-y-6"}>
+        <div ref={productsGridRef} className={isSearchMode ? "lg:col-span-12 space-y-6" : "lg:col-span-9 space-y-6"}>
           
           {/* Thanh sắp xếp */}
           <div className="bg-canvas border border-hairline-soft rounded-2xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-none">
@@ -1129,10 +1164,11 @@ export const ProductListPage: React.FC = () => {
           </div>
 
           {/* Grid Products */}
-          {isLoading ? (
-            <div className="py-24 text-center text-steel text-xs">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-              <p className="font-semibold text-charcoal">Đang nạp danh sách thiết bị công nghệ...</p>
+          {isInitialLoading ? (
+            <div className={`grid grid-cols-2 sm:grid-cols-2 ${isSearchMode ? 'md:grid-cols-3 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4 sm:gap-5 items-stretch`}>
+              {Array.from({ length: itemsPerPage }).map((_, i) => (
+                <ProductCardSkeleton key={i} />
+              ))}
             </div>
           ) : products.length === 0 ? (
             <div className="py-16 bg-canvas rounded-2xl border border-hairline-soft text-center text-steel text-xs p-8">
@@ -1158,7 +1194,14 @@ export const ProductListPage: React.FC = () => {
             </div>
           ) : (
             <div className="space-y-6">
-              <div className={`grid grid-cols-2 sm:grid-cols-2 ${isSearchMode ? 'md:grid-cols-3 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4 sm:gap-5 items-stretch`}>
+              {isFiltering && (
+                <div className="w-full h-1 bg-surface-soft overflow-hidden rounded-full">
+                  <div className="h-full bg-primary animate-pulse w-2/5 rounded-full" />
+                </div>
+              )}
+              <div className={`grid grid-cols-2 sm:grid-cols-2 ${isSearchMode ? 'md:grid-cols-3 lg:grid-cols-4' : 'md:grid-cols-3'} gap-4 sm:gap-5 items-stretch transition-opacity duration-200 ${
+                isFiltering ? 'opacity-50 pointer-events-none' : 'opacity-100'
+              }`}>
                 {paginatedProducts.map((p) => (
                   <ProductCard key={p.productId} product={p} />
                 ))}

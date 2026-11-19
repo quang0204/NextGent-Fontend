@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams, useNavigate, Navigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OtpInput } from '../components/common/OtpInput';
@@ -48,15 +48,16 @@ export const AccountPage: React.FC = () => {
   const { showToast } = useToastStore();
   
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlTab = searchParams.get('tab');
   const validTabs = ['profile', 'addresses', 'password', 'support'];
   const [activeTab, setActiveTab] = useState<'profile' | 'addresses' | 'password' | 'support'>(
-    urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (window.location.pathname === '/support-history' ? 'support' : 'profile')
+    urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (location.pathname === '/support-history' ? 'support' : 'profile')
   );
 
   if (!user || !isAuthenticated) {
-    const currentPath = window.location.pathname === '/support-history' ? '/support-history' : '/account';
+    const currentPath = location.pathname === '/support-history' ? '/support-history' : '/account';
     return <Navigate to={`/auth?redirect=${encodeURIComponent(currentPath)}`} replace />;
   }
 
@@ -85,7 +86,7 @@ export const AccountPage: React.FC = () => {
       navigate('/orders', { replace: true });
       return;
     }
-    if (window.location.pathname === '/support-history') {
+    if (location.pathname === '/support-history') {
       setActiveTab('support');
       return;
     }

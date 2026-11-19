@@ -148,7 +148,7 @@ export const reviewService = {
         const totalReviews = Math.max(0, (d.totalReviews ?? rawItems.length) - removedCount);
         const avg = removedCount > 0 && mappedItems.length > 0
           ? Number((mappedItems.reduce((sum, r) => sum + r.rating, 0) / mappedItems.length).toFixed(1))
-          : (d.averageRating || 5);
+          : (d.averageRating || 0);
 
         return {
           items: mappedItems,
