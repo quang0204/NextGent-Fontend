@@ -16,24 +16,42 @@ import {
   PortalPromotionVariant
 } from '../types/portal';
 import { ProductReview } from '../types/review';
-import { MOCK_PRODUCTS, BRANDS, MOCK_REVIEWS, MOCK_ORDERS_DETAIL } from './mockData';
-import { 
-  PORTAL_INVENTORY_ITEMS, 
-  PORTAL_STOCK_ADJUSTMENTS, 
-  PORTAL_STOCK_MOVEMENTS, 
-  PORTAL_VOUCHERS, 
-  PORTAL_AUDIT_LOGS, 
-  PORTAL_TICKETS, 
-  PORTAL_CATEGORIES, 
-  PORTAL_BRANDS, 
-  PORTAL_SHIPMENTS, 
-  PORTAL_RETURN_REQUESTS, 
-  PORTAL_FAQS,
-  PORTAL_PROMOTIONS
-} from './portalMockData';
+import { BRANDS } from './mockData';
+import { PORTAL_PROMOTIONS } from './portalMockData';
 import { notificationService } from './notificationService';
+import { formatCurrencyVND } from '../utils/orderFormatters';
+import { 
+  getDefaultSeedState, 
+  cleanLogNote, 
+  sanitizeOrderNotes, 
+  sanitizeProducts 
+} from './sharedStoreSeeds';
 
-// Khóa lưu trữ LocalStorage để đồng bộ xuyên suốt
+export { cleanLogNote, sanitizeOrderNotes, sanitizeProducts };
+
+const saveToStorage = (key: string, data: any) => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, JSON.stringify(data));
+    }
+  } catch {
+    // ignore storage quota errors
+  }
+};
+
+const loadFromStorage = <T>(key: string, fallback: T): T => {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const item = window.localStorage.getItem(key);
+      if (item) {
+        return JSON.parse(item);
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return fallback;
+};
 const STORAGE_KEY_PRODUCTS = 'ng_db_products_v3';
 const STORAGE_KEY_INVENTORY = 'ng_db_inventory_v2';
 const STORAGE_KEY_ORDERS = 'ng_db_orders_v2';
@@ -50,162 +68,23 @@ const STORAGE_KEY_RETURNS = 'ng_db_returns_v2';
 const STORAGE_KEY_FAQS = 'ng_db_faqs_v2';
 const STORAGE_KEY_PROMOTIONS = 'ng_db_promotions_v2';
 
-const LEGACY_STORAGE_KEYS = [
-  STORAGE_KEY_PRODUCTS,
-  STORAGE_KEY_INVENTORY,
-  STORAGE_KEY_ORDERS,
-  STORAGE_KEY_VOUCHERS,
-  STORAGE_KEY_MOVEMENTS,
-  STORAGE_KEY_ADJUSTMENTS,
-  STORAGE_KEY_AUDIT,
-  STORAGE_KEY_TICKETS,
-  STORAGE_KEY_REVIEWS,
-  STORAGE_KEY_CATEGORIES,
-  STORAGE_KEY_BRANDS,
-  STORAGE_KEY_SHIPMENTS,
-  STORAGE_KEY_RETURNS,
-  STORAGE_KEY_FAQS,
-  STORAGE_KEY_PROMOTIONS,
-];
+const initialSeed = getDefaultSeedState();
 
-if (typeof window !== 'undefined') {
-  for (const key of LEGACY_STORAGE_KEYS) {
-    try {
-      localStorage.removeItem(key);
-    } catch {}
-  }
-}
-
-const loadFromStorage = <T>(_key: string, defaultValue: T): T => defaultValue;
-
-const saveToStorage = (_key: string, _data: any) => {};
-
-// Vệ sinh và chuẩn hóa dữ liệu biến thể sản phẩm
-const sanitizeProducts = (loadedProds: Product[]): Product[] => {
-  if (!Array.isArray(loadedProds) || loadedProds.length === 0) {
-    return [];
-  }
-
-  return loadedProds.filter(Boolean).map(p => {
-    const defaultProd = MOCK_PRODUCTS.find(dp => dp.productId === p.productId);
-    const rawVariants = Array.isArray(p.variants) && p.variants.length > 0
-      ? p.variants
-      : (defaultProd?.variants || [{
-          variantId: (p.productId || Date.now()) + 1,
-          productId: p.productId || Date.now(),
-          sku: `SKU-${p.productId || Date.now()}`,
-          color: 'Tiêu chuẩn',
-          colorHex: '#000000',
-          ramGb: 8,
-          romGb: 128,
-          connectionType: '5G',
-          listPrice: 20000000,
-          salePrice: 18000000,
-          onHandQty: 10,
-          reservedQty: 0,
-          availableQty: 10,
-          imageUrl: p.thumbnail || '',
-          isActive: true
-        }]);
-
-    return {
-      ...p,
-      productId: p.productId || Date.now(),
-      name: p.name || defaultProd?.name || 'Sản phẩm chưa đặt tên',
-      brandName: p.brandName || defaultProd?.brandName || 'Khác',
-      categoryName: p.categoryName || defaultProd?.categoryName || 'Điện thoại',
-      thumbnail: p.thumbnail || defaultProd?.thumbnail || 'https://placehold.co/400x400/f8fafc/64748b?text=Device',
-      gallery: Array.isArray(p.gallery) && p.gallery.length > 0 ? p.gallery : [p.thumbnail || defaultProd?.thumbnail || ''],
-      specGroups: Array.isArray(p.specGroups) ? p.specGroups : (defaultProd?.specGroups || []),
-      highlights: Array.isArray(p.highlights) ? p.highlights : (defaultProd?.highlights || []),
-      variants: rawVariants.filter(Boolean).map((v: any, vIdx: number) => {
-        let price = Number(v.salePrice);
-        if (!price || price <= 0 || isNaN(price)) {
-          const defaultVariant = defaultProd?.variants?.find(dv => dv.sku === v.sku);
-          price = defaultVariant?.salePrice || v.listPrice || 29490000;
-        }
-        return {
-          ...v,
-          variantId: v.variantId || ((p.productId || Date.now()) + vIdx + 1),
-          productId: p.productId || Date.now(),
-          sku: v.sku || `SKU-${p.productId || Date.now()}-${vIdx + 1}`,
-          color: v.color || 'Tiêu chuẩn',
-          colorHex: v.colorHex || '#000000',
-          ramGb: Number(v.ramGb) || 8,
-          romGb: Number(v.romGb) || 128,
-          connectionType: v.connectionType || '5G',
-          listPrice: Number(v.listPrice) && Number(v.listPrice) > 0 ? Number(v.listPrice) : Math.round(price * 1.15),
-          salePrice: price,
-          onHandQty: Number(v.onHandQty) >= 0 ? Number(v.onHandQty) : 10,
-          reservedQty: Number(v.reservedQty) >= 0 ? Number(v.reservedQty) : 0,
-          availableQty: Number(v.availableQty) >= 0 ? Number(v.availableQty) : (Number(v.onHandQty) || 10),
-          imageUrl: v.imageUrl || p.thumbnail || defaultProd?.thumbnail || '',
-          isActive: v.isActive !== false
-        };
-      })
-    };
-  });
-};
-
-// Khởi tạo các mảng dữ liệu dùng chung (Single Source of Truth)
-const loadInitialProducts = (): Product[] => {
-  const stored = loadFromStorage<Product[]>(STORAGE_KEY_PRODUCTS, []);
-  return sanitizeProducts(stored);
-};
-
-export const cleanLogNote = (note: string): string => {
-  if (!note) return '';
-  return note
-    .replace(/\s*\(Phiếu xuất kho MB0[1-5]\)/gi, ' (Phiếu xuất kho)')
-    .replace(/\s*\(Phiếu MB0[1-5]\)/gi, '')
-    .replace(/\s*\(MB0[1-5][^)]*\)/gi, '')
-    .replace(/\s*Phiếu xuất kho MB0[1-5]/gi, 'Phiếu xuất kho')
-    .replace(/\s*Phiếu MB0[1-5]/gi, '')
-    .replace(/\s*MB0[1-5]/gi, '')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-};
-
-export const sanitizeOrderNotes = (order: OrderDetail): OrderDetail => {
-  if (!order) return order;
-  const isCompleted = order.status === 'COMPLETED';
-  const isRefunded = order.paymentStatus === 'REFUNDED' || order.paymentStatus === 'PARTIALLY_REFUNDED';
-  const effectivePaymentStatus = (isCompleted && !isRefunded) ? 'PAID' : (order.paymentStatus || 'UNPAID');
-
-  return {
-    ...order,
-    paymentStatus: effectivePaymentStatus,
-    statusHistory: order.statusHistory ? order.statusHistory.map(h => ({
-      ...h,
-      note: cleanLogNote(h.note)
-    })) : []
-  };
-};
-
-const loadInitialOrders = (): OrderDetail[] => {
-  const stored = loadFromStorage<OrderDetail[]>(STORAGE_KEY_ORDERS, []);
-  return stored.map(sanitizeOrderNotes);
-};
-
-const loadInitialShipments = (): PortalShipment[] => {
-  return loadFromStorage<PortalShipment[]>(STORAGE_KEY_SHIPMENTS, []);
-};
-
-let products: Product[] = loadInitialProducts();
-let inventories: PortalInventoryItem[] = loadFromStorage(STORAGE_KEY_INVENTORY, []);
-let orders: OrderDetail[] = loadInitialOrders();
-let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, PORTAL_VOUCHERS);
-let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, PORTAL_STOCK_MOVEMENTS);
-let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, PORTAL_STOCK_ADJUSTMENTS);
-let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, PORTAL_AUDIT_LOGS);
-let tickets: PortalSupportTicket[] = [];
-let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, MOCK_REVIEWS);
-let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, PORTAL_CATEGORIES);
-let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, PORTAL_BRANDS);
-let shipments: PortalShipment[] = loadInitialShipments();
-let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, PORTAL_RETURN_REQUESTS);
-let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, PORTAL_FAQS);
-let promotions: PortalPromotion[] = loadFromStorage(STORAGE_KEY_PROMOTIONS, PORTAL_PROMOTIONS);
+let products: Product[] = loadFromStorage(STORAGE_KEY_PRODUCTS, initialSeed.products);
+let inventories: PortalInventoryItem[] = loadFromStorage(STORAGE_KEY_INVENTORY, initialSeed.inventories);
+let orders: OrderDetail[] = loadFromStorage(STORAGE_KEY_ORDERS, initialSeed.orders);
+let vouchers: PortalVoucher[] = loadFromStorage(STORAGE_KEY_VOUCHERS, initialSeed.vouchers);
+let movements: StockMovementRecord[] = loadFromStorage(STORAGE_KEY_MOVEMENTS, initialSeed.movements);
+let adjustments: StockAdjustmentRecord[] = loadFromStorage(STORAGE_KEY_ADJUSTMENTS, initialSeed.adjustments);
+let auditLogs: PortalAuditLog[] = loadFromStorage(STORAGE_KEY_AUDIT, initialSeed.auditLogs);
+let tickets: PortalSupportTicket[] = loadFromStorage(STORAGE_KEY_TICKETS, initialSeed.tickets);
+let reviews: ProductReview[] = loadFromStorage(STORAGE_KEY_REVIEWS, initialSeed.reviews);
+let categories: PortalCategory[] = loadFromStorage(STORAGE_KEY_CATEGORIES, initialSeed.categories);
+let portalBrands: PortalBrandItem[] = loadFromStorage(STORAGE_KEY_BRANDS, initialSeed.portalBrands);
+let shipments: PortalShipment[] = loadFromStorage(STORAGE_KEY_SHIPMENTS, initialSeed.shipments);
+let returnRequests: PortalReturnRequest[] = loadFromStorage(STORAGE_KEY_RETURNS, initialSeed.returnRequests);
+let faqs: PortalFaqItem[] = loadFromStorage(STORAGE_KEY_FAQS, initialSeed.faqs);
+let promotions: PortalPromotion[] = loadFromStorage(STORAGE_KEY_PROMOTIONS, initialSeed.promotions);
 
 // Listeners thông báo cập nhật
 type Listener = () => void;
@@ -225,35 +104,22 @@ export const sharedStore = {
 
   // KHÔI PHỤC DỮ LIỆU GỐC CHUẨN
   resetToDefault() {
-    products = sanitizeProducts(MOCK_PRODUCTS);
-    inventories = [...PORTAL_INVENTORY_ITEMS];
-    orders = [...MOCK_ORDERS_DETAIL];
-    vouchers = [...PORTAL_VOUCHERS];
-    movements = [...PORTAL_STOCK_MOVEMENTS];
-    adjustments = [...PORTAL_STOCK_ADJUSTMENTS];
-    auditLogs = [...PORTAL_AUDIT_LOGS];
-    tickets = [...PORTAL_TICKETS];
-    reviews = [...MOCK_REVIEWS];
-    categories = [...PORTAL_CATEGORIES];
-    portalBrands = [...PORTAL_BRANDS];
-    shipments = [...PORTAL_SHIPMENTS];
-    returnRequests = [...PORTAL_RETURN_REQUESTS];
-    faqs = [...PORTAL_FAQS];
-
-    saveToStorage(STORAGE_KEY_PRODUCTS, products);
-    saveToStorage(STORAGE_KEY_INVENTORY, inventories);
-    saveToStorage(STORAGE_KEY_ORDERS, orders);
-    saveToStorage(STORAGE_KEY_VOUCHERS, vouchers);
-    saveToStorage(STORAGE_KEY_MOVEMENTS, movements);
-    saveToStorage(STORAGE_KEY_ADJUSTMENTS, adjustments);
-    saveToStorage(STORAGE_KEY_AUDIT, auditLogs);
-    saveToStorage(STORAGE_KEY_TICKETS, tickets);
-    saveToStorage(STORAGE_KEY_REVIEWS, reviews);
-    saveToStorage(STORAGE_KEY_CATEGORIES, categories);
-    saveToStorage(STORAGE_KEY_BRANDS, portalBrands);
-    saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
-    saveToStorage(STORAGE_KEY_RETURNS, returnRequests);
-    saveToStorage(STORAGE_KEY_FAQS, faqs);
+    const fresh = getDefaultSeedState();
+    products = fresh.products;
+    inventories = fresh.inventories;
+    orders = fresh.orders;
+    vouchers = fresh.vouchers;
+    movements = fresh.movements;
+    adjustments = fresh.adjustments;
+    auditLogs = fresh.auditLogs;
+    tickets = fresh.tickets;
+    reviews = fresh.reviews;
+    categories = fresh.categories;
+    portalBrands = fresh.portalBrands;
+    shipments = fresh.shipments;
+    returnRequests = fresh.returnRequests;
+    faqs = fresh.faqs;
+    promotions = fresh.promotions;
 
     notify();
   },
@@ -482,7 +348,12 @@ export const sharedStore = {
   },
 
   getOrders(): OrderDetail[] {
-    return orders.map(sanitizeOrderNotes);
+    return [...orders].sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime() || 0;
+      const timeB = new Date(b.createdAt).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.orderId) || 0) - (Number(a.orderId) || 0);
+    }).map(sanitizeOrderNotes);
   },
 
   syncExternalOrders(remoteOrders: OrderDetail[]) {
@@ -490,11 +361,27 @@ export const sharedStore = {
     for (const ro of remoteOrders) {
       const idx = orders.findIndex(o => Number(o.orderId) === Number(ro.orderId) || o.orderCode === ro.orderCode);
       if (idx !== -1) {
-        orders[idx] = { ...orders[idx], ...ro };
+        const localStatus = orders[idx].status;
+        const preserveLocalPreparing = (localStatus === 'PREPARING' && ro.status === 'CONFIRMED');
+        const preserveLocalPickedUp = (localStatus === 'PICKED_UP' && (ro.status === 'CONFIRMED' || ro.status === 'PREPARING'));
+        const finalStatus = preserveLocalPreparing ? 'PREPARING' : (preserveLocalPickedUp ? 'PICKED_UP' : ro.status);
+        orders[idx] = { 
+          ...orders[idx], 
+          ...ro,
+          status: finalStatus,
+          statusHistory: (preserveLocalPreparing || preserveLocalPickedUp) ? orders[idx].statusHistory : (ro.statusHistory?.length ? ro.statusHistory : orders[idx].statusHistory)
+        };
       } else {
-        orders.unshift(ro);
+        orders.push(ro);
       }
     }
+    // Luôn sắp xếp đơn hàng mới nhất lên đầu
+    orders.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime() || 0;
+      const timeB = new Date(b.createdAt).getTime() || 0;
+      if (timeB !== timeA) return timeB - timeA;
+      return (Number(b.orderId) || 0) - (Number(a.orderId) || 0);
+    });
     saveToStorage(STORAGE_KEY_ORDERS, orders);
   },
 
@@ -788,7 +675,16 @@ export const sharedStore = {
 
   createShipmentForOrder(order: OrderDetail, carrier = 'Giao Hàng Nhanh Express', staffName = 'Hệ thống tự động'): PortalShipment {
     const existing = shipments.find(s => s.orderId === order.orderId || s.orderCode === order.orderCode);
-    if (existing) return existing;
+    if (existing) {
+      existing.status = 'PREPARING';
+      existing.updatedAt = new Date().toISOString();
+      order.carrier = existing.carrier || carrier;
+      order.trackingCode = existing.trackingCode;
+      saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
+      saveToStorage(STORAGE_KEY_ORDERS, orders);
+      notify();
+      return existing;
+    }
 
     const newShipment: PortalShipment = {
       shipmentId: Date.now() + Math.floor(Math.random() * 100),
@@ -1717,6 +1613,7 @@ export const sharedStore = {
 
     // Kiểm tra tính tuần tự nghiêm ngặt (Hình 1.18)
     const validTransitions: Record<OrderStatus, OrderStatus[]> = {
+      'PENDING': ['CONFIRMED', 'WAITING_CONFIRMATION', 'PENDING_PAYMENT', 'CANCELLED'],
       'PENDING_PAYMENT': ['WAITING_CONFIRMATION', 'CANCELLED'],
       'WAITING_CONFIRMATION': ['CONFIRMED', 'CANCELLED'],
       'CONFIRMED': ['PREPARING', 'CANCELLED'],
@@ -2265,7 +2162,3 @@ export const sharedStore = {
     saveToStorage(STORAGE_KEY_AUDIT, auditLogs);
   }
 };
-
-function formatCurrencyVND(amount: number): string {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
-}

@@ -48,11 +48,10 @@ apiClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // In log chi tiết trong môi trường phát triển (DEV) và ẩn dữ liệu nhạy cảm
+    // In log gọn trong DEV để tránh tràn bộ nhớ console và chậm render
     if (import.meta.env.DEV) {
       const fullUrl = `${config.baseURL || ''}${config.url || ''}`;
-      const isAuth = config.url?.includes('/auth/');
-      console.log(`[API REQUEST] 🚀 ${config.method?.toUpperCase()} ${fullUrl}`, isAuth ? '[REDACTED_AUTH_DATA]' : (config.data || ''));
+      console.log(`[API REQUEST] 🚀 ${config.method?.toUpperCase()} ${fullUrl}`);
     }
 
     return config;
@@ -67,8 +66,7 @@ apiClient.interceptors.response.use(
   (response) => {
     if (import.meta.env.DEV) {
       const fullUrl = `${response.config.baseURL || ''}${response.config.url || ''}`;
-      const isAuth = response.config.url?.includes('/auth/');
-      console.log(`[API RESPONSE] ✅ ${response.status} ${fullUrl}`, isAuth ? '[REDACTED_AUTH_DATA]' : response.data);
+      console.log(`[API RESPONSE] ✅ ${response.status} ${fullUrl}`);
     }
     return response;
   },
@@ -116,7 +114,9 @@ apiClient.interceptors.response.use(
       }
 
       try {
-        console.log(`[API REFRESH] 🔄 Đang làm mới Access Token từ ${API_BASE_URL}/auth/refresh-token`);
+        if (import.meta.env.DEV) {
+          console.log(`[API REFRESH] 🔄 Đang làm mới Access Token từ ${API_BASE_URL}/auth/refresh-token`);
+        }
         const refreshResponse = await axios.post(
           `${API_BASE_URL}/auth/refresh-token`,
           { refreshToken },

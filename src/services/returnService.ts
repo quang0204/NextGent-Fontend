@@ -1,6 +1,4 @@
 import { apiClient } from './apiClient';
-import { sharedStore } from './sharedStore';
-import { useAuthStore } from '../stores/authStore';
 import { PortalReturnRequest } from '../types/portal';
 
 export interface CreateReturnRequestPayload {
@@ -15,7 +13,9 @@ export interface CreateReturnRequestPayload {
   items?: Array<{
     variantId?: number;
     productName: string;
+    productNameSnapshot?: string;
     sku: string;
+    skuSnapshot?: string;
     quantity: number;
     unitPrice: number;
   }>;
@@ -56,7 +56,6 @@ export interface InspectReturnPayload {
   }>;
   rejectReason?: string;
 }
-
 
 const RETURN_INSPECT_CACHE_KEY = 'ng_return_inspect_cache';
 
@@ -115,117 +114,19 @@ export const returnService = {
         items: payload.items,
       });
 
-      const currentUserId = useAuthStore.getState().user?.userId || 101;
-
-      if (res.data) {
-        // Cập nhật local store để đảm bảo đồng bộ trạng thái ngay
-        const order = sharedStore.getOrderById(payload.orderId);
-        if (order) {
-          order.statusHistory.unshift({
-            status: 'COMPLETED',
-            time: new Date().toLocaleTimeString('vi-VN', {
-              hour: '2-digit',
-              minute: '2-digit',
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-            }),
-            note: `Khách hàng gửi yêu cầu Đổi trả / Hoàn tiền: ${payload.reason}. CSKH đang tiếp nhận.`,
-          });
-          sharedStore.createReturnRequest({
-            orderId: order.orderId,
-            bankInfo: payload.bankInfo,
-            orderCode: order.orderCode,
-            userId: currentUserId,
-            requestedBy: order.recipientName,
-            phone: order.recipientPhone,
-            reason: payload.reason,
-            items: payload.items && payload.items.length > 0
-              ? payload.items.map(it => ({
-                  variantId: it.variantId,
-                  productName: it.productName,
-                  sku: it.sku,
-                  quantity: it.quantity,
-                  unitPrice: it.unitPrice,
-                }))
-              : order.items.map((i) => ({
-                  variantId: i.variantId,
-                  productName: i.productNameSnapshot,
-                  sku: i.skuSnapshot,
-                  quantity: i.quantity,
-                  unitPrice: i.unitPrice,
-                })),
-          });
-        }
-
-        return {
-          success: true,
-          message: res.data.message || 'Gửi yêu cầu đổi trả thành công!',
-          data: res.data.data,
-        };
-      }
+      return {
+        success: true,
+        message: res.data?.message || 'Gửi yêu cầu đổi trả thành công!',
+        data: res.data?.data,
+      };
     } catch (err: any) {
-      console.warn('[returnService.createReturnRequest] Fallback to sharedStore', err);
-      if (err.response?.data?.message) {
-        return {
-          success: false,
-          message: err.response.data.message,
-        };
-      }
+      console.error('[returnService.createReturnRequest] Backend error', err);
+      const msg = err.response?.data?.message || err.message || 'Không thể gửi yêu cầu đổi trả lúc này';
+      return {
+        success: false,
+        message: msg,
+      };
     }
-
-    // Fallback: Local sharedStore
-    const order = sharedStore.getOrderById(payload.orderId);
-    if (!order) {
-      return { success: false, message: 'Không tìm thấy đơn hàng' };
-    }
-    if (order.status !== 'COMPLETED') {
-      return { success: false, message: 'Chỉ có thể yêu cầu đổi trả với đơn hàng đã Hoàn tất.' };
-    }
-
-    order.statusHistory.unshift({
-      status: 'COMPLETED',
-      time: new Date().toLocaleTimeString('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-      }),
-      note: `Khách hàng gửi yêu cầu Đổi trả / Hoàn tiền: ${payload.reason}. CSKH đang tiếp nhận.`,
-    });
-
-    const currentUserId = useAuthStore.getState().user?.userId || 101;
-    const localReq = sharedStore.createReturnRequest({
-      orderId: order.orderId,
-      bankInfo: payload.bankInfo,
-      orderCode: order.orderCode,
-      userId: currentUserId,
-      requestedBy: order.recipientName,
-      phone: order.recipientPhone,
-      reason: payload.reason,
-      items: payload.items && payload.items.length > 0
-        ? payload.items.map(it => ({
-            variantId: it.variantId,
-            productName: it.productName,
-            sku: it.sku,
-            quantity: it.quantity,
-            unitPrice: it.unitPrice,
-          }))
-        : order.items.map((i) => ({
-            variantId: i.variantId,
-            productName: i.productNameSnapshot,
-            sku: i.skuSnapshot,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice,
-          })),
-    });
-
-    return {
-      success: true,
-      message: 'Gửi yêu cầu đổi trả thành công! Nhân viên CSKH sẽ liên hệ hướng dẫn gửi hàng.',
-      data: localReq,
-    };
   },
 
   /**
@@ -255,95 +156,60 @@ export const returnService = {
       if (res.data?.data) {
         const d = res.data.data;
         const inspectCache = getInspectCache();
-        const mappedItems: PortalReturnRequest[] = await Promise.all(
-          (d.items || []).map(async (it) => {
-            let items = mapReturnOrderItems(it.items);
-            let orderTotalAmount = it.orderTotalAmount !== undefined && it.orderTotalAmount !== null
-              ? Number(it.orderTotalAmount)
-              : undefined;
+        const mappedItems: PortalReturnRequest[] = (d.items || []).map((it) => {
+          let items = mapReturnOrderItems(it.items);
 
-            // Nếu backend chưa trả items / orderTotalAmount -> nạp chi tiết đơn qua API 8.3
-            if ((items.length === 0 || orderTotalAmount === undefined) && it.orderCode) {
-              try {
-                const ordRes = await apiClient.get<{ success: boolean; data: any }>(`/orders/${encodeURIComponent(it.orderCode)}`);
-                const ordData = ordRes.data?.data;
-                if (ordData) {
-                  if (items.length === 0 && Array.isArray(ordData.items)) {
-                    items = mapReturnOrderItems(ordData.items);
-                  }
-                  if (orderTotalAmount === undefined && ordData.totalAmount !== undefined) {
-                    orderTotalAmount = Number(ordData.totalAmount);
-                  }
-                }
-              } catch {
-                // fallback tiếp ở dưới nếu không gọi được order detail
-              }
+          // Lọc chính xác sản phẩm yêu cầu hoàn trả nếu là hoàn trả một phần:
+          let isPartial = false;
+          const reasonStr = it.reason || '';
+          if (reasonStr.toLowerCase().includes('hoàn trả một phần')) {
+            isPartial = true;
+            const match = reasonStr.match(/\[Yêu cầu hoàn trả một phần:\s*([^\]]+)\]/i);
+            const targetSegment = (match ? match[1] : reasonStr).toLowerCase();
+            const filtered = items.filter((item) => {
+              const name = (item.productName || '').toLowerCase();
+              const sku = (item.sku || '').toLowerCase();
+              const shortName = name.split('(')[0].trim().toLowerCase();
+              return (sku && targetSegment.includes(sku)) ||
+                     (name && targetSegment.includes(name)) ||
+                     (shortName.length > 3 && targetSegment.includes(shortName));
+            });
+            if (filtered.length > 0) {
+              items = filtered;
             }
+          }
 
-            if (items.length === 0) {
-              const localOrd = sharedStore.getOrderByCode(it.orderCode) || sharedStore.getOrderById(it.orderId);
-              if (localOrd) {
-                items = mapReturnOrderItems(localOrd.items);
-                if (orderTotalAmount === undefined) orderTotalAmount = localOrd.totalAmount;
-              }
-            }
+          const cachedInspect = it.status === 'PENDING' && !it.inspectionResult ? inspectCache[it.returnId] : undefined;
+          if (it.status !== 'PENDING' && inspectCache[it.returnId]) {
+            saveInspectCache(it.returnId, null);
+          }
 
-            // Lọc chính xác sản phẩm yêu cầu hoàn trả nếu là hoàn trả một phần:
-            let isPartial = false;
-            const reasonStr = it.reason || '';
-            if (reasonStr.toLowerCase().includes('hoàn trả một phần')) {
-              isPartial = true;
-              const match = reasonStr.match(/\[Yêu cầu hoàn trả một phần:\s*([^\]]+)\]/i);
-              const targetSegment = (match ? match[1] : reasonStr).toLowerCase();
-              const filtered = items.filter((item) => {
-                const name = (item.productName || '').toLowerCase();
-                const sku = (item.sku || '').toLowerCase();
-                const shortName = name.split('(')[0].trim().toLowerCase();
-                return (sku && targetSegment.includes(sku)) ||
-                       (name && targetSegment.includes(name)) ||
-                       (shortName.length > 3 && targetSegment.includes(shortName));
-              });
-              if (filtered.length > 0) {
-                items = filtered;
-              }
-              const partialTotal = items.reduce((s, i) => s + (i.unitPrice || 0) * (i.quantity || 1), 0);
-              orderTotalAmount = partialTotal;
-            }
+          const refundAmount = it.refundAmount !== null && it.refundAmount !== undefined
+            ? Number(it.refundAmount)
+            : undefined;
 
-            const cachedInspect = it.status === 'PENDING' && !it.inspectionResult ? inspectCache[it.returnId] : undefined;
-            if (it.status !== 'PENDING' && inspectCache[it.returnId]) {
-              saveInspectCache(it.returnId, null);
-            }
-
-            const refundAmount = it.refundAmount !== null && it.refundAmount !== undefined
-              ? Number(it.refundAmount)
-              : undefined;
-
-            return {
-              returnId: it.returnId,
-              orderId: it.orderId,
-              orderCode: it.orderCode,
-              userId: it.customer?.userId || it.userId || 101,
-              requestedBy: it.customer?.fullName || it.requestedBy || 'Khách hàng',
-              phone: it.customer?.phone || it.phone || '',
-              reason: it.reason,
-              status: (cachedInspect?.status || it.status) as PortalReturnRequest['status'],
-              inspectionResult: it.inspectionResult || cachedInspect?.inspectionResult,
-              inspectedBy: it.inspectedBy || cachedInspect?.inspectedBy,
-              inspectedAt: it.inspectedAt || cachedInspect?.inspectedAt,
-              refundAmount,
-              orderTotalAmount,
-              rejectReason: it.rejectReason,
-              bankInfo: it.bankInfo,
-              createdAt: it.createdAt,
-              evidenceImages: it.evidenceImages || [],
-              isPartial,
-              items,
-            };
-          })
-        );
-
-        sharedStore.syncExternalReturns(mappedItems);
+          return {
+            returnId: it.returnId,
+            orderId: it.orderId,
+            orderCode: it.orderCode,
+            userId: it.customer?.userId || it.userId || 101,
+            requestedBy: it.customer?.fullName || it.requestedBy || 'Khách hàng',
+            phone: it.customer?.phone || it.phone || '',
+            reason: it.reason,
+            status: (cachedInspect?.status || it.status) as PortalReturnRequest['status'],
+            inspectionResult: it.inspectionResult || cachedInspect?.inspectionResult,
+            inspectedBy: it.inspectedBy || cachedInspect?.inspectedBy,
+            inspectedAt: it.inspectedAt || cachedInspect?.inspectedAt,
+            refundAmount,
+            orderTotalAmount: it.orderTotalAmount,
+            rejectReason: it.rejectReason,
+            bankInfo: it.bankInfo,
+            createdAt: it.createdAt,
+            evidenceImages: it.evidenceImages || [],
+            isPartial,
+            items,
+          };
+        });
 
         return {
           items: mappedItems,
@@ -360,41 +226,16 @@ export const returnService = {
           },
         };
       }
-    } catch (err) {
-      console.warn('[returnService.getAdminReturns] Fallback to sharedStore', err);
+
+      return {
+        items: [],
+        summary: { totalPending: 0, totalApproved: 0, totalRejected: 0 },
+        pagination: { currentPage: 1, pageSize: 20, totalItems: 0, totalPages: 0 }
+      };
+    } catch (err: any) {
+      console.error('[returnService.getAdminReturns] Failed to fetch returns from backend', err);
+      throw err;
     }
-
-    // Fallback: sharedStore
-    const all = sharedStore.getReturnRequests();
-    let filtered = [...all];
-
-    if (query.status && query.status !== 'ALL') {
-      filtered = filtered.filter((r) => r.status === query.status);
-    }
-    if (query.orderCode) {
-      const q = query.orderCode.toLowerCase();
-      filtered = filtered.filter((r) => (r.orderCode || '').toLowerCase().includes(q));
-    }
-
-    const page = query.page || 1;
-    const limit = query.limit || 20;
-    const start = (page - 1) * limit;
-    const slice = filtered.slice(start, start + limit);
-
-    return {
-      items: slice,
-      summary: {
-        totalPending: all.filter((r) => r.status === 'PENDING').length,
-        totalApproved: all.filter((r) => r.status === 'APPROVED').length,
-        totalRejected: all.filter((r) => r.status === 'REJECTED').length,
-      },
-      pagination: {
-        currentPage: page,
-        pageSize: limit,
-        totalItems: filtered.length,
-        totalPages: Math.ceil(filtered.length / limit) || 1,
-      },
-    };
   },
 
   /**
@@ -409,67 +250,22 @@ export const returnService = {
         data: any;
       }>(`/admin/returns/${id}/inspect`, payload);
 
-      if (res.data?.data) {
-        if (payload.status === 'INSPECTING') {
-          saveInspectCache(id, {
-            status: 'INSPECTING',
-            inspectionResult: payload.inspectionResult,
-            inspectedBy: res.data.data.inspectedBy || 'Nhân viên kỹ thuật',
-            inspectedAt: res.data.data.inspectedAt || new Date().toISOString(),
-          });
-          sharedStore.inspectReturnRequest(id, payload.inspectionResult, res.data.data.inspectedBy || 'Nhân viên kỹ thuật');
-        } else if (payload.status === 'APPROVED') {
-          saveInspectCache(id, null);
-          sharedStore.approveAndRefundReturn(
-            id,
-            payload.refundAmount || 0,
-            res.data.data.inspectedBy || 'Nguyễn Thế Minh (Admin)'
-          );
-        } else {
-          saveInspectCache(id, null);
-          sharedStore.rejectReturnRequest(
-            id,
-            payload.rejectReason || 'Không đủ điều kiện',
-            res.data.data.inspectedBy || 'Nguyễn Thế Minh (Admin)'
-          );
-        }
-        return res.data;
-      }
-    } catch (err: any) {
-      console.warn('[returnService.inspectReturn] Error or fallback', err);
       if (payload.status === 'INSPECTING') {
-        const entry = {
+        saveInspectCache(id, {
           status: 'INSPECTING',
           inspectionResult: payload.inspectionResult,
-          inspectedBy: 'Nhân viên kỹ thuật',
-          inspectedAt: new Date().toISOString(),
-        };
-        saveInspectCache(id, entry);
-        sharedStore.inspectReturnRequest(id, payload.inspectionResult, entry.inspectedBy);
-        return { success: true, data: entry };
+          inspectedBy: res.data?.data?.inspectedBy || 'Nhân viên kỹ thuật',
+          inspectedAt: res.data?.data?.inspectedAt || new Date().toISOString(),
+        });
+      } else {
+        saveInspectCache(id, null);
       }
-      if (err.response?.data?.message) {
-        throw new Error(err.response.data.message);
-      }
-    }
 
-    // Fallback sang sharedStore
-    if (payload.status === 'INSPECTING') {
-      const entry = {
-        status: 'INSPECTING',
-        inspectionResult: payload.inspectionResult,
-        inspectedBy: 'Nhân viên kỹ thuật',
-        inspectedAt: new Date().toISOString(),
-      };
-      saveInspectCache(id, entry);
-      sharedStore.inspectReturnRequest(id, payload.inspectionResult, entry.inspectedBy);
-      return { success: true, data: entry };
+      return res.data;
+    } catch (err: any) {
+      console.error('[returnService.inspectReturn] Failed to inspect return', err);
+      const msg = err.response?.data?.message || err.message || 'Lỗi khi xử lý kiểm định đổi trả';
+      throw new Error(msg);
     }
-    if (payload.status === 'APPROVED') {
-      sharedStore.approveAndRefundReturn(id, payload.refundAmount || 0, 'Nguyễn Thế Minh (Admin)');
-    } else {
-      sharedStore.rejectReturnRequest(id, payload.rejectReason || 'Không đủ điều kiện', 'Nguyễn Thế Minh (Admin)');
-    }
-    return { success: true };
   },
 };

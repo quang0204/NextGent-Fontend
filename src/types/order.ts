@@ -1,4 +1,5 @@
 export type OrderStatus = 
+  | 'PENDING'                // Đang xử lý Saga (Kafka)
   | 'PENDING_PAYMENT'        // Chờ thanh toán (30 phút với QR)
   | 'WAITING_CONFIRMATION'   // Chờ xác nhận (COD)
   | 'CONFIRMED'              // Đã xác nhận 
@@ -65,6 +66,7 @@ export interface CreateOrderPayload {
   shippingAddress: string;
   paymentMethod: 'COD' | 'SIMULATED_TRANSFER' | 'BANK_TRANSFER' | string;
   shippingMethod?: 'standard' | 'express' | string;
+  shippingFee?: number;
   expectedTotalAmount?: number;
   note?: string;
   voucherCode?: string;

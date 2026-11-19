@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OtpInput } from '../components/common/OtpInput';
@@ -7,6 +7,7 @@ import { PasswordInput } from '../components/common/PasswordInput';
 import { sharedStore } from '../services/sharedStore';
 import { userService } from '../services/userService';
 import { UserAddress, parseAddressComponents, formatFullAddress } from '../types/user';
+import { isValidVietnamesePhone, isValidEmail } from '../utils/validators';
 import { 
   User, 
   MapPin, 
@@ -33,6 +34,7 @@ import { SupportHistoryView } from '../components/account/SupportHistoryView';
 export const AccountPage: React.FC = () => {
   const { 
     user, 
+    isAuthenticated,
     updateProfile, 
     addAddress, 
     updateAddress, 
@@ -52,6 +54,11 @@ export const AccountPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'profile' | 'addresses' | 'password' | 'support'>(
     urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (window.location.pathname === '/support-history' ? 'support' : 'profile')
   );
+
+  if (!user || !isAuthenticated) {
+    const currentPath = window.location.pathname === '/support-history' ? '/support-history' : '/account';
+    return <Navigate to={`/auth?redirect=${encodeURIComponent(currentPath)}`} replace />;
+  }
 
   const [supportCount, setSupportCount] = useState(0);
 
@@ -196,12 +203,12 @@ export const AccountPage: React.FC = () => {
       return;
     }
 
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (!isValidEmail(cleanEmail)) {
       setProfileError('Vui lòng nhập định dạng email hợp lệ (VD: user@example.com).');
       return;
     }
 
-    if (!cleanPhone || !/^(0[3|5|7|8|9])+([0-9]{8})$/.test(cleanPhone)) {
+    if (!isValidVietnamesePhone(cleanPhone)) {
       setProfileError('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số, VD: 0987654321).');
       return;
     }

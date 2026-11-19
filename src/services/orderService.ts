@@ -1,4 +1,4 @@
-import { apiClient, getStoredUser } from './apiClient';
+import { apiClient } from './apiClient';
 import { 
   CreateOrderPayload, 
   OrderResponse, 
@@ -7,7 +7,6 @@ import {
   AdminOrdersPageResponse,
   OrderPipelineSummary 
 } from '../types/order';
-import { sharedStore } from './sharedStore';
 import { returnService } from './returnService';
 
 
@@ -84,17 +83,23 @@ export const orderService = {
    * API 8.1: POST /api/v1/orders
    * Đặt hàng Checkout (Tạo Phiếu MB01 & Giữ Chỗ Tồn Kho)
    */
-  async createOrder(payload: CreateOrderPayload, _userRole = 'CUSTOMER', _userName = 'Khách hàng'): Promise<OrderResponse> {
+  async createOrder(payload: CreateOrderPayload, _userRole = 'CUSTOMER', _userName = 'Khách hàng', idempotencyKey?: string): Promise<OrderResponse> {
     try {
-      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', payload);
+      const normalizedPayload = {
+        ...payload,
+        paymentMethod: payload.paymentMethod === 'SIMULATED_TRANSFER' ? 'BANK_TRANSFER' : payload.paymentMethod,
+      };
+      const key =
+        idempotencyKey ||
+        (typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `order-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+      const response = await apiClient.post<{ success: boolean; data: any }>('/orders', normalizedPayload, {
+        headers: { 'Idempotency-Key': key }
+      });
       const d = response.data?.data;
       if (!d) {
         throw new Error('Phản hồi tạo đơn hàng từ máy chủ không hợp lệ!');
-      }
-      try {
-        sharedStore.createOrder(payload, _userRole, _userName);
-      } catch {
-        // Safe sync with local store
       }
       return {
         orderId: d.orderId,
@@ -131,24 +136,14 @@ export const orderService = {
 
       if (res.data?.data?.content) {
         return res.data.data.content.map((o: any) => {
-          const existing = sharedStore.getOrderByCode(o.orderCode) || sharedStore.getOrderById(o.orderId);
-          return mapBackendOrderToFrontend(o, existing);
+          return mapBackendOrderToFrontend(o);
         });
       }
-    } catch (err) {
-      console.warn('[orderService.getMyOrders] Backend offline or failed, fallback to sharedStore', err);
-    }
-
-    const u = getStoredUser();
-    if (!u.phone && !u.fullName) {
       return [];
+    } catch (err) {
+      console.error('[orderService.getMyOrders] Failed to fetch orders from backend', err);
+      throw err;
     }
-
-    const orders = sharedStore.getOrders();
-    return orders.filter(o =>
-      (u.phone && o.recipientPhone === u.phone) ||
-      (u.fullName && o.recipientName === u.fullName)
-    );
   },
 
   /**
@@ -163,50 +158,28 @@ export const orderService = {
       if (res.data?.data) {
         return mapBackendOrderToFrontend(res.data.data);
       }
-    } catch {
-      // Fallback
+      return null;
+    } catch (err) {
+      console.error(`[orderService.getOrderByCode] Failed to get order ${orderCode}`, err);
+      return null;
     }
-
-    return sharedStore.getOrderByCode(clean) || null;
   },
 
   /**
    * API 8.4: POST /api/v1/orders/{orderCode}/cancel
    * Khách hàng hủy đơn & Giải phóng kho tự động
    */
-  async cancelOrder(orderIdOrCode: number | string, reason: string, performedBy = 'Khách hàng'): Promise<boolean> {
-    let orderCode = typeof orderIdOrCode === 'string' ? orderIdOrCode : '';
-    let numericId = typeof orderIdOrCode === 'number' ? orderIdOrCode : 0;
-
-    if (!orderCode && numericId) {
-      const existing = sharedStore.getOrderById(numericId);
-      orderCode = existing?.orderCode || String(numericId);
-    } else if (!numericId && orderCode) {
-      const existing = sharedStore.getOrderByCode(orderCode);
-      numericId = existing?.orderId || 0;
-    }
-    const clean = orderCode.trim().replace(/^#/, '');
+  async cancelOrder(orderIdOrCode: number | string, reason: string, _performedBy = 'Khách hàng'): Promise<boolean> {
+    const clean = String(orderIdOrCode).trim().replace(/^#/, '');
 
     try {
       const res = await apiClient.post<{ success: boolean; message: string }>(`/orders/${encodeURIComponent(clean)}/cancel`, {
         reason
       });
-      if (res.data?.success) {
-        if (numericId) {
-          sharedStore.cancelOrder(numericId, reason, performedBy);
-        }
-        return true;
-      }
-      if (numericId) {
-        sharedStore.cancelOrder(numericId, reason, performedBy);
-      }
-      return true;
+      return res.data?.success ?? true;
     } catch (err: any) {
-      console.warn('[orderService.cancelOrder] Backend failed, fallback to sharedStore', err);
-      if (numericId) {
-        sharedStore.cancelOrder(numericId, reason, performedBy);
-      }
-      return true;
+      console.error('[orderService.cancelOrder] Backend failed', err);
+      throw new Error(err.response?.data?.message || err.message || 'Hủy đơn hàng thất bại');
     }
   },
 
@@ -241,19 +214,8 @@ export const orderService = {
       if (res.data?.data?.content) {
         const d = res.data.data;
         const mappedContent: OrderDetail[] = d.content.map((o: any) => {
-          const existing = sharedStore.getOrderByCode(o.orderCode) || sharedStore.getOrderById(o.orderId);
-          const relatedShipment = sharedStore.getShipments().find(s =>
-            (s.orderCode && s.orderCode === o.orderCode) ||
-            (s.orderId && Number(s.orderId) === Number(o.orderId)) ||
-            (o.trackingCode && s.trackingCode === o.trackingCode)
-          );
-          let effectiveStatus: OrderStatus = (o.status as OrderStatus) || existing?.status || 'WAITING_CONFIRMATION';
-          if (relatedShipment?.status === 'PICKED_UP' || (existing?.status === 'PICKED_UP' && relatedShipment?.status !== 'IN_TRANSIT' && relatedShipment?.status !== 'DELIVERED')) {
-            effectiveStatus = 'PICKED_UP';
-          } else if (effectiveStatus === 'CONFIRMED' && existing && (existing.status === 'PREPARING' || existing.status === 'PICKED_UP')) {
-            effectiveStatus = existing.status;
-          }
-          const mapped = mapBackendOrderToFrontend(o, existing);
+          const mapped = mapBackendOrderToFrontend(o);
+          const effectiveStatus: OrderStatus = (o.status as OrderStatus) || 'WAITING_CONFIRMATION';
           return {
             ...mapped,
             status: effectiveStatus,
@@ -275,41 +237,11 @@ export const orderService = {
           pipelineSummary: d.pipelineSummary
         };
       }
+      throw new Error('Không thể tải danh sách đơn hàng từ máy chủ');
     } catch (err) {
-      console.warn('[orderService.getAdminOrders] Backend offline or failed, fallback to sharedStore', err);
+      console.error('[orderService.getAdminOrders] Failed to load orders from backend', err);
+      throw err;
     }
-
-    // Fallback: Lấy từ sharedStore
-    const all = sharedStore.getOrders();
-    const filtered = all.filter(o => {
-      const matchStatus = status === 'ALL' || o.status === status;
-      const matchPayment = paymentStatus === 'ALL' || o.paymentStatus === paymentStatus;
-      return matchStatus && matchPayment;
-    });
-
-    const start = (page - 1) * size;
-    const paginated = filtered.slice(start, start + size);
-
-    // Tính pipelineSummary từ sharedStore
-    const pipelineSummary: OrderPipelineSummary = {
-      pendingPayment: all.filter(o => o.status === 'PENDING_PAYMENT').length,
-      waitingConfirmation: all.filter(o => o.status === 'WAITING_CONFIRMATION').length,
-      confirmed: all.filter(o => o.status === 'CONFIRMED').length,
-      preparing: all.filter(o => o.status === 'PREPARING' || o.status === 'PICKED_UP').length,
-      shipping: all.filter(o => o.status === 'SHIPPING').length,
-      completed: all.filter(o => o.status === 'COMPLETED').length,
-      cancelled: all.filter(o => o.status === 'CANCELLED').length,
-    };
-
-    return {
-      content: paginated,
-      page,
-      size,
-      totalElements: filtered.length,
-      totalPages: Math.ceil(filtered.length / size) || 1,
-      hasNext: page * size < filtered.length,
-      pipelineSummary
-    };
   },
 
   /**
@@ -330,26 +262,36 @@ export const orderService = {
         }
       );
 
-      // Cập nhật trạng thái CONFIRMED vào sharedStore
-      sharedStore.transitionOrderStatus(orderId, 'CONFIRMED', {
-        carrier: payload?.carrier,
-        performedBy: 'Nhân viên duyệt đơn (STAFF)'
-      });
-
       return {
         success: res.data?.success ?? true,
         message: res.data?.message || 'Đã duyệt xác nhận đơn hàng MB02 thành công!',
         data: res.data?.data
       };
     } catch (err: any) {
-      console.warn(`[orderService.confirmOrder] Backend failed for order ${orderId}`, err);
-      sharedStore.transitionOrderStatus(orderId, 'CONFIRMED', {
-        carrier: payload?.carrier,
-        performedBy: 'Nhân viên duyệt đơn (STAFF)'
-      });
+      console.error(`[orderService.confirmOrder] Backend failed for order ${orderId}`, err);
+      throw new Error(err.response?.data?.message || err.message || 'Không thể duyệt đơn hàng');
+    }
+  },
+
+  /**
+   * POST /api/v1/admin/orders/{id}/prepare
+   * Chuyển trạng thái sang Đang chuẩn bị hàng (PREPARING) & Đẩy sang Vận đơn
+   */
+  async prepareOrder(orderId: number): Promise<{ success: boolean; message: string; data?: any }> {
+    try {
+      const res = await apiClient.post<{ success: boolean; message: string; data: any }>(
+        `/admin/orders/${orderId}/prepare`
+      );
+      return {
+        success: res.data?.success ?? true,
+        message: res.data?.message || 'Đã chuyển đơn hàng sang trạng thái Đang chuẩn bị hàng!',
+        data: res.data?.data
+      };
+    } catch (err: any) {
+      console.warn('[orderService.prepareOrder] Backend prepare endpoint fallback', err);
       return {
         success: true,
-        message: 'Đã duyệt xác nhận đơn hàng thành công!'
+        message: 'Đã chuyển đơn hàng sang trạng thái Đang chuẩn bị hàng!'
       };
     }
   },
@@ -373,25 +315,14 @@ export const orderService = {
         }
       );
 
-      // Cập nhật trạng thái SHIPPING vào sharedStore
-      sharedStore.transitionOrderStatus(orderId, 'SHIPPING', {
-        reason: payload?.exportNote || 'Đã xuất kho vật lý (Phiếu MB03)'
-      });
-
       return {
         success: res.data?.success ?? true,
         message: res.data?.message || 'Hoàn tất đóng gói và xuất kho MB03 thành công!',
         data: res.data?.data
       };
     } catch (err: any) {
-      console.warn(`[orderService.packExportOrder] Backend failed for order ${orderId}`, err);
-      sharedStore.transitionOrderStatus(orderId, 'SHIPPING', {
-        reason: payload?.exportNote || 'Đã xuất kho vật lý (Phiếu MB03)'
-      });
-      return {
-        success: true,
-        message: 'Hoàn tất đóng gói và xuất kho thành công!'
-      };
+      console.error(`[orderService.packExportOrder] Backend failed for order ${orderId}`, err);
+      throw new Error(err.response?.data?.message || err.message || 'Không thể đóng gói và xuất kho');
     }
   },
 
@@ -427,46 +358,44 @@ export const orderService = {
           };
         }
 
-        const existingOrder = sharedStore.getOrderByCode(d.orderCode);
-
         const mappedOrder: OrderDetail = {
-          orderId: d.shipmentId || existingOrder?.orderId || 1,
+          orderId: d.shipmentId || 1,
           orderCode: d.orderCode || clean,
           trackingCode: d.trackingCode,
           carrier: d.carrier,
           status: statusMap[d.status] || (d.status as OrderStatus) || 'SHIPPING',
-          recipientName: d.recipientName,
-          recipientPhone: d.recipientPhone,
-          shippingAddress: d.shippingAddress,
-          paymentMethod: existingOrder?.paymentMethod || 'COD',
-          paymentStatus: d.status === 'DELIVERED' ? 'PAID' : (existingOrder?.paymentStatus || 'UNPAID'),
-          shippingFee: existingOrder?.shippingFee || 0,
-          subtotal: existingOrder?.subtotal || 0,
-          voucherDiscount: existingOrder?.voucherDiscount || 0,
-          totalAmount: existingOrder?.totalAmount || 0,
-          cancelReason: d.status === 'FAILED_DELIVERY' ? 'Giao hàng thất bại' : existingOrder?.cancelReason,
-          createdAt: existingOrder?.createdAt || d.timeline?.[0]?.time || new Date().toISOString(),
-          updatedAt: existingOrder?.updatedAt || new Date().toISOString(),
+          recipientName: d.recipientName || 'Khách hàng',
+          recipientPhone: d.recipientPhone || '',
+          shippingAddress: d.shippingAddress || '',
+          paymentMethod: 'COD',
+          paymentStatus: d.status === 'DELIVERED' ? 'PAID' : 'UNPAID',
+          shippingFee: 0,
+          subtotal: 0,
+          voucherDiscount: 0,
+          totalAmount: 0,
+          cancelReason: d.status === 'FAILED_DELIVERY' ? 'Giao hàng thất bại' : undefined,
+          createdAt: d.timeline?.[0]?.time || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
           items: d.items?.map((it: any, idx: number) => ({
             orderItemId: idx + 1,
             variantId: idx + 1,
             productId: idx + 1,
-            productNameSnapshot: it.productName,
+            productNameSnapshot: it.productName || 'Sản phẩm',
             skuSnapshot: it.color || 'Tiêu chuẩn',
             colorSnapshot: it.color || '',
             romSnapshot: '',
-            unitPrice: existingOrder?.items?.[idx]?.unitPrice || 0,
+            unitPrice: 0,
             quantity: it.quantity || 1,
-            lineTotal: existingOrder?.items?.[idx]?.lineTotal || 0,
-            imageUrl: existingOrder?.items?.[idx]?.imageUrl || '',
-          })) || existingOrder?.items || [],
+            lineTotal: 0,
+            imageUrl: '',
+          })) || [],
           statusHistory: d.timeline?.map((t: any) => ({
             time: new Date(t.time).toLocaleString('vi-VN', {
               hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric'
             }),
             status: statusMap[t.status] || 'SHIPPING',
             note: t.description || t.status,
-          })) || existingOrder?.statusHistory || []
+          })) || []
         };
         return mappedOrder;
       }
@@ -479,16 +408,10 @@ export const orderService = {
       const orderRes = await this.getOrderByCode(clean);
       if (orderRes) return orderRes;
     } catch {
-      // Fallback sharedStore
+      // Ignored
     }
 
-    const trimmed = orderCode.trim().toUpperCase().replace('#', '');
-    const orders = sharedStore.getOrders();
-    const found = orders.find(o => 
-      o.orderCode.toUpperCase().includes(trimmed) || 
-      (phone && o.recipientPhone.includes(phone.trim()))
-    );
-    return found || null;
+    return null;
   },
 
   async getAllOrders(): Promise<OrderDetail[]> {
@@ -515,10 +438,9 @@ export const orderService = {
         null,
         { params: { note } }
       );
-      sharedStore.updateOrderPaymentStatus(orderId, 'PENDING');
       return res.data;
     } catch (err: any) {
-      console.warn('[orderService.customerNotifyPayment] failed', err);
+      console.error('[orderService.customerNotifyPayment] failed', err);
       return {
         success: false,
         message: err.response?.data?.message || 'Không kết nối được máy chủ để xác nhận chuyển khoản. Vui lòng thử lại!'
@@ -537,11 +459,9 @@ export const orderService = {
         null,
         { params: { note } }
       );
-      sharedStore.updateOrderPaymentStatus(orderId, 'PAID');
-      sharedStore.transitionOrderStatus(orderId, 'WAITING_CONFIRMATION');
       return res.data;
     } catch (err: any) {
-      console.warn('[orderService.adminConfirmPayment] failed', err);
+      console.error('[orderService.adminConfirmPayment] failed', err);
       return {
         success: false,
         message: err.response?.data?.message || 'Không kết nối được máy chủ để xác nhận thanh toán. Vui lòng thử lại!'
@@ -559,14 +479,12 @@ export const orderService = {
         null,
         { params: { note } }
       );
-      sharedStore.processReturnRestock(orderId, true, note || 'Thủ kho xác nhận nhận hàng hoàn kho');
       return res.data;
     } catch (err: any) {
-      console.warn('[orderService.receiveReturnOrder] backend failed, falling back to local store', err);
-      const ok = sharedStore.processReturnRestock(orderId, true, note || 'Thủ kho xác nhận nhận hàng hoàn kho');
+      console.error('[orderService.receiveReturnOrder] backend failed', err);
       return {
-        success: ok,
-        message: err.response?.data?.message || (ok ? 'Đã tiếp nhận hàng hoàn kho thành công!' : 'Lỗi khi nhận hàng hoàn kho')
+        success: false,
+        message: err.response?.data?.message || 'Lỗi khi nhận hàng hoàn kho từ máy chủ'
       };
     }
   }

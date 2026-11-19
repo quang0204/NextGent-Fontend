@@ -5,6 +5,7 @@ import { returnService } from '../services/returnService';
 import { paymentService, PaymentIntentData } from '../services/paymentService';
 import { sharedStore, cleanLogNote } from '../services/sharedStore';
 import { productService } from '../services/productService';
+import { reviewService } from '../services/feedbackService';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OrderDetail, OrderStatus, OrderItemSnapshot } from '../types/order';
@@ -92,63 +93,16 @@ export const checkIsReturnOrder = (ord: OrderDetail, returnRequests?: any[]) => 
   return Boolean(isFailedDelivery) || Boolean(hasReturnHistory);
 };
 
-export const RETURN_POLICY_DAYS = 30; // Chính sách đổi trả sản phẩm trong vòng 30 ngày kể từ khi nhận hàng
+import {
+  RETURN_POLICY_DAYS,
+  type ReturnTimeEligibility,
+  getOrderReturnTimeEligibility
+} from '../utils/orderFormatters';
 
-export interface ReturnTimeEligibility {
-  isEligible: boolean;
-  daysRemaining: number;
-  hoursRemaining: number;
-  expired: boolean;
-  completedTimeFormatted?: string;
-}
-
-export const getOrderReturnTimeEligibility = (order: OrderDetail): ReturnTimeEligibility => {
-  if (order.status !== 'COMPLETED') {
-    return { isEligible: false, daysRemaining: 0, hoursRemaining: 0, expired: false };
-  }
-
-  let completedMs: number | null = null;
-  if (order.completedAt) {
-    const t = new Date(order.completedAt).getTime();
-    if (!isNaN(t)) completedMs = t;
-  }
-  if (!completedMs && order.statusHistory) {
-    const compEvent = order.statusHistory.find((h: { status?: string }) => h.status === 'COMPLETED');
-    if (compEvent && (compEvent as any).time) {
-      const timeStr = String((compEvent as any).time);
-      const match = timeStr.match(/(\d{1,2}):(\d{1,2}):(\d{1,2})\s+(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-      if (match) {
-        const [, h, m, s, d, mo, y] = match;
-        const parsed = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(m), Number(s)).getTime();
-        if (!isNaN(parsed)) completedMs = parsed;
-      } else {
-        const parsed = new Date(timeStr).getTime();
-        if (!isNaN(parsed)) completedMs = parsed;
-      }
-    }
-  }
-  if (!completedMs) {
-    const parsed = order.updatedAt ? new Date(order.updatedAt).getTime() : (order.createdAt ? new Date(order.createdAt).getTime() : Date.now());
-    completedMs = isNaN(parsed) ? Date.now() : parsed;
-  }
-
-  const deadlineMs = completedMs + RETURN_POLICY_DAYS * 24 * 60 * 60 * 1000;
-  const now = Date.now();
-  const diffMs = deadlineMs - now;
-
-  if (diffMs <= 0) {
-    return { isEligible: false, daysRemaining: 0, hoursRemaining: 0, expired: true };
-  }
-
-  const daysRemaining = Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
-  const hoursRemaining = Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-  return {
-    isEligible: true,
-    daysRemaining,
-    hoursRemaining,
-    expired: false,
-    completedTimeFormatted: new Date(completedMs).toLocaleDateString('vi-VN'),
-  };
+export {
+  RETURN_POLICY_DAYS,
+  type ReturnTimeEligibility,
+  getOrderReturnTimeEligibility
 };
 
 export type ItemReturnStatus = 'NONE' | 'PENDING' | 'APPROVED' | 'REJECTED';
@@ -554,10 +508,46 @@ export const OrderTrackingPage: React.FC = () => {
   const [reviewMessage, setReviewMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
-  const loadReviewedItems = () => {
-    const revs = sharedStore.getReviews(undefined, true);
-    const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
-    setReviewedOrderItemIds(ids);
+  const loadReviewedItems = async () => {
+    try {
+      const storedReviewed = localStorage.getItem('reviewed_order_item_ids');
+      const storedIds: number[] = storedReviewed ? JSON.parse(storedReviewed).map(Number) : [];
+      const revs = sharedStore.getReviews(undefined, true);
+      const storeIds = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
+
+      let serverIds: number[] = [];
+      try {
+        serverIds = await reviewService.getMyReviewedItemIds();
+      } catch {
+        // bỏ qua nếu lỗi mạng hoặc chưa đăng nhập
+      }
+
+      const combined = Array.from(new Set([...storedIds, ...storeIds, ...serverIds]));
+      setReviewedOrderItemIds(combined);
+    } catch {
+      const revs = sharedStore.getReviews(undefined, true);
+      const ids = revs.map(r => r.orderItemId).filter((id): id is number => typeof id === 'number');
+      setReviewedOrderItemIds(ids);
+    }
+  };
+
+  const isItemReviewed = (item: OrderItemSnapshot, ord?: OrderDetail | null): boolean => {
+    if ((item as any)?.isReviewed) return true;
+    const numId = Number(item.orderItemId);
+    if (!isNaN(numId) && reviewedOrderItemIds.some((id) => Number(id) === numId)) {
+      return true;
+    }
+    const orderCode = ord?.orderCode || order?.orderCode;
+    if (orderCode) {
+      try {
+        if (localStorage.getItem(`reviewed_order_${orderCode}`) === 'true') return true;
+        if (localStorage.getItem(`reviewed_item_${orderCode}_${item.orderItemId}`) === 'true') return true;
+        if (localStorage.getItem(`reviewed_item_${orderCode}_${item.productId}`) === 'true') return true;
+      } catch {
+        // ignore
+      }
+    }
+    return false;
   };
 
   const loadAllOrders = async () => {
@@ -776,7 +766,32 @@ export const OrderTrackingPage: React.FC = () => {
 
     if (res.success) {
       setReviewMessage({ text: res.message, type: 'success' });
-      setReviewedOrderItemIds(prev => [...prev, reviewModalItem.orderItemId]);
+      const newId = reviewModalItem.orderItemId;
+      setReviewedOrderItemIds(prev => {
+        const next = Array.from(new Set([...prev, Number(newId)]));
+        try {
+          localStorage.setItem('reviewed_order_item_ids', JSON.stringify(next));
+          if (reviewModalItem.orderCode) {
+            localStorage.setItem(`reviewed_order_${reviewModalItem.orderCode}`, 'true');
+            localStorage.setItem(`reviewed_item_${reviewModalItem.orderCode}_${newId}`, 'true');
+            localStorage.setItem(`reviewed_item_${reviewModalItem.orderCode}_${reviewModalItem.productId}`, 'true');
+          }
+        } catch (e) {
+          console.warn('Could not save reviewed_order_item_ids to localStorage', e);
+        }
+        return next;
+      });
+      // Ghi nhận vào sharedStore để đồng bộ
+      sharedStore.submitReview({
+        orderItemId: newId,
+        productId: reviewModalItem.productId,
+        userName: reviewModalItem.customerName,
+        phone: reviewModalItem.customerPhone,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+        productName: reviewModalItem.productName,
+        images: reviewImages.map(img => img.previewUrl)
+      });
       showToast("Cảm ơn bạn đã gửi đánh giá sản phẩm thành công!", "success");
       setTimeout(() => {
         setReviewModalItem(null);
@@ -1398,6 +1413,50 @@ export const OrderTrackingPage: React.FC = () => {
                           <span>{isNotifyingPayment ? 'Đang gửi thông báo...' : 'Tôi đã chuyển khoản thành công'}</span>
                         </button>
                       )}
+
+                      {/* Nút Giả lập thanh toán Backend (Saga & Outbox Demo) */}
+                      {paymentIntent?.paymentId && (
+                        <div className="mt-2 pt-2 border-t border-slate-200/80 flex items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={isNotifyingPayment}
+                            onClick={async () => {
+                              setIsNotifyingPayment(true);
+                              try {
+                                await paymentService.simulateSuccess(paymentIntent.paymentId);
+                                await fetchOrder(order.orderCode);
+                                showToast("Giả lập thanh toán thành công! Backend đã kích hoạt Saga & Outbox.", 'success');
+                              } catch (err: any) {
+                                showToast(err.message || "Lỗi giả lập thanh toán", 'error');
+                              } finally {
+                                setIsNotifyingPayment(false);
+                              }
+                            }}
+                            className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition"
+                          >
+                            ⚡ Demo: Quét QR & TT Thành công
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isNotifyingPayment}
+                            onClick={async () => {
+                              setIsNotifyingPayment(true);
+                              try {
+                                await paymentService.simulateFailure(paymentIntent.paymentId, "Khách hàng từ chối thanh toán QR");
+                                await fetchOrder(order.orderCode);
+                                showToast("Đã giả lập hủy/thất bại thanh toán.", 'info');
+                              } catch (err: any) {
+                                showToast(err.message || "Lỗi giả lập hủy thanh toán", 'error');
+                              } finally {
+                                setIsNotifyingPayment(false);
+                              }
+                            }}
+                            className="py-1.5 px-3 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg text-[11px] font-bold transition"
+                          >
+                            Demo: TT Thất bại
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1546,7 +1605,7 @@ export const OrderTrackingPage: React.FC = () => {
 
                         {/* Nút Đánh giá sản phẩm (Hiện nếu sản phẩm KHÔNG hoàn thành công và KHÔNG đang chờ duyệt) */}
                         {order.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                          reviewedOrderItemIds.includes(item.orderItemId) ? (
+                          isItemReviewed(item, order) ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/30 whitespace-nowrap">
                               <CheckCircle size={12} />
                               <span>Đã đánh giá</span>
@@ -1823,7 +1882,7 @@ export const OrderTrackingPage: React.FC = () => {
                                   </button>
                                 )}
                                 {ord.status === 'COMPLETED' && itemRet.status !== 'APPROVED' && itemRet.status !== 'PENDING' && (
-                                  reviewedOrderItemIds.includes(it.orderItemId) ? (
+                                  isItemReviewed(it, ord) ? (
                                     <span className="inline-flex items-center gap-1 text-[11px] font-bold text-success bg-success/10 px-2 py-0.5 rounded-full border border-success/30 whitespace-nowrap">
                                       <CheckCircle size={11} />
                                       <span>Đã đánh giá</span>

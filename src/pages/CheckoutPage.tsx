@@ -9,6 +9,7 @@ import { promotionService } from '../services/promotionService';
 import { paymentService } from '../services/paymentService';
 import { formatVND } from '../components/common/PriceDisplay';
 import { UserAddress } from '../types/user';
+import { isValidVietnamesePhone } from '../utils/validators';
 import { 
   ShieldCheck, 
   MapPin, 
@@ -156,7 +157,7 @@ export const CheckoutPage: React.FC = () => {
       return false;
     }
     const cleanPhone = newPhone.trim();
-    if (!cleanPhone ||!/^(0[3|5|7|8|9])+([0-9]{8})$/.test(cleanPhone)) {
+    if (!isValidVietnamesePhone(cleanPhone)) {
       setErrorMsg('Số điện thoại người nhận không đúng định dạng di động Việt Nam (10 chữ số).');
       showToast('Số điện thoại không đúng định dạng (10 chữ số)!', 'error');
       return false;
@@ -233,7 +234,7 @@ export const CheckoutPage: React.FC = () => {
       return;
     }
     const cleanPhone = phone.trim();
-    if (!cleanPhone ||!/^(0[3|5|7|8|9])+([0-9]{8})$/.test(cleanPhone)) {
+    if (!isValidVietnamesePhone(cleanPhone)) {
       setErrorMsg('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số).');
       return;
     }
@@ -256,6 +257,7 @@ export const CheckoutPage: React.FC = () => {
           shippingAddress: fullShippingAddress,
           paymentMethod: paymentMethod,
           shippingMethod: shippingMethod,
+          shippingFee: shippingFee,
           expectedTotalAmount: totalAmount,
           note: note.trim(),
           voucherCode: appliedVoucher || undefined,
@@ -265,15 +267,17 @@ export const CheckoutPage: React.FC = () => {
         fullName.trim()
       );
 
-      // API 10.1: POST /api/v1/payments/create-intent
-      try {
-        await paymentService.createPaymentIntent({
-          orderId: res.orderId,
-          paymentMethod: paymentMethod === 'SIMULATED_TRANSFER' ? 'BANK_TRANSFER' : 'COD',
-          note: note.trim() || undefined,
-        });
-      } catch (intentErr) {
-        console.warn('[CheckoutPage] createPaymentIntent error', intentErr);
+      // API 10.1: POST /api/v1/payments/create-intent (Chỉ tạo QR Intent cho hình thức Chuyển khoản ngân hàng)
+      if (paymentMethod === 'SIMULATED_TRANSFER' || (paymentMethod as any) === 'BANK_TRANSFER') {
+        try {
+          await paymentService.createPaymentIntent({
+            orderId: res.orderId,
+            paymentMethod: 'BANK_TRANSFER',
+            note: note.trim() || undefined,
+          });
+        } catch (intentErr) {
+          console.warn('[CheckoutPage] createPaymentIntent error', intentErr);
+        }
       }
 
       // Quản lý dọn dẹp sau khi tạo đơn thành công:

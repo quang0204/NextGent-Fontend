@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { OtpInput } from '../components/common/OtpInput';
 import { PasswordInput } from '../components/common/PasswordInput';
+import { isValidVietnamesePhone, isValidEmail } from '../utils/validators';
 import { 
   Phone, 
   Mail, 
@@ -214,12 +215,12 @@ export const AuthPage: React.FC = () => {
       return;
     }
     const cleanPhone = regPhone.trim();
-    if (!cleanPhone || !/^(0[3|5|7|8|9])+([0-9]{8})$/.test(cleanPhone)) {
+    if (!isValidVietnamesePhone(cleanPhone)) {
       setErrorMsg('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số).');
       return;
     }
     const cleanEmail = regEmail.trim();
-    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (!isValidEmail(cleanEmail)) {
       setErrorMsg('Vui lòng nhập định dạng email hợp lệ.');
       return;
     }
