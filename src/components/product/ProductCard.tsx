@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom';
 import { Product } from '../../types/product';
 import { PriceDisplay, formatVND } from '../common/PriceDisplay';
 import { RatingStars } from '../common/RatingStars';
-import { Heart, Scale, Gift, Sparkles, Zap } from 'lucide-react';
+import { Heart, Gift, Sparkles, Zap } from 'lucide-react';
 import { useWishlistStore } from '../../stores/wishlistStore';
-import { useCompareStore } from '../../stores/compareStore';
 import { useToastStore } from '../../stores/toastStore';
 
 interface ProductCardProps {
@@ -24,11 +23,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
   const listPrice = defaultVariant?.listPrice || 0;
 
   const { isInWishlist, toggleWishlist } = useWishlistStore();
-  const { isInCompare, addToCompare, removeFromCompare } = useCompareStore();
   const { showToast } = useToastStore();
 
   const isFavorited = isInWishlist(product.productId);
-  const isCompared = isInCompare(product.productId);
 
   const displaySpec = product.specGroups?.find(g => g.groupName.toLowerCase().includes('màn'))?.items[0]?.value || '';
   const chipSpec = product.specGroups?.find(g => g.groupName.toLowerCase().includes('cpu') || g.groupName.toLowerCase().includes('cấu hình'))?.items.find(i => i.name.toLowerCase().includes('chip'))?.value || '';
@@ -41,22 +38,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
       isFavorited? `Đã bỏ "${product.name}" khỏi danh sách yêu thích`: `Đã lưu "${product.name}" vào danh sách yêu thích!`,
       'info'
     );
-  };
-
-  const handleCompareClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (isCompared) {
-      removeFromCompare(product.productId);
-      showToast(`Đã bỏ "${product.name}" khỏi bảng so sánh`, 'info');
-    } else {
-      const res = addToCompare(product.productId);
-      if (!res.success) {
-        showToast(res.message, 'warning');
-      } else {
-        showToast(`Đã thêm "${product.name}" vào bảng so sánh!`, 'success');
-      }
-    }
   };
 
   const isInactive = product.status === 'INACTIVE' || product.status === 'DISCONTINUED' || (product as any).isActive === false;
@@ -91,17 +72,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         </div>
 
         <div className="flex items-center gap-1 opacity-90 group-hover:opacity-100 transition-opacity">
-          {/* So sánh nút */}
-          <button
-            onClick={handleCompareClick}
-            title={isCompared? "Xóa khỏi so sánh": "Thêm vào so sánh"}
-            className={`${compact? 'w-6 h-6': 'w-7 h-7'} rounded-full flex items-center justify-center transition-colors ${
-              isCompared? 'text-primary bg-primary-soft/15 border border-primary': 'text-steel hover:text-ink hover:bg-surface-soft border border-hairline-soft'
-            }`}
-          >
-            <Scale size={compact? 11: 13} />
-          </button>
-
           {/* Yêu thích nút */}
           <button 
             aria-label="Yêu thích" 
