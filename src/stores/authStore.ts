@@ -16,6 +16,7 @@ import { authService } from '../services/authService';
 import { userService } from '../services/userService';
 import { useCartStore } from './cartStore';
 import { useWishlistStore } from './wishlistStore';
+import { useNotificationStore } from './notificationStore';
 import { sharedStore } from '../services/sharedStore';
 
 export interface RegisterPayload {
@@ -88,6 +89,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
       set({ user: null, token: null, refreshToken: null, isAuthenticated: false });
       useCartStore.getState().switchUser(null);
       useWishlistStore.getState().switchUser(null);
+      useNotificationStore.getState().clearOnLogout();
     });
   }
 
@@ -318,6 +320,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
         set({ user: null, token: null, refreshToken: null, isAuthenticated: false });
         useCartStore.getState().switchUser(null);
         useWishlistStore.getState().switchUser(null);
+        useNotificationStore.getState().clearOnLogout();
       }
     },
 

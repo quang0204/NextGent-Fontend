@@ -2,7 +2,14 @@ import { apiClient } from './apiClient';
 import { NotificationItem } from '../types/notification';
 import { useToastStore } from '../stores/toastStore';
 
-const STORAGE_NOTIF_KEY = 'ng_db_notifications_v3';
+// Dọn sạch key mock local cũ để không làm sai lệch số lượng với Database
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('ng_db_notifications_v3');
+    localStorage.removeItem('ng_db_notifications_v2');
+    localStorage.removeItem('ng_db_notifications');
+  } catch {}
+}
 
 // Kênh BroadcastChannel đồng bộ thông báo thời gian thực giữa các tab trình duyệt
 let notifChannel: BroadcastChannel | null = null;
@@ -30,27 +37,6 @@ export const emitNotificationEvent = (data?: any) => {
   }
 };
 
-const getStoredNotifications = (): NotificationItem[] => {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_NOTIF_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveNotifications = (items: NotificationItem[]) => {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(STORAGE_NOTIF_KEY, JSON.stringify(items));
-    } catch {}
-    emitNotificationEvent();
-  }
-};
-
 export interface NotificationFetchResult {
   items: NotificationItem[];
   unreadCount: number;
@@ -59,13 +45,9 @@ export interface NotificationFetchResult {
 export const notificationService = {
   /**
    * API 13.3: GET /api/v1/notifications
-   * Lấy danh sách thông báo của tôi (hợp nhất Local + Backend)
+   * Lấy danh sách thông báo chính xác 100% từ Database MySQL của người dùng hiện tại
    */
-  async getNotifications(userId: number, page: number = 1, size: number = 20): Promise<NotificationFetchResult> {
-    const localAll = getStoredNotifications();
-    // Lấy thông báo thuộc về userId này hoặc userId = 1 (mặc định) hoặc thông báo chung
-    const localUserItems = localAll.filter((n) => !n.userId || n.userId === userId || n.userId === 1);
-
+  async getNotifications(userId?: number, page: number = 1, size: number = 50): Promise<NotificationFetchResult> {
     try {
       const res = await apiClient.get<{
         success: boolean;
@@ -80,7 +62,7 @@ export const notificationService = {
         const d = res.data.data;
         const mappedRemote: NotificationItem[] = d.items.map((it) => ({
           notificationId: it.notificationId,
-          userId: it.userId || userId,
+          userId: it.userId || userId || 0,
           orderId: it.orderId,
           orderCode: it.orderCode || (it.orderId ? `DH-${it.orderId}` : undefined),
           title: it.title,
@@ -90,99 +72,82 @@ export const notificationService = {
           createdAt: it.createdAt || new Date().toISOString(),
         }));
 
-        // Hợp nhất dữ liệu local và remote để không làm mất thông báo tiến trình đơn
-        const merged = [...localUserItems];
-        for (const rem of mappedRemote) {
-          const exists = merged.some(
-            (m) =>
-              m.notificationId === rem.notificationId ||
-              (m.orderCode && rem.orderCode && m.orderCode === rem.orderCode && m.title === rem.title)
-          );
-          if (!exists) {
-            merged.push(rem);
-          }
-        }
-        merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
         return {
-          items: merged,
-          unreadCount: merged.filter((n) => !n.isRead).length,
+          items: mappedRemote,
+          unreadCount: typeof d.unreadCount === 'number' ? d.unreadCount : mappedRemote.filter((n) => !n.isRead).length,
         };
       }
     } catch {
-      // Backend offline hoặc endpoint tạm không phản hồi -> dùng localUserItems
+      // Backend offline hoặc chưa đăng nhập
     }
 
     return {
-      items: localUserItems,
-      unreadCount: localUserItems.filter((n) => !n.isRead).length,
+      items: [],
+      unreadCount: 0,
     };
   },
 
   /**
    * API 13.4: PATCH /api/v1/notifications/{id}/read
-   * Đánh dấu một thông báo đã đọc
+   * Đánh dấu một thông báo đã đọc trực tiếp trong Database
    */
   async markAsRead(notificationId: number): Promise<boolean> {
     try {
       await apiClient.patch(`/notifications/${notificationId}/read`);
-    } catch {}
-    const all = getStoredNotifications();
-    const updated = all.map((n) => (n.notificationId === notificationId ? { ...n, isRead: true } : n));
-    saveNotifications(updated);
-    return true;
+      emitNotificationEvent({ notificationId, isRead: true });
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   /**
    * API 13.4 Phụ: PATCH /api/v1/notifications/read-all
-   * Đánh dấu tất cả thông báo đã đọc
+   * Đánh dấu tất cả thông báo của người dùng đã đọc trong Database
    */
-  async markAllAsRead(userId: number): Promise<boolean> {
+  async markAllAsRead(_userId?: number): Promise<boolean> {
     try {
       await apiClient.patch('/notifications/read-all');
-    } catch {}
-    const all = getStoredNotifications();
-    const updated = all.map((n) => (!n.userId || Number(n.userId) === Number(userId) ? { ...n, isRead: true } : n));
-    saveNotifications(updated);
-    return true;
+      emitNotificationEvent({ allRead: true });
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   /**
    * API: DELETE /api/v1/notifications/{id}
-   * Xóa một thông báo
+   * Xóa một thông báo trong Database
    */
   async deleteNotification(notificationId: number): Promise<boolean> {
     try {
       await apiClient.delete(`/notifications/${notificationId}`);
-    } catch {}
-    const all = getStoredNotifications();
-    const updated = all.filter((n) => n.notificationId !== notificationId);
-    saveNotifications(updated);
-    return true;
+      emitNotificationEvent({ deletedId: notificationId });
+      return true;
+    } catch {
+      return false;
+    }
   },
 
   /**
-   * Tạo thông báo mới và lưu trữ cục bộ
+   * Tạo thông báo (dispatch sự kiện để UI refetch)
    */
   async createNotification(
     notif: Omit<NotificationItem, 'notificationId' | 'createdAt' | 'isRead'>
   ): Promise<NotificationItem> {
-    const all = getStoredNotifications();
     const newItem: NotificationItem = {
       ...notif,
-      notificationId: Date.now() + Math.floor(Math.random() * 1000),
+      notificationId: Date.now(),
       isRead: false,
       createdAt: new Date().toISOString(),
     };
-    all.unshift(newItem);
-    saveNotifications(all);
+    emitNotificationEvent();
     return newItem;
   },
 
   /**
-   * CHỨC NĂNG 2: Thông báo nội bộ cho khách về tiến trình đơn hàng
-   * Tự động gửi thông báo theo từng mốc trạng thái (Đặt hàng -> Xác nhận -> Đóng gói -> Lấy hàng -> Đang giao -> Giao thành công / Hủy / Hoàn về)
-   * Đồng bộ tức thì qua BroadcastChannel và hiển thị Toast alert cho khách hàng mà không cần F5.
+   * Thông báo tiến trình đơn hàng (hiển thị Toast thông báo tức thì trên giao diện)
+   * Không lưu fake data vào localStorage để tránh lệch với Database.
    */
   notifyOrderProgress(params: {
     orderId: number;
@@ -273,9 +238,14 @@ export const notificationService = {
         break;
     }
 
-    const all = getStoredNotifications();
-    const newItem: NotificationItem = {
-      notificationId: Date.now() + Math.floor(Math.random() * 1000),
+    try {
+      useToastStore.getState().showToast(content, toastType, 4500);
+    } catch {}
+
+    emitNotificationEvent();
+
+    return {
+      notificationId: Date.now(),
       userId,
       orderId,
       orderCode,
@@ -285,15 +255,5 @@ export const notificationService = {
       isRead: false,
       createdAt: new Date().toISOString(),
     };
-
-    all.unshift(newItem);
-    saveNotifications(all);
-
-    // Kích hoạt thông báo nổi (Toast banner) trực tiếp trên màn hình
-    try {
-      useToastStore.getState().showToast(content, toastType, 4500);
-    } catch {}
-
-    return newItem;
   },
 };

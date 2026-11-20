@@ -10,7 +10,6 @@ import { PortalPagination } from '../../components/portal/PortalPagination';
 import { 
   Package, 
   AlertTriangle, 
-  PlusCircle, 
   FileText, 
   Search, 
   CheckCircle, 
@@ -295,14 +294,6 @@ export const PortalInventoryView: React.FC = () => {
                   <span>Chỉ hiện SKU thấp hơn ngưỡng</span>
                 </span>
               </label>
-
-              <button
-                onClick={() => setActiveTab('adjustment')}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-              >
-                <PlusCircle size={14} />
-                <span>Lập phiếu kiểm kê</span>
-              </button>
             </div>
           </div>
 
