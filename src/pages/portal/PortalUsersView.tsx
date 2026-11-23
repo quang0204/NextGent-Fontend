@@ -28,6 +28,19 @@ import { PasswordInput } from '../../components/common/PasswordInput';
 import { userService } from '../../services/userService';
 import { AdminUserDetail } from '../../types/user';
 
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+const PASSWORD_POLICY_MSG = 'Mật khẩu khởi tạo phải có tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
+
+const removeAccents = (str: string = ''): string => {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .trim();
+};
+
 export const PortalUsersView: React.FC = () => {
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,6 +56,20 @@ export const PortalUsersView: React.FC = () => {
     totalStaffs: 0,
     totalLocked: 0,
   });
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [roleMetrics, setRoleMetrics] = useState({
+    totalUsers: 0,
+    adminCount: 0,
+    staffCount: 0,
+    lockedCount: 0,
+  });
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Modal lock/unlock user (API 2.11)
   const [selectedUserForLock, setSelectedUserForLock] = useState<PortalUser | null>(null);
@@ -73,10 +100,26 @@ export const PortalUsersView: React.FC = () => {
       const res = await userService.getAdminUsers({
         page: currentPage,
         limit: pageSize,
-        search: searchQuery.trim() || undefined,
+        search: debouncedSearch.trim() || undefined,
         role: roleFilter !== 'ALL' ? roleFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
       });
+
+      if (res.data?.summary) {
+        setRoleMetrics({
+          totalUsers: res.data.summary.totalUsers ?? 0,
+          adminCount: res.data.summary.adminCount ?? 0,
+          staffCount: res.data.summary.staffCount ?? 0,
+          lockedCount: res.data.summary.lockedCount ?? 0,
+        });
+      } else if (res.data?.adminCount !== undefined) {
+        setRoleMetrics({
+          totalUsers: res.data.totalUsers ?? res.data.totalElements ?? 0,
+          adminCount: res.data.adminCount ?? 0,
+          staffCount: res.data.staffCount ?? 0,
+          lockedCount: res.data.lockedCount ?? 0,
+        });
+      }
 
       const rawItems = res.data?.content || res.data?.items || (Array.isArray(res.data) ? res.data : null);
 
@@ -138,7 +181,7 @@ export const PortalUsersView: React.FC = () => {
 
   useEffect(() => {
     loadUsers();
-  }, [currentPage, pageSize, searchQuery, roleFilter, statusFilter]);
+  }, [currentPage, pageSize, debouncedSearch, roleFilter, statusFilter]);
 
   useEffect(() => {
     loadStats();
@@ -146,8 +189,11 @@ export const PortalUsersView: React.FC = () => {
 
   // Bộ lọc client nếu server trả về danh sách đầy đủ hoặc fallback
   const filteredUsers = useMemo(() => {
+    if (!users.length) return [];
+    const searchClean = removeAccents(searchQuery);
     return users.filter(u => {
-      const matchSearch = (u.fullName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      const matchSearch = !searchClean ||
+        removeAccents(u.fullName).includes(searchClean) ||
         (u.phone || '').includes(searchQuery) ||
         (u.email || '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchRole = roleFilter === 'ALL' || u.role === roleFilter;
@@ -232,8 +278,8 @@ export const PortalUsersView: React.FC = () => {
     setCreateErrorMsg('');
     if (!newFullName || !newEmail || !newPhone || !newPassword) return;
 
-    if (newPassword.length < 6) {
-      setCreateErrorMsg('Mật khẩu khởi tạo phải có tối thiểu 6 ký tự.');
+    if (!newPassword || !PASSWORD_REGEX.test(newPassword)) {
+      setCreateErrorMsg(PASSWORD_POLICY_MSG);
       return;
     }
 
@@ -382,12 +428,14 @@ export const PortalUsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tổng tài khoản</div>
           <div className="text-xl font-bold text-slate-900 mt-1">{stats.totalUsers || totalElements || users.length}</div>
+          <div className="text-xl font-bold text-slate-900 mt-1">{roleMetrics.totalUsers || totalElements || users.length}</div>
           <div className="text-[10px] text-slate-400 mt-0.5">Tất cả người dùng trên hệ thống</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Quản trị viên</div>
           <div className="text-xl font-bold text-purple-700 mt-1">
             {stats.totalAdmins}
+            {roleMetrics.adminCount}
           </div>
           <div className="text-[10px] text-purple-500 mt-0.5">Toàn quyền cấu hình & kho</div>
         </div>
@@ -395,6 +443,7 @@ export const PortalUsersView: React.FC = () => {
           <div className="text-xs text-slate-500 font-medium">Nhân viên kho/đơn</div>
           <div className="text-xl font-bold text-blue-700 mt-1">
             {stats.totalStaffs}
+            {roleMetrics.staffCount}
           </div>
           <div className="text-[10px] text-blue-500 mt-0.5">Xử lý đơn hàng, xuất nhập kho</div>
         </div>
@@ -402,6 +451,7 @@ export const PortalUsersView: React.FC = () => {
           <div className="text-xs text-slate-500 font-medium">Tài khoản bị khóa</div>
           <div className="text-xl font-bold text-rose-700 mt-1">
             {stats.totalLocked}
+            {roleMetrics.lockedCount}
           </div>
           <div className="text-[10px] text-rose-500 mt-0.5">Chặn giữ chỗ kho ảo</div>
         </div>
@@ -416,7 +466,10 @@ export const PortalUsersView: React.FC = () => {
               type="text"
               placeholder="Tìm theo họ tên, số điện thoại hoặc email..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={e => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full pl-10 pr-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 transition"
             />
           </div>

@@ -92,6 +92,89 @@ export const PortalShipmentsView: React.FC = () => {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const isTerminalShipment = (status: ShipmentStatus) =>
+    status === 'DELIVERED' || status === 'DELIVERY_FAILED' || status === 'FAILED' || status === 'PICKUP_FAILED' || status === 'CANCELLED';
+
+  // Helper chuyển đổi trạng thái tuần tự theo đúng State Machine backend để tránh lỗi nhảy cóc (ví dụ: READY_TO_PICK -> DELIVERED)
+  const advanceShipmentToTarget = async (
+    shipment: PortalShipment,
+    target: 'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'DELIVERY_FAILED',
+    failReasonText?: string
+  ) => {
+    const current = shipment.status;
+    const isPreparing = current === 'PREPARING' || current === 'WAITING_PICKUP' || current === 'PENDING';
+    const isPicked = current === 'PICKED_UP';
+    const isInTransit = current === 'IN_TRANSIT';
+
+    if (target === 'PICKED_UP') {
+      if (isPreparing) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'PICKED',
+          note: 'Cập nhật tiến trình: Đã lấy hàng'
+        });
+      }
+      return;
+    }
+
+    if (target === 'IN_TRANSIT') {
+      if (isPreparing) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'PICKED',
+          note: 'Cập nhật tiến trình: Đã lấy hàng'
+        });
+      }
+      if (isPreparing || isPicked) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'IN_TRANSIT',
+          note: 'Cập nhật tiến trình: Đang giao hàng'
+        });
+      }
+      return;
+    }
+
+    if (target === 'DELIVERED') {
+      if (isPreparing) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'PICKED',
+          note: 'Tự động luân chuyển: Đã lấy hàng'
+        });
+      }
+      if (isPreparing || isPicked) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'IN_TRANSIT',
+          note: 'Tự động luân chuyển: Đang giao hàng'
+        });
+      }
+      if (isPreparing || isPicked || isInTransit) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'DELIVERED',
+          note: 'Cập nhật tiến trình: Giao thành công & Thu COD'
+        });
+      }
+      return;
+    }
+
+    if (target === 'DELIVERY_FAILED') {
+      if (isPreparing) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'PICKED',
+          note: 'Tự động luân chuyển: Đã lấy hàng'
+        });
+      }
+      if (isPreparing || isPicked) {
+        await apiClient.put(`/admin/shipments/${shipment.shipmentId}/status`, {
+          status: 'IN_TRANSIT',
+          note: 'Tự động luân chuyển: Đang giao hàng'
+        });
+      }
+      await apiClient.post(`/admin/shipments/${shipment.shipmentId}/fail-delivery`, {
+        failReason: failReasonText || 'Giao hàng thất bại',
+        note: 'Cập nhật giao thất bại và hoàn về'
+      });
+      return;
+    }
+  };
+
   const handleStartUpdate = (s: PortalShipment) => {
     setEditingShipment(s);
     setNewStatus(s.status);
@@ -109,26 +192,19 @@ export const PortalShipmentsView: React.FC = () => {
     }
 
     try {
-      if (isFailStatus) {
-        // API 9.4: POST /api/v1/admin/shipments/{id}/fail-delivery
-        const res = await apiClient.post(`/admin/shipments/${editingShipment.shipmentId}/fail-delivery`, {
-          failReason: failReason.trim(),
-          note: 'Điều phối viên giao vận ghi nhận giao thất bại'
-        });
-        showNotification(res.data?.message || `✓ Đã ghi nhận giao hàng thất bại và hoàn kho vận đơn ${editingShipment.trackingCode}!`);
-      } else {
-        // API 9.3: PUT /api/v1/admin/shipments/{id}/status
-        const apiStatus = 
-          newStatus === 'PREPARING' || newStatus === 'WAITING_PICKUP' || newStatus === 'PENDING' ? 'READY_TO_PICK' :
-          newStatus === 'PICKED_UP' ? 'PICKED' :
-          newStatus;
+      const target: 'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'DELIVERY_FAILED' =
+        isFailStatus ? 'DELIVERY_FAILED' :
+        newStatus === 'PICKED_UP' ? 'PICKED_UP' :
+        newStatus === 'IN_TRANSIT' ? 'IN_TRANSIT' :
+        newStatus === 'DELIVERED' ? 'DELIVERED' : 'PICKED_UP';
 
-        const res = await apiClient.put(`/admin/shipments/${editingShipment.shipmentId}/status`, {
-          status: apiStatus,
-          note: 'Điều phối viên giao vận cập nhật tiến trình'
-        });
-        showNotification(res.data?.message || `✓ Đã cập nhật vận đơn ${editingShipment.trackingCode} và tự động đồng bộ trạng thái sang Đơn hàng #${editingShipment.orderCode}!`);
-      }
+      await advanceShipmentToTarget(editingShipment, target, isFailStatus ? failReason.trim() : undefined);
+
+      showNotification(
+        isFailStatus
+          ? `✓ Đã ghi nhận giao hàng thất bại và chuyển sang Đang hoàn về cho vận đơn ${editingShipment.trackingCode}!`
+          : `✓ Đã cập nhật vận đơn ${editingShipment.trackingCode} sang ${newStatus === 'DELIVERED' ? 'Giao thành công' : newStatus === 'IN_TRANSIT' ? 'Đang giao hàng' : 'Đã lấy hàng'}!`
+      );
 
       // Đồng bộ local store
       sharedStore.updateShipmentStatus(
@@ -140,19 +216,16 @@ export const PortalShipmentsView: React.FC = () => {
       );
       setShipments([...sharedStore.getShipments()]);
       setOrders([...sharedStore.getOrders()]);
-      loadBackendShipments();
+      await loadBackendShipments();
     } catch (err: any) {
       const msg = err?.response?.data?.message || err.message || 'Lỗi khi cập nhật trạng thái vận đơn';
       showNotification(`Lỗi: ${msg}`);
     }
 
-      setShipments([...sharedStore.getShipments()]);
-      setOrders([...sharedStore.getOrders()]);
+    setShipments([...sharedStore.getShipments()]);
+    setOrders([...sharedStore.getOrders()]);
     setEditingShipment(null);
   };
-
-  const isTerminalShipment = (status: ShipmentStatus) =>
-    status === 'DELIVERED' || status === 'DELIVERY_FAILED' || status === 'FAILED' || status === 'PICKUP_FAILED' || status === 'CANCELLED';
 
   const handleToggleSelectShipment = (shipmentId: number) => {
     setSelectedShipmentIds(prev =>
@@ -167,21 +240,14 @@ export const PortalShipmentsView: React.FC = () => {
       alert('Bắt buộc nhập nguyên nhân giao hàng thất bại (sai địa chỉ, không nghe máy...)!');
       return;
     }
-    const apiStatus = bulkStatusTarget === 'PICKED_UP' ? 'PICKED' : bulkStatusTarget;
     setIsBulkUpdating(true);
     try {
       const results = await Promise.allSettled(
-        selectedShipmentIds.map(id =>
-          isFail
-            ? apiClient.post(`/admin/shipments/${id}/fail-delivery`, {
-                failReason: bulkFailReason.trim(),
-                note: 'Duyệt hàng loạt giao thất bại trên Portal Vận đơn'
-              })
-            : apiClient.put(`/admin/shipments/${id}/status`, {
-                status: apiStatus,
-                note: 'Duyệt hàng loạt trên Portal Vận đơn'
-              })
-        )
+        selectedShipmentIds.map(id => {
+          const ship = shipments.find(s => s.shipmentId === id);
+          if (!ship) return Promise.resolve();
+          return advanceShipmentToTarget(ship, bulkStatusTarget, isFail ? bulkFailReason.trim() : undefined);
+        })
       );
       let successCount = 0;
       let failCount = 0;
@@ -208,7 +274,7 @@ export const PortalShipmentsView: React.FC = () => {
       showNotification(
         failCount === 0
           ? `✓ Đã duyệt hàng loạt ${successCount} vận đơn thành công!`
-          : `Đã cập nhật ${successCount} vận đơn, ${failCount} vận đơn không hợp lệ (không thể chuyển trạng thái).`
+          : `Đã cập nhật ${successCount} vận đơn, ${failCount} vận đơn gặp lỗi.`
       );
     } finally {
       setIsBulkUpdating(false);
