@@ -427,31 +427,29 @@ export const PortalUsersView: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tổng tài khoản</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{stats.totalUsers || totalElements || users.length}</div>
-          <div className="text-xl font-bold text-slate-900 mt-1">{roleMetrics.totalUsers || totalElements || users.length}</div>
+          <div className="text-xl font-bold text-slate-900 mt-1">
+            {stats.totalUsers || roleMetrics.totalUsers || totalElements || users.length}
+          </div>
           <div className="text-[10px] text-slate-400 mt-0.5">Tất cả người dùng trên hệ thống</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Quản trị viên</div>
           <div className="text-xl font-bold text-purple-700 mt-1">
-            {stats.totalAdmins}
-            {roleMetrics.adminCount}
+            {stats.totalAdmins || roleMetrics.adminCount || 0}
           </div>
           <div className="text-[10px] text-purple-500 mt-0.5">Toàn quyền cấu hình & kho</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Nhân viên kho/đơn</div>
           <div className="text-xl font-bold text-blue-700 mt-1">
-            {stats.totalStaffs}
-            {roleMetrics.staffCount}
+            {stats.totalStaffs || roleMetrics.staffCount || 0}
           </div>
           <div className="text-[10px] text-blue-500 mt-0.5">Xử lý đơn hàng, xuất nhập kho</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tài khoản bị khóa</div>
           <div className="text-xl font-bold text-rose-700 mt-1">
-            {stats.totalLocked}
-            {roleMetrics.lockedCount}
+            {stats.totalLocked || roleMetrics.lockedCount || 0}
           </div>
           <div className="text-[10px] text-rose-500 mt-0.5">Chặn giữ chỗ kho ảo</div>
         </div>
