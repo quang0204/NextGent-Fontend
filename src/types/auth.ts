@@ -15,11 +15,11 @@ export interface LoginInitiateRequest {
 }
 
 export interface LoginInitiateData {
-  user: AuthUserDTO;
-  tokenType?: string;
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
+  channel: 'PHONE' | 'EMAIL';
+  targetMasked: string;
+  sessionToken: string;
+  expiresInSeconds?: number;
+  cooldownSeconds?: number;
 }
 
 // 2. POST /api/v1/auth/login-verify-otp

@@ -7,8 +7,9 @@ import { orderService } from '../services/orderService';
 import { sharedStore } from '../services/sharedStore';
 import { promotionService } from '../services/promotionService';
 import { paymentService } from '../services/paymentService';
+import { userService } from '../services/userService';
 import { formatVND } from '../components/common/PriceDisplay';
-import { UserAddress } from '../types/user';
+import { UserAddress, formatFullAddress } from '../types/user';
 import { isValidVietnamesePhone } from '../utils/validators';
 import { 
   ShieldCheck, 
@@ -41,8 +42,9 @@ export const CheckoutPage: React.FC = () => {
     clearBuyNowItem, 
     getSelectedItems 
   } = useCartStore();
-  const { user, addAddress } = useAuthStore();
+  const { user, addAddress, fetchAddresses } = useAuthStore();
   const { showToast } = useToastStore();
+  const [isSavingAddress, setIsSavingAddress] = useState(false);
 
   // Xác định danh sách sản phẩm cần thanh toán
   const checkoutItems = isBuyNow 
@@ -95,6 +97,7 @@ export const CheckoutPage: React.FC = () => {
 
   // API 6.5: GET /api/v1/vouchers/valid
   useEffect(() => {
+    fetchAddresses().catch(() => {});
     promotionService.getValidVouchers().then(res => {
       if (res && res.length > 0) {
         setVouchers(res.map(v => ({
@@ -150,7 +153,7 @@ export const CheckoutPage: React.FC = () => {
     setIsAddingNewAddress(false);
   };
 
-  const handleSaveNewAddress = (): boolean => {
+  const handleSaveNewAddress = async (): Promise<boolean> => {
     if (!newRecipient.trim()) {
       setErrorMsg('Vui lòng nhập họ tên người nhận cho địa chỉ mới.');
       showToast('Vui lòng nhập họ tên người nhận!', 'error');
@@ -168,30 +171,54 @@ export const CheckoutPage: React.FC = () => {
       return false;
     }
 
-    const createdAddr: Omit<UserAddress, 'addressId'> = {
-      recipientName: newRecipient.trim(),
-      phone: cleanPhone,
-      province: newProvince.trim() || 'Hà Nội',
-      district: newDistrict.trim() || 'Quận Hai Bà Trưng',
-      ward: newWard.trim() || 'Phường Đồng Tâm',
-      addressLine: newAddressLine.trim(),
-      isDefault: addresses.length === 0? true: newIsDefault,
-    };
+    const isDefaultSetting = addresses.length === 0 ? true : newIsDefault;
+    const fullAddr = formatFullAddress(
+      newAddressLine.trim(),
+      newWard.trim(),
+      newDistrict.trim(),
+      newProvince.trim()
+    );
 
-    addAddress(createdAddr);
-    
-    setFullName(createdAddr.recipientName);
-    setPhone(createdAddr.phone);
-    setProvince(createdAddr.province);
-    setDistrict(createdAddr.district);
-    setWard(createdAddr.ward);
-    setAddressLine(createdAddr.addressLine);
+    setIsSavingAddress(true);
+    try {
+      // API 2.4: POST /api/v1/users/addresses
+      const res = await userService.addAddress({
+        recipientName: newRecipient.trim(),
+        phone: cleanPhone,
+        addressLine: fullAddr,
+        province: newProvince.trim(),
+        district: newDistrict.trim(),
+        ward: newWard.trim(),
+        isDefault: isDefaultSetting,
+      });
 
-    setNewAddressLine('');
-    setIsAddingNewAddress(false);
-    setErrorMsg('');
-    showToast('Đã lưu địa chỉ vào Sổ địa chỉ thành công!', 'success');
-    return true;
+      // Synchronize address list from backend
+      await fetchAddresses();
+
+      if (res.data?.addressId) {
+        setSelectedAddressId(res.data.addressId);
+      }
+
+      setFullName(newRecipient.trim());
+      setPhone(cleanPhone);
+      setProvince(newProvince.trim());
+      setDistrict(newDistrict.trim());
+      setWard(newWard.trim());
+      setAddressLine(newAddressLine.trim());
+
+      setNewAddressLine('');
+      setIsAddingNewAddress(false);
+      setErrorMsg('');
+      showToast('Đã lưu địa chỉ vào Sổ địa chỉ thành công!', 'success');
+      return true;
+    } catch (err: any) {
+      const errMsg = err?.message || 'Không thể lưu địa chỉ vào hệ thống. Vui lòng thử lại!';
+      setErrorMsg(errMsg);
+      showToast(errMsg, 'error');
+      return false;
+    } finally {
+      setIsSavingAddress(false);
+    }
   };
 
   // API 6.6: POST /api/v1/vouchers/apply
@@ -224,7 +251,7 @@ export const CheckoutPage: React.FC = () => {
 
     // Bắt buộc phải có địa chỉ nhận hàng trong Sổ địa chỉ
     if (!hasAddresses || isAddingNewAddress) {
-      const saved = handleSaveNewAddress();
+      const saved = await handleSaveNewAddress();
       if (!saved) return;
     }
 
@@ -552,10 +579,11 @@ export const CheckoutPage: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={handleSaveNewAddress}
-                      className="btn-marketing px-5 py-2.5 text-xs font-bold rounded-full shadow-xs cursor-pointer self-start sm:self-auto"
+                      disabled={isSavingAddress}
+                      onClick={() => handleSaveNewAddress()}
+                      className="btn-marketing px-5 py-2.5 text-xs font-bold rounded-full shadow-xs cursor-pointer self-start sm:self-auto disabled:opacity-50"
                     >
-                      Lưu vào Sổ & Sử dụng địa chỉ này
+                      {isSavingAddress ? 'Đang lưu...' : 'Lưu vào Sổ & Sử dụng địa chỉ này'}
                     </button>
                   </div>
                 </div>

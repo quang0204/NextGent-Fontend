@@ -70,6 +70,14 @@ export interface AdminUserItem {
   createdAt: string;
 }
 
+export interface UserSummary {
+  totalUsers: number;
+  adminCount: number;
+  staffCount: number;
+  customerCount: number;
+  lockedCount: number;
+}
+
 export interface AdminUsersPageData {
   currentPage?: number;
   pageSize?: number;
@@ -80,6 +88,12 @@ export interface AdminUsersPageData {
   page?: number;
   size?: number;
   hasNext?: boolean;
+  summary?: UserSummary;
+  totalUsers?: number;
+  adminCount?: number;
+  staffCount?: number;
+  customerCount?: number;
+  lockedCount?: number;
 }
 
 export interface AdminUserDetail {

@@ -23,6 +23,9 @@ import {
   ShoppingBag
 } from 'lucide-react';
 
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+const PASSWORD_POLICY_MSG = 'Mật khẩu phải có tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
+
 export const AuthPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,6 +34,8 @@ export const AuthPage: React.FC = () => {
 
   const { 
     initiateLogin,
+    verifyLoginOtp,
+    resendLoginOtp,
     initiateRegister,
     verifyRegisterOtp,
     resendRegisterOtp,
@@ -50,10 +55,17 @@ export const AuthPage: React.FC = () => {
   const [lockReason, setLockReason] = useState<string | null>(null);
 
   // -------------------------------------------------------------
-  // API 1: Login State
+  // API 1, 2, 3: Login State
   // -------------------------------------------------------------
   const [loginIdentity, setLoginIdentity] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginOtp, setLoginOtp] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [loginSessionToken, setLoginSessionToken] = useState('');
+  const [loginTargetMasked, setLoginTargetMasked] = useState('');
+  const [loginChannel, setLoginChannel] = useState<'PHONE' | 'EMAIL'>('EMAIL');
+  const [loginCountdown, setLoginCountdown] = useState(0); // cooldown 60s
+  const [loginExpiresIn, setLoginExpiresIn] = useState(0); // TTL 120s
 
   // -------------------------------------------------------------
   // API 4, 5, 6: Register State
@@ -85,6 +97,18 @@ export const AuthPage: React.FC = () => {
   const [forgotNewPassword, setForgotNewPassword] = useState('');
   const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
   const [forgotSuccessMsg, setForgotSuccessMsg] = useState('');
+
+  // Đếm ngược cho Login OTP
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isOtpSent && (loginCountdown > 0 || loginExpiresIn > 0)) {
+      timer = setInterval(() => {
+        setLoginCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+        setLoginExpiresIn((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isOtpSent, loginCountdown, loginExpiresIn]);
 
   // Đếm ngược cho Register OTP
   useEffect(() => {
@@ -126,8 +150,10 @@ export const AuthPage: React.FC = () => {
     setActiveTab(tab);
     setErrorMsg('');
     setLockReason(null);
+    setIsOtpSent(false);
     setIsRegOtpStep(false);
     setForgotStep('REQUEST');
+    setLoginCountdown(0);
     setRegCountdown(0);
     setForgotCountdown(0);
     const params: Record<string, string> = {};
@@ -186,9 +212,18 @@ export const AuthPage: React.FC = () => {
 
     setLoading(true);
     try {
-      await initiateLogin(cleanIdentity, loginPassword);
-      showToast('Đăng nhập thành công!', 'success');
-      navigate(redirect);
+      const data = await initiateLogin(cleanIdentity, loginPassword);
+      setLoginSessionToken(data.sessionToken);
+      setLoginChannel(data.channel);
+      setLoginTargetMasked(data.targetMasked);
+      setLoginCountdown(data.cooldownSeconds || 60);
+      setLoginExpiresIn(data.expiresInSeconds || 120);
+      setIsOtpSent(true);
+      setLoginOtp('');
+      showToast(
+        `Mã OTP đã được gửi qua ${data.channel === 'PHONE' ? 'tin nhắn SMS' : 'Email'}!`,
+        'info'
+      );
     } catch (err: any) {
       if (err.statusCode === 403) {
         setErrorMsg('Tài khoản của bạn đã bị khóa.');
@@ -198,6 +233,51 @@ export const AuthPage: React.FC = () => {
       } else {
         setErrorMsg(err.message || 'Tài khoản hoặc mật khẩu không chính xác.');
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // API 2: POST /api/v1/auth/login-verify-otp
+  // --------------------------------------------------------------------------
+  const handleVerifyLoginOtp = async (e?: React.FormEvent, directOtp?: string) => {
+    if (e) e.preventDefault();
+    setErrorMsg('');
+    const code = directOtp || loginOtp;
+
+    if (!code || code.length !== 6) {
+      setErrorMsg('Vui lòng nhập đầy đủ 6 số OTP.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifyLoginOtp(loginSessionToken, code);
+      showToast('Đăng nhập thành công!', 'success');
+      navigate(redirect);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Mã OTP không chính xác hoặc đã quá thời hạn 120 giây.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // API 3: POST /api/v1/auth/login-resend-otp
+  // --------------------------------------------------------------------------
+  const handleResendLoginOtp = async () => {
+    if (loginCountdown > 0) return;
+    setErrorMsg('');
+    setLoading(true);
+    try {
+      const data = await resendLoginOtp(loginSessionToken);
+      setLoginCountdown(data.cooldownSeconds || 60);
+      setLoginExpiresIn(data.expiresInSeconds || 120);
+      setLoginOtp('');
+      showToast('Mã OTP mới đã được gửi lại thành công.', 'info');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Không thể gửi lại mã OTP lúc này.');
     } finally {
       setLoading(false);
     }
@@ -224,8 +304,8 @@ export const AuthPage: React.FC = () => {
       setErrorMsg('Vui lòng nhập định dạng email hợp lệ.');
       return;
     }
-    if (!regPassword || regPassword.length < 6) {
-      setErrorMsg('Mật khẩu bảo mật phải có tối thiểu 6 ký tự.');
+    if (!regPassword || !PASSWORD_REGEX.test(regPassword)) {
+      setErrorMsg(PASSWORD_POLICY_MSG);
       return;
     }
     if (regPassword !== regConfirmPassword) {
@@ -354,8 +434,8 @@ export const AuthPage: React.FC = () => {
       setErrorMsg('Vui lòng nhập đúng mã OTP gồm 6 chữ số.');
       return;
     }
-    if (!forgotNewPassword || forgotNewPassword.length < 6) {
-      setErrorMsg('Mật khẩu mới phải có tối thiểu 6 ký tự.');
+    if (!forgotNewPassword || !PASSWORD_REGEX.test(forgotNewPassword)) {
+      setErrorMsg(PASSWORD_POLICY_MSG);
       return;
     }
     if (forgotNewPassword !== forgotConfirmPassword) {
@@ -494,67 +574,152 @@ export const AuthPage: React.FC = () => {
         )}
 
         {/* ========================================================= */}
-        {/* TAB 1: ĐĂNG NHẬP TRỰC TIẾP (Tài khoản + Mật khẩu)          */}
+        {/* TAB 1: ĐĂNG NHẬP (API 1, 2, 3)                             */}
         {/* ========================================================= */}
         {activeTab === 'login' && (
           <div className="space-y-5">
-            <form onSubmit={handleInitiateLogin} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-medium text-charcoal mb-1.5">
-                  Số điện thoại hoặc Email <span className="text-critical">*</span>:
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    disabled={loading}
-                    placeholder="Nhập email hoặc số điện thoại"
-                    value={loginIdentity}
-                    onChange={(e) => setLoginIdentity(e.target.value)}
-                    className="w-full h-11 bg-canvas border border-hairline rounded-lg pl-9 pr-3.5 text-xs text-ink font-medium focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
-                  />
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-steel">
-                    {loginIdentity.includes('@') ? <Mail size={15} /> : <Phone size={15} />}
+            {!isOtpSent ? (
+              /* Bước 1: API 1 - login-initiate */
+              <form onSubmit={handleInitiateLogin} className="space-y-4 text-xs">
+                <div>
+                  <label className="block font-medium text-charcoal mb-1.5">
+                    Số điện thoại hoặc Email <span className="text-critical">*</span>:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      required
+                      disabled={loading}
+                      placeholder="Nhập email hoặc số điện thoại"
+                      value={loginIdentity}
+                      onChange={(e) => setLoginIdentity(e.target.value)}
+                      className="w-full h-11 bg-canvas border border-hairline rounded-lg pl-9 pr-3.5 text-xs text-ink font-medium focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
+                    />
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-steel">
+                      {loginIdentity.includes('@') ? <Mail size={15} /> : <Phone size={15} />}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="font-medium text-charcoal">
-                    Mật khẩu <span className="text-critical">*</span>:
-                  </label>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="font-medium text-charcoal">
+                      Mật khẩu <span className="text-critical">*</span>:
+                    </label>
+                    <button
+                      type="button"
+                      disabled={loading}
+                      onClick={() => {
+                        setForgotIdentity(loginIdentity);
+                        switchTab('forgot');
+                      }}
+                      className="text-[11px] font-bold text-primary hover:underline"
+                    >
+                      Quên mật khẩu?
+                    </button>
+                  </div>
+                  <PasswordInput
+                    required
+                    disabled={loading}
+                    placeholder="Nhập mật khẩu"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    showLeftLockIcon={true}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-70"
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={14} />}
+                  <span>Tiếp tục: Xác thực OTP</span>
+                </button>
+              </form>
+            ) : (
+              /* Bước 2: API 2 & 3 - login-verify-otp & login-resend-otp */
+              <form onSubmit={handleVerifyLoginOtp} className="space-y-5 text-xs text-center">
+                <div className="space-y-2 pt-1">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto border border-primary/20 shadow-2xs">
+                    {loginChannel === 'PHONE' ? <Smartphone size={26} strokeWidth={2.2} /> : <Mail size={26} strokeWidth={2.2} />}
+                  </div>
+                  <h3 className="text-base font-bold text-ink-deep tracking-tight">
+                    Xác thực mã bảo mật 6 số
+                  </h3>
+                  <p className="text-xs text-steel leading-relaxed">
+                    Mã xác thực OTP đã được gửi qua {loginChannel === 'PHONE' ? 'SMS' : 'Email'} đến
+                  </p>
+                  <div className="pt-0.5">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-charcoal bg-surface-soft px-3.5 py-1 rounded-full border border-hairline-soft font-mono text-xs shadow-2xs">
+                      {loginChannel === 'PHONE' ? <Smartphone size={13} className="text-primary" /> : <Mail size={13} className="text-primary" />}
+                      <span>{loginTargetMasked || loginIdentity}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* 6 Ô nhập OTP rời rạc */}
+                <OtpInput
+                  value={loginOtp}
+                  onChange={setLoginOtp}
+                  disabled={loading}
+                  onComplete={(val) => handleVerifyLoginOtp(undefined, val)}
+                />
+
+                {/* Thời hạn hiệu lực và cooldown */}
+                <div className="space-y-1 text-xs">
+                  {loginExpiresIn > 0 && (
+                    <div className="text-[11px] text-steel">
+                      Mã có hiệu lực trong: <strong className="font-mono text-charcoal">{loginExpiresIn}s</strong>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-center gap-1.5 text-steel py-1">
+                    <span>Chưa nhận được mã?</span>
+                    {loginCountdown > 0 ? (
+                      <span className="font-semibold text-steel flex items-center gap-1">
+                        <Clock size={13} />
+                        <span>Gửi lại sau <strong className="font-mono text-primary font-bold">{loginCountdown}s</strong></span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={loading}
+                        onClick={handleResendLoginOtp}
+                        className="text-primary font-bold hover:underline inline-flex items-center gap-1 transition"
+                      >
+                        <RotateCcw size={13} />
+                        <span>Gửi lại mã ngay</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <button
+                    type="submit"
+                    disabled={loading || loginOtp.length !== 6}
+                    className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+                    <span>Xác nhận & Đăng nhập</span>
+                  </button>
+
                   <button
                     type="button"
                     disabled={loading}
                     onClick={() => {
-                      setForgotIdentity(loginIdentity);
-                      switchTab('forgot');
+                      setIsOtpSent(false);
+                      setLoginCountdown(0);
                     }}
-                    className="text-[11px] font-bold text-primary hover:underline"
+                    className="text-steel hover:text-ink-deep text-xs font-medium py-1.5 flex items-center justify-center gap-1.5 mx-auto transition"
                   >
-                    Quên mật khẩu?
+                    <ArrowLeft size={13} />
+                    <span>Quay lại đổi thông tin</span>
                   </button>
                 </div>
-                <PasswordInput
-                  required
-                  disabled={loading}
-                  placeholder="Nhập password"
-                  value={loginPassword}
-                  onChange={(e) => setLoginPassword(e.target.value)}
-                  showLeftLockIcon={true}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-70"
-              >
-                {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={14} />}
-                <span>Đăng nhập</span>
-              </button>
-            </form>
+              </form>
+            )}
 
             <div className="text-center text-xs text-steel pt-2">
               Bạn chưa có tài khoản?{' '}
@@ -633,7 +798,7 @@ export const AuthPage: React.FC = () => {
                     <PasswordInput
                       required
                       disabled={loading}
-                      placeholder="Nhập mật khẩu của bạn"
+                      placeholder="Tối thiểu 8 ký tự (hoa, thường, số, ký tự đặc biệt)"
                       value={regPassword}
                       onChange={(e) => setRegPassword(e.target.value)}
                     />
@@ -873,7 +1038,7 @@ export const AuthPage: React.FC = () => {
 
                 <div>
                   <label className="block font-medium text-charcoal mb-1.5">
-                    Mật khẩu mới (tối thiểu 6 ký tự):
+                    Mật khẩu mới (tối thiểu 8 ký tự, gồm hoa, thường, số, ký tự đặc biệt):
                   </label>
                   <PasswordInput
                     required

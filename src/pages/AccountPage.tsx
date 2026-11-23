@@ -31,6 +31,9 @@ import {
 } from 'lucide-react';
 import { SupportHistoryView } from '../components/account/SupportHistoryView';
 
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
+const PASSWORD_POLICY_MSG = 'Mật khẩu mới phải có tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
+
 export const AccountPage: React.FC = () => {
   const { 
     user, 
@@ -363,8 +366,8 @@ export const AccountPage: React.FC = () => {
       return;
     }
 
-    if (!newPassword || newPassword.length < 6) {
-      setPasswordFeedback({ text: 'Mật khẩu mới phải có tối thiểu 6 ký tự.', type: 'error' });
+    if (!newPassword || !PASSWORD_REGEX.test(newPassword)) {
+      setPasswordFeedback({ text: PASSWORD_POLICY_MSG, type: 'error' });
       return;
     }
 
