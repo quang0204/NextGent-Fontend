@@ -731,7 +731,7 @@ export const productService = {
 
   /**
    * API 4.4: GET /api/v1/products/{id}/related
-   * Gợi ý sản phẩm liên quan
+   * Gợi ý sản phẩm liên quan (ưu tiên cùng danh mục con, nếu không đủ thì chuyển sang cùng danh mục cha)
    */
   async getRelatedProducts(id: number, limit: number = 4): Promise<Product[]> {
     try {
@@ -742,7 +742,7 @@ export const productService = {
     } catch (err) {
       console.warn('[productService.getRelatedProducts] Backend offline or failed', err);
     }
-    return [];
+    return sharedStore.getRelatedProducts(id, limit);
   },
 
   /**

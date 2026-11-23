@@ -161,6 +161,24 @@ export const ProductDetailPage: React.FC = () => {
     );
   }, [product]);
 
+  const parentCategoryUrl = useMemo(() => {
+    const rootName = (product?.rootCategoryName || product?.categoryName || '').toLowerCase();
+    const rootId = product?.rootCategoryId || product?.categoryId;
+    if (rootId === 1 || rootName.includes('điện thoại') || rootName.includes('phone')) {
+      return '/products?category=phone';
+    }
+    if (rootId === 2 || rootName.includes('máy tính bảng') || rootName.includes('tablet')) {
+      return '/products?category=tablet';
+    }
+    if (rootId === 3 || rootName.includes('laptop') || rootName.includes('pc')) {
+      return '/products?category=laptop';
+    }
+    if (rootId === 4 || rootName.includes('phụ kiện') || rootName.includes('accessory') || rootName.includes('âm thanh')) {
+      return '/products?category=accessory';
+    }
+    return rootId ? `/products?categoryId=${rootId}` : '/products';
+  }, [product]);
+
   if (isLoading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8 animate-pulse" aria-hidden="true">
@@ -415,9 +433,12 @@ export const ProductDetailPage: React.FC = () => {
       <nav className="text-xs text-steel flex items-center gap-2 flex-wrap">
         <Link to="/" className="hover:text-primary transition-colors">Trang chủ</Link>
         <span>/</span>
-        <Link to="/products?category=phone" className="hover:text-primary transition-colors">Điện thoại</Link>
-        <span>/</span>
-        <span className="text-charcoal">{product.brandName}</span>
+        <Link 
+          to={parentCategoryUrl} 
+          className="hover:text-primary transition-colors"
+        >
+          {product.rootCategoryName || product.categoryName || 'Danh mục'}
+        </Link>
         <span>/</span>
         <span className="text-ink font-semibold">{product.name}</span>
       </nav>
@@ -904,7 +925,10 @@ export const ProductDetailPage: React.FC = () => {
             <h3 className="text-lg font-medium text-ink-deep tracking-tight">
               Sản phẩm tương tự cùng phân khúc
             </h3>
-            <Link to="/products?category=phone" className="text-xs text-primary font-bold hover:underline">
+            <Link 
+              to={parentCategoryUrl} 
+              className="text-xs text-primary font-bold hover:underline"
+            >
               Xem tất cả &rarr;
             </Link>
           </div>

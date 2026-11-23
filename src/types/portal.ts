@@ -191,6 +191,7 @@ export interface PortalShipment {
   recipientPhone: string;
   shippingAddress: string;
   codAmount: number;
+  orderStatus?: string;
   updatedBy?: string;
   updatedAt: string;
 }

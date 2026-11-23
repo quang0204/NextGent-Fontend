@@ -9,6 +9,7 @@ import {
   AddressRequest,
   AdminUsersPageData,
   AdminUserDetail,
+  AdminUserStats,
   CreateInternalUserRequest,
   UpdateUserStatusRequest,
   UpdateUserRoleRequest,
@@ -329,6 +330,24 @@ export const userService = {
         success: false,
         statusCode: error.response?.status || 400,
         message: error.message || 'Không thể thay đổi phân quyền tài khoản.',
+      };
+    }
+  },
+
+  /**
+   * API 2.13: GET /api/v1/admin/users/stats
+   * Thống kê tổng số lượng tài khoản theo vai trò và trạng thái
+   */
+  async getAdminUserStats(): Promise<ApiResponse<AdminUserStats>> {
+    try {
+      const response = await apiClient.get<ApiResponse<AdminUserStats>>('/admin/users/stats');
+      return response.data;
+    } catch (error: any) {
+      if (error.response?.data) throw error.response.data;
+      throw {
+        success: false,
+        statusCode: error.response?.status || 500,
+        message: error.message || 'Không thể tải thống kê người dùng.',
       };
     }
   },

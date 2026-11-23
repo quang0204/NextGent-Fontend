@@ -217,6 +217,52 @@ export const sharedStore = {
     return products.find(p => p.productId === id);
   },
 
+  getRelatedProducts(id: number, limit: number = 4): Product[] {
+    const current = this.getProductById(id);
+    if (!current) return [];
+
+    const activeProducts = products.filter(
+      p => p.productId !== id && p.status !== 'INACTIVE' && (p as any).isActive !== false
+    );
+
+    const cats = this.getCategories();
+    const currentCat = cats.find(
+      c => c.categoryId === current.categoryId || c.name.toLowerCase() === current.categoryName?.toLowerCase()
+    );
+
+    const parentId = current.parentCategoryId ?? currentCat?.parentId ?? null;
+    const subCatId = parentId ? (current.categoryId ?? currentCat?.categoryId ?? null) : null;
+    const parentCatId = parentId ?? current.rootCategoryId ?? current.categoryId ?? currentCat?.categoryId ?? null;
+
+    let subMatches: Product[] = [];
+    if (subCatId) {
+      subMatches = activeProducts.filter(p => p.categoryId === subCatId);
+    }
+
+    if (subMatches.length >= limit) {
+      return subMatches.slice(0, limit);
+    }
+
+    const subMatchIds = new Set(subMatches.map(p => p.productId));
+    const parentMatches = activeProducts.filter(p => {
+      if (subMatchIds.has(p.productId)) return false;
+      if (parentCatId) {
+        if (p.parentCategoryId === parentCatId || p.rootCategoryId === parentCatId || p.categoryId === parentCatId) {
+          return true;
+        }
+        const pCat = cats.find(
+          c => c.categoryId === p.categoryId || c.name.toLowerCase() === p.categoryName?.toLowerCase()
+        );
+        if (pCat && (pCat.parentId === parentCatId || pCat.categoryId === parentCatId)) {
+          return true;
+        }
+      }
+      return false;
+    });
+
+    return [...subMatches, ...parentMatches].slice(0, limit);
+  },
+
   addProduct(newProd: Product): boolean {
     products.unshift(newProd);
     saveToStorage(STORAGE_KEY_PRODUCTS, products);
@@ -643,36 +689,26 @@ export const sharedStore = {
 
 
 
-  syncExternalShipments(remoteShipments: PortalShipment[]) {
-
+  syncExternalShipments(remoteShipments: PortalShipment[], replace = true) {
     if (!Array.isArray(remoteShipments)) return;
-
-    for (const rs of remoteShipments) {
-
-      const idx = shipments.findIndex(s => 
-
-        Number(s.shipmentId) === Number(rs.shipmentId) || 
-
-        (s.trackingCode && s.trackingCode === rs.trackingCode) ||
-
-        (s.orderCode && s.orderCode === rs.orderCode)
-
-      );
-
-      if (idx !== -1) {
-
-        shipments[idx] = { ...shipments[idx], ...rs };
-
-      } else {
-
-        shipments.push(rs);
-
+    if (replace && remoteShipments.length > 0) {
+      shipments = [...remoteShipments];
+    } else {
+      for (const rs of remoteShipments) {
+        const idx = shipments.findIndex(s => 
+          Number(s.shipmentId) === Number(rs.shipmentId) || 
+          (s.trackingCode && s.trackingCode === rs.trackingCode) ||
+          (s.orderCode && s.orderCode === rs.orderCode)
+        );
+        if (idx !== -1) {
+          shipments[idx] = { ...shipments[idx], ...rs };
+        } else {
+          shipments.push(rs);
+        }
       }
-
     }
-
     saveToStorage(STORAGE_KEY_SHIPMENTS, shipments);
-
+    notify();
   },
 
   createShipmentForOrder(order: OrderDetail, carrier = 'Giao Hàng Nhanh Express', staffName = 'Hệ thống tự động'): PortalShipment {

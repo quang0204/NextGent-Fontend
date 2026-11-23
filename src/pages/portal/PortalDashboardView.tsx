@@ -29,14 +29,20 @@ import {
   X,
   Check,
   Zap,
-  Info
+  Info,
+  PieChart
 } from 'lucide-react';
 import { sharedStore } from '../../services/sharedStore';
 import { paymentService, PaymentSummaryResponse } from '../../services/paymentService';
 import { orderService } from '../../services/orderService';
 import { inventoryService } from '../../services/inventoryService';
 import { productService } from '../../services/productService';
-import { reportService, TopSellingItemResponse, SlowMovingReportResponse } from '../../services/reportService';
+import { 
+  reportService, 
+  TopSellingItemResponse, 
+  SlowMovingReportResponse,
+  RevenueAnalyticsResponse 
+} from '../../services/reportService';
 import { Product } from '../../types/product';
 import { OrderDetail } from '../../types/order';
 import { PortalInventoryItem } from '../../types/portal';
@@ -97,6 +103,31 @@ export const PortalDashboardView: React.FC = () => {
     });
   }, [slowSearchTerm, slowSortBy, slowSeverityFilter]);
 
+  // Dashboard Biểu đồ doanh thu theo Ngày, Tuần, Tháng, Danh mục & Thương hiệu
+  const [revenuePeriod, setRevenuePeriod] = useState<'DAY' | 'WEEK' | 'MONTH'>('DAY');
+  const [breakdownTab, setBreakdownTab] = useState<'CATEGORY' | 'BRAND'>('CATEGORY');
+  const [revenueAnalytics, setRevenueAnalytics] = useState<RevenueAnalyticsResponse | null>(null);
+  const [isLoadingRevenue, setIsLoadingRevenue] = useState(false);
+  const [hoveredPoint, setHoveredPoint] = useState<any | null>(null);
+
+  useEffect(() => {
+    setIsLoadingRevenue(true);
+    reportService.getRevenueAnalytics(revenuePeriod)
+      .then(res => {
+        if (res) setRevenueAnalytics(res);
+      })
+      .catch(() => {})
+      .finally(() => {
+        setIsLoadingRevenue(false);
+      });
+  }, [revenuePeriod, orders]);
+
+  const maxTimelineRevenue = useMemo(() => {
+    if (!revenueAnalytics || !revenueAnalytics.timeline || revenueAnalytics.timeline.length === 0) return 1;
+    const maxVal = Math.max(...revenueAnalytics.timeline.map(t => Number(t.revenue) || 0));
+    return maxVal > 0 ? maxVal : 1;
+  }, [revenueAnalytics]);
+
   // Modal áp dụng chính sách xả hàng
   const [clearanceModalItem, setClearanceModalItem] = useState<{
     sku: string;
@@ -156,7 +187,8 @@ export const PortalDashboardView: React.FC = () => {
 
   // NGUYÊN TẮC HẠCH TOÁN DOANH THU CHUẨN KHOÁ LUẬN:
   const completedOrders = orders.filter(o => o.status === 'COMPLETED');
-  const grossRevenue = paymentSummary?.totalCollected ?? completedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+  // Doanh thu Hoàn tất (Gross) tính chuẩn xác từ các đơn hàng giao thành công (COMPLETED)
+  const grossRevenue = revenueAnalytics?.totalRevenue ?? completedOrders.reduce((sum, o) => sum + Number((o as any).finalAmount ?? o.totalAmount ?? 0), 0);
   const returnDeduction = paymentSummary?.totalRefunded ?? 0; 
   const netRevenue = Math.max(0, grossRevenue - returnDeduction);
 
@@ -761,6 +793,362 @@ export const PortalDashboardView: React.FC = () => {
             <ShieldAlert size={12} />
             <span>{outOfStockItems.length} SKU đã hết sạch tồn</span>
           </div>
+        </div>
+
+      </div>
+
+      {/* ========================================================================= */}
+      {/* DASHBOARD BIỂU ĐỒ DOANH THU THEO NGÀY / TUẦN / THÁNG & DANH MỤC, THƯƠNG HIỆU */}
+      {/* ========================================================================= */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-6 shadow-xs space-y-5 sm:space-y-6">
+        
+        {/* Header & Controls - Fully Responsive */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center shadow-xs flex-shrink-0 mt-0.5 sm:mt-0">
+              <BarChart3 size={20} />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight">
+                  Dashboard Biểu Đồ Doanh Thu
+                </h2>
+                <span className="text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/70 whitespace-nowrap">
+                  {revenuePeriod === 'DAY' ? 'Theo Ngày' : revenuePeriod === 'WEEK' ? 'Theo Tuần' : 'Theo Tháng'}
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">
+                Dữ liệu CSDL thời gian thực: phân tích xu hướng doanh số theo Ngày, Tuần, Tháng kết hợp cơ cấu Danh mục & Thương hiệu.
+              </p>
+            </div>
+          </div>
+
+          {/* Time Filter Tabs - Responsive Grid on Mobile, Flex on Desktop */}
+          <div className="w-full md:w-auto grid grid-cols-3 sm:flex items-center gap-1.5 bg-slate-100/90 p-1 rounded-xl border border-slate-200/60">
+            <button
+              onClick={() => setRevenuePeriod('DAY')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-center ${
+                revenuePeriod === 'DAY'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Theo Ngày
+            </button>
+            <button
+              onClick={() => setRevenuePeriod('WEEK')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-center ${
+                revenuePeriod === 'WEEK'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Theo Tuần
+            </button>
+            <button
+              onClick={() => setRevenuePeriod('MONTH')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all text-center ${
+                revenuePeriod === 'MONTH'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Theo Tháng
+            </button>
+          </div>
+        </div>
+
+        {/* 3 Metric Cards for Selected Period */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-50/80 border border-slate-200/60">
+            <span className="text-[10px] sm:text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+              Tổng doanh thu kỳ này
+            </span>
+            <span className="text-lg sm:text-xl font-black text-slate-900 mt-0.5 block tabular-nums">
+              {formatVND(revenueAnalytics?.totalRevenue || 0)}
+            </span>
+            <span className="text-[10px] sm:text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
+              <TrendingUp size={12} /> Doanh thu từ các đơn hoàn tất
+            </span>
+          </div>
+
+          <div className="p-3.5 sm:p-4 rounded-xl bg-blue-50/50 border border-blue-100">
+            <span className="text-[10px] sm:text-[11px] font-bold text-blue-800 uppercase tracking-wider block">
+              Tổng đơn hàng giao thành công
+            </span>
+            <span className="text-lg sm:text-xl font-black text-blue-700 mt-0.5 block tabular-nums">
+              {revenueAnalytics?.totalOrders || 0} đơn
+            </span>
+            <span className="text-[10px] sm:text-[11px] text-blue-600 font-medium mt-1 block">
+              Đơn hàng giao thành công (COMPLETED)
+            </span>
+          </div>
+
+          <div className="p-3.5 sm:p-4 rounded-xl bg-indigo-50/50 border border-indigo-100">
+            <span className="text-[10px] sm:text-[11px] font-bold text-indigo-800 uppercase tracking-wider block">
+              Giá trị trung bình / đơn (AOV)
+            </span>
+            <span className="text-lg sm:text-xl font-black text-indigo-700 mt-0.5 block tabular-nums">
+              {formatVND(revenueAnalytics?.averageOrderValue || 0)}
+            </span>
+            <span className="text-[10px] sm:text-[11px] text-indigo-600 font-medium mt-1 block">
+              Hiệu suất bình quân trên mỗi đơn hoàn tất
+            </span>
+          </div>
+        </div>
+
+        {/* Visual Charts: Timeline Bar Chart (Left) + Category & Brand Breakdown (Right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6 items-stretch">
+          
+          {/* Biểu đồ Cột Thời gian (Ngày, Tuần, Tháng) */}
+          <div className="lg:col-span-7 bg-slate-50/70 border border-slate-200/70 rounded-xl p-4 sm:p-5 flex flex-col justify-between relative">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/60 mb-3">
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 tracking-tight flex items-center gap-2">
+                  <Calendar size={15} className="text-blue-600 flex-shrink-0" />
+                  Xu hướng Doanh thu {revenuePeriod === 'DAY' ? 'theo Ngày' : revenuePeriod === 'WEEK' ? 'theo Tuần' : 'theo Tháng'}
+                </h3>
+                <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
+                  {hoveredPoint ? (
+                    <span className="text-blue-600 font-extrabold flex items-center gap-1.5 animate-in fade-in">
+                      <span className="w-2 h-2 rounded-full bg-blue-600 inline-block animate-pulse" />
+                      {hoveredPoint.label}: {formatVND(hoveredPoint.revenue)} ({hoveredPoint.orderCount} đơn giao thành công)
+                    </span>
+                  ) : (
+                    <span>Cột biểu thị doanh số thực tế từ các đơn hoàn tất (COMPLETED)</span>
+                  )}
+                </p>
+              </div>
+              <span className="text-[10px] font-mono text-slate-500 bg-white/80 px-2 py-0.5 rounded border border-slate-200/60 self-start sm:self-auto">
+                Đỉnh: {formatVND(maxTimelineRevenue)}
+              </span>
+            </div>
+
+            {/* Bar Visualization Container with horizontal scroll for small screens */}
+            <div className="overflow-x-auto pb-2 scrollbar-thin overflow-y-visible">
+              <div className="min-w-[340px] sm:min-w-full h-60 sm:h-64 flex items-end gap-1.5 sm:gap-3 px-1 sm:px-2 pt-12 pb-2 relative border-b border-slate-200">
+                {/* Background Guideline Lines */}
+                <div className="absolute inset-x-0 top-12 border-b border-dashed border-slate-200 pointer-events-none" />
+                <div className="absolute inset-x-0 top-1/2 border-b border-dashed border-slate-200 pointer-events-none" />
+
+                {(!revenueAnalytics?.timeline || revenueAnalytics.timeline.length === 0) ? (
+                  <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-medium">
+                    {isLoadingRevenue ? 'Đang truy vấn CSDL...' : 'Chưa có dữ liệu đơn hàng giao thành công trong kỳ'}
+                  </div>
+                ) : (
+                  revenueAnalytics.timeline.map((point, pIdx) => {
+                    const barHeightPct = Math.max(6, Math.round(((Number(point.revenue) || 0) / maxTimelineRevenue) * 100));
+                    const pointKey = point.dateKey || point.date || point.label || `pt-${pIdx}`;
+
+                    return (
+                      <div 
+                        key={pointKey}
+                        onMouseEnter={() => setHoveredPoint(point)}
+                        onMouseLeave={() => setHoveredPoint(null)}
+                        className="flex-1 min-w-[38px] sm:min-w-0 flex flex-col items-center h-full justify-end group relative cursor-pointer"
+                      >
+                        {/* Tooltip on hover - High contrast, explicitly styled, never cut off */}
+                        <div className="absolute -top-12 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-[#0f172a] text-white text-[11px] py-1.5 px-3 rounded-lg pointer-events-none whitespace-nowrap z-30 shadow-2xl border border-slate-700 flex flex-col items-center">
+                          <span className="font-bold text-slate-200">{point.label}</span>
+                          <span className="font-black text-white text-xs">{formatVND(point.revenue)}</span>
+                          <span className="text-[10px] text-blue-300 font-medium">{point.orderCount} đơn thành công</span>
+                          <div className="w-2 h-2 bg-[#0f172a] border-r border-b border-slate-700 rotate-45 -mb-2 mt-0.5" />
+                        </div>
+
+                        {/* Revenue preview text on top of bar */}
+                        <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 mb-1 truncate max-w-full text-center px-0.5 group-hover:text-blue-700 transition-colors">
+                          {point.revenue >= 1000000 
+                            ? `${(point.revenue / 1000000) % 1 === 0 ? Math.round(point.revenue / 1000000) : (point.revenue / 1000000).toFixed(1).replace('.0', '')}tr` 
+                            : point.revenue > 0 
+                              ? `${Math.round(point.revenue / 1000)}k` 
+                              : '0'}
+                        </span>
+
+                        {/* Bar Pillar */}
+                        <div 
+                          style={{ height: `${barHeightPct}%` }}
+                          className="w-full max-w-[28px] sm:max-w-[38px] md:max-w-[44px] bg-gradient-to-t from-blue-600 via-indigo-600 to-indigo-500 group-hover:from-blue-500 group-hover:to-indigo-400 rounded-t-md transition-all duration-300 shadow-xs relative"
+                        >
+                          {/* Shimmer top cap */}
+                          <div className="w-full h-1 bg-white/40 rounded-t-md" />
+                        </div>
+
+                        {/* Date label & order count below */}
+                        <div className="mt-2 text-center w-full">
+                          <span className="text-[10px] sm:text-[11px] font-bold text-slate-700 block truncate group-hover:text-blue-600 transition-colors">
+                            {point.label}
+                          </span>
+                          <span className="text-[8px] sm:text-[9px] text-slate-400 font-mono block">
+                            {point.orderCount} đơn
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[10px] sm:text-[11px] text-slate-400 pt-3 gap-1">
+              <span>Đơn vị: VNĐ / Kỳ</span>
+              <span>Tổng hợp trực tiếp từ các đơn hàng COMPLETED trong CSDL</span>
+            </div>
+          </div>
+
+          {/* Biểu đồ Cơ cấu Doanh thu (Danh mục / Thương hiệu) */}
+          <div className="lg:col-span-5 bg-slate-50/70 border border-slate-200/70 rounded-xl p-4 sm:p-5 flex flex-col justify-between">
+            <div>
+              {/* Header with Switcher Tabs */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-slate-200/60 mb-3">
+                <div>
+                  <h3 className="font-extrabold text-sm text-slate-900 tracking-tight flex items-center gap-1.5">
+                    <PieChart size={15} className="text-indigo-600 flex-shrink-0" />
+                    Cơ cấu Tỷ trọng Doanh thu
+                  </h3>
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5">
+                    Phân bổ nguồn thu theo nhóm sản phẩm & nhãn hàng
+                  </p>
+                </div>
+
+                {/* Tab switch Category / Brand */}
+                <div className="w-full sm:w-auto grid grid-cols-2 sm:flex items-center bg-white p-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                  <button
+                    onClick={() => setBreakdownTab('CATEGORY')}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all flex items-center justify-center gap-1 ${
+                      breakdownTab === 'CATEGORY'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Layers size={11} />
+                    Danh mục
+                  </button>
+                  <button
+                    onClick={() => setBreakdownTab('BRAND')}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all flex items-center justify-center gap-1 ${
+                      breakdownTab === 'BRAND'
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Tag size={11} />
+                    Thương hiệu
+                  </button>
+                </div>
+              </div>
+
+              {/* Breakdown List */}
+              <div className="space-y-3 pt-1 max-h-56 sm:max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+                {breakdownTab === 'CATEGORY' ? (
+                  (!revenueAnalytics?.byCategory || revenueAnalytics.byCategory.length === 0) ? (
+                    <div className="py-10 text-center text-slate-400 text-xs">
+                      {isLoadingRevenue ? 'Đang tải dữ liệu danh mục...' : 'Chưa có dữ liệu danh mục trong kỳ'}
+                    </div>
+                  ) : (
+                    revenueAnalytics.byCategory.map((cat, idx) => {
+                      const colors = [
+                        { bar: 'bg-indigo-600', text: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' },
+                        { bar: 'bg-blue-600', text: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+                        { bar: 'bg-emerald-600', text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+                        { bar: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
+                        { bar: 'bg-purple-600', text: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+                      ];
+                      const color = colors[idx % colors.length];
+
+                      return (
+                        <div key={cat.categoryId || cat.categoryName || idx} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">
+                                {idx + 1}
+                              </span>
+                              <strong className="text-slate-900 font-bold truncate max-w-[130px] sm:max-w-[170px]" title={cat.categoryName}>
+                                {cat.categoryName}
+                              </strong>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">({cat.unitsSold} sp)</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                              <span className="font-black text-slate-900 tabular-nums whitespace-nowrap text-right">
+                                {formatVND(cat.revenue)}
+                              </span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${color.bg} ${color.text} tabular-nums whitespace-nowrap`}>
+                                {cat.percentage}%
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Progress bar */}
+                          <div className="h-2 w-full bg-slate-200/70 rounded-full overflow-hidden">
+                            <div 
+                              style={{ width: `${Math.min(100, Math.max(2, cat.percentage))}%` }}
+                              className={`h-full ${color.bar} rounded-full transition-all duration-500`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )
+                ) : (
+                  (!revenueAnalytics?.byBrand || revenueAnalytics.byBrand.length === 0) ? (
+                    <div className="py-10 text-center text-slate-400 text-xs">
+                      {isLoadingRevenue ? 'Đang tải dữ liệu thương hiệu...' : 'Chưa có dữ liệu thương hiệu trong kỳ'}
+                    </div>
+                  ) : (
+                    revenueAnalytics.byBrand.map((brand, idx) => {
+                      const colors = [
+                        { bar: 'bg-blue-600', text: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+                        { bar: 'bg-emerald-600', text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
+                        { bar: 'bg-indigo-600', text: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' },
+                        { bar: 'bg-amber-500', text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
+                        { bar: 'bg-rose-500', text: 'text-rose-700', bg: 'bg-rose-50 border-rose-200' },
+                      ];
+                      const color = colors[idx % colors.length];
+
+                      return (
+                        <div key={brand.brandId || brand.brandName || idx} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="w-4 h-4 rounded-full bg-slate-200 text-slate-700 text-[9px] font-bold flex items-center justify-center flex-shrink-0">
+                                {idx + 1}
+                              </span>
+                              <strong className="text-slate-900 font-bold truncate max-w-[130px] sm:max-w-[170px]" title={brand.brandName}>
+                                {brand.brandName}
+                              </strong>
+                              <span className="text-[10px] text-slate-400 whitespace-nowrap">({brand.unitsSold} sp)</span>
+                            </div>
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                              <span className="font-black text-slate-900 tabular-nums whitespace-nowrap text-right">
+                                {formatVND(brand.revenue)}
+                              </span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${color.bg} ${color.text} tabular-nums whitespace-nowrap`}>
+                                {brand.percentage}%
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Progress bar */}
+                          <div className="h-2 w-full bg-slate-200/70 rounded-full overflow-hidden">
+                            <div 
+                              style={{ width: `${Math.min(100, Math.max(2, brand.percentage))}%` }}
+                              className={`h-full ${color.bar} rounded-full transition-all duration-500`}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between text-[10px] sm:text-[11px] text-slate-500 gap-1">
+              <span>Được tính trên 100% doanh số thực bán</span>
+              <span className="font-semibold text-slate-700">
+                {breakdownTab === 'CATEGORY' ? `${revenueAnalytics?.byCategory?.length || 0} ngành hàng` : `${revenueAnalytics?.byBrand?.length || 0} thương hiệu`}
+              </span>
+            </div>
+          </div>
+
         </div>
 
       </div>

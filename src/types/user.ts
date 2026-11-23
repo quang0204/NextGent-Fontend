@@ -208,6 +208,13 @@ export function parseAddressComponents(
   };
 }
 
+export interface AdminUserStats {
+  totalUsers: number;
+  totalAdmins: number;
+  totalStaffs: number;
+  totalLocked: number;
+}
+
 /**
  * Ghép các phần địa chỉ thành chuỗi đầy đủ và chuẩn hóa không bị dấu phẩy thừa
  */
