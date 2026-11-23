@@ -50,6 +50,12 @@ export const PortalUsersView: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [totalElements, setTotalElements] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    totalAdmins: 0,
+    totalStaffs: 0,
+    totalLocked: 0,
+  });
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleMetrics, setRoleMetrics] = useState({
     totalUsers: 0,
@@ -140,9 +146,46 @@ export const PortalUsersView: React.FC = () => {
     setIsLoading(false);
   };
 
+  // API 2.13: GET /api/v1/admin/users/stats - Thống kê toàn hệ thống
+  const loadStats = async () => {
+    try {
+      const res = await userService.getAdminUserStats();
+      if (res.data) {
+        setStats({
+          totalUsers: res.data.totalUsers ?? 0,
+          totalAdmins: res.data.totalAdmins ?? 0,
+          totalStaffs: res.data.totalStaffs ?? 0,
+          totalLocked: res.data.totalLocked ?? 0,
+        });
+        return;
+      }
+    } catch {
+      // Fallback nếu API stats chưa sẵn sàng: lấy toàn bộ người dùng để tính chính xác không phụ thuộc trang hiện tại
+      try {
+        const allRes = await userService.getAdminUsers({ limit: 1000 });
+        const allItems = allRes.data?.content || allRes.data?.items || (Array.isArray(allRes.data) ? allRes.data : null);
+        if (allItems && Array.isArray(allItems)) {
+          setStats({
+            totalUsers: allRes.data?.totalElements ?? allItems.length,
+            totalAdmins: allItems.filter((u: any) => u.role === 'ADMIN').length,
+            totalStaffs: allItems.filter((u: any) => u.role === 'STAFF').length,
+            totalLocked: allItems.filter((u: any) => u.status === 'LOCKED').length,
+          });
+          return;
+        }
+      } catch (fallbackErr) {
+        console.warn('Fallback getAdminUsers stats failed', fallbackErr);
+      }
+    }
+  };
+
   useEffect(() => {
     loadUsers();
   }, [currentPage, pageSize, debouncedSearch, roleFilter, statusFilter]);
+
+  useEffect(() => {
+    loadStats();
+  }, []);
 
   // Bộ lọc client nếu server trả về danh sách đầy đủ hoặc fallback
   const filteredUsers = useMemo(() => {
@@ -226,6 +269,7 @@ export const PortalUsersView: React.FC = () => {
     setIsSubmittingLock(false);
     setSelectedUserForLock(null);
     setLockReason('');
+    loadStats();
   };
 
   // API 2.10: POST /api/v1/admin/users/internal
@@ -258,6 +302,7 @@ export const PortalUsersView: React.FC = () => {
         setNewPassword('');
         setIsCreatingUser(false);
         loadUsers();
+        loadStats();
         setTimeout(() => setCreateSuccessMsg(''), 4000);
         return;
       }
@@ -382,12 +427,14 @@ export const PortalUsersView: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tổng tài khoản</div>
+          <div className="text-xl font-bold text-slate-900 mt-1">{stats.totalUsers || totalElements || users.length}</div>
           <div className="text-xl font-bold text-slate-900 mt-1">{roleMetrics.totalUsers || totalElements || users.length}</div>
           <div className="text-[10px] text-slate-400 mt-0.5">Tất cả người dùng trên hệ thống</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Quản trị viên</div>
           <div className="text-xl font-bold text-purple-700 mt-1">
+            {stats.totalAdmins}
             {roleMetrics.adminCount}
           </div>
           <div className="text-[10px] text-purple-500 mt-0.5">Toàn quyền cấu hình & kho</div>
@@ -395,6 +442,7 @@ export const PortalUsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Nhân viên kho/đơn</div>
           <div className="text-xl font-bold text-blue-700 mt-1">
+            {stats.totalStaffs}
             {roleMetrics.staffCount}
           </div>
           <div className="text-[10px] text-blue-500 mt-0.5">Xử lý đơn hàng, xuất nhập kho</div>
@@ -402,6 +450,7 @@ export const PortalUsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tài khoản bị khóa</div>
           <div className="text-xl font-bold text-rose-700 mt-1">
+            {stats.totalLocked}
             {roleMetrics.lockedCount}
           </div>
           <div className="text-[10px] text-rose-500 mt-0.5">Chặn giữ chỗ kho ảo</div>

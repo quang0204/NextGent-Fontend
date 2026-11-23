@@ -118,8 +118,25 @@ export const ProductListPage: React.FC = () => {
   const currentSearch = (searchParams.get('q') || '').trim();
   const isSearchMode = Boolean(currentSearch);
   const parsedSearch = parseSmartSearchQuery(currentSearch);
-  const currentCategory = rawCategory || 'all';
   const currentCategoryId = searchParams.get('categoryId') ? Number(searchParams.get('categoryId')) : undefined;
+
+  const currentCategory = useMemo(() => {
+    if (rawCategory) return rawCategory;
+    if (!currentCategoryId) return 'all';
+    if (currentCategoryId === 1) return 'phone';
+    if (currentCategoryId === 2) return 'tablet';
+    if (currentCategoryId === 3) return 'laptop';
+    if (currentCategoryId === 4) return 'accessory';
+    for (const root of categoriesTree) {
+      if (root.categoryId === currentCategoryId || root.children?.some(ch => ch.categoryId === currentCategoryId)) {
+        if (root.categoryId === 1 || root.name.toLowerCase().includes('điện thoại')) return 'phone';
+        if (root.categoryId === 2 || root.name.toLowerCase().includes('máy tính bảng') || root.name.toLowerCase().includes('tablet')) return 'tablet';
+        if (root.categoryId === 3 || root.name.toLowerCase().includes('laptop')) return 'laptop';
+        if (root.categoryId === 4 || root.name.toLowerCase().includes('phụ kiện')) return 'accessory';
+      }
+    }
+    return 'all';
+  }, [rawCategory, currentCategoryId, categoriesTree]);
 
   // Danh mục con thuộc ngành hàng hiện tại (hoặc tất cả ngành hàng khi currentCategory === 'all')
   const subcategories = useMemo(() => {

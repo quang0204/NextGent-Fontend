@@ -48,29 +48,30 @@ export const PortalShipmentsView: React.FC = () => {
   const loadBackendShipments = useCallback(async () => {
     try {
       const res = await apiClient.get<{ success: boolean; data: any }>('/admin/shipments', {
-        params: { page: 1, size: 50, status: 'ALL' }
+        params: { page: 1, size: 200, status: 'ALL' }
       });
       if (res.data?.data?.content) {
         const backendItems: PortalShipment[] = res.data.data.content.map((b: any) => ({
           shipmentId: b.shipmentId,
           orderId: b.orderId,
           orderCode: b.orderCode,
-          carrier: b.carrier,
-          trackingCode: b.trackingCode,
+          carrier: b.carrier || 'Chưa phân bổ',
+          trackingCode: b.trackingCode || `VĐ-${b.shipmentId}`,
           status: (b.status === 'READY_TO_PICK' ? 'PREPARING' :
                    b.status === 'PICKED' ? 'PICKED_UP' :
                    b.status === 'FAILED_DELIVERY' ? 'DELIVERY_FAILED' :
                    b.status) as ShipmentStatus,
           failReason: b.failReason,
-          recipientName: b.recipientName,
-          recipientPhone: b.recipientPhone,
-          shippingAddress: b.shippingAddress,
-          codAmount: b.paymentMethod === 'COD' ? b.orderTotalAmount : 0,
+          recipientName: b.recipientName || 'Khách hàng',
+          recipientPhone: b.recipientPhone || 'N/A',
+          shippingAddress: b.shippingAddress || 'Địa chỉ nhận hàng',
+          codAmount: b.codAmount != null ? Number(b.codAmount) : (b.paymentMethod === 'COD' ? Number(b.orderTotalAmount) || 0 : 0),
+          orderStatus: b.orderStatus,
           updatedBy: b.updatedBy,
           updatedAt: b.updatedAt
         }));
         setShipments(backendItems);
-        sharedStore.syncExternalShipments(backendItems);
+        sharedStore.syncExternalShipments(backendItems, true);
       }
     } catch {
       // Giữ dữ liệu sharedStore mặc định nếu chưa đăng nhập hoặc mạng offline
@@ -381,11 +382,12 @@ export const PortalShipmentsView: React.FC = () => {
     }
   };
 
-  const getOrderStatusBadge = (orderCode: string) => {
+  const getOrderStatusBadge = (orderCode: string, serverOrderStatus?: string) => {
     const ord = orders.find(o => o.orderCode === orderCode);
-    if (!ord) return <span className="text-slate-400 text-[10px] italic">Không xác định</span>;
+    const status = serverOrderStatus || ord?.status;
+    if (!status) return <span className="text-slate-400 text-[10px] italic">Không xác định</span>;
 
-    switch (ord.status) {
+    switch (status) {
       case 'WAITING_CONFIRMATION':
         return <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-md text-[10px] font-bold">Chờ xác nhận</span>;
       case 'CONFIRMED':
@@ -403,8 +405,28 @@ export const PortalShipmentsView: React.FC = () => {
       case 'CANCELLED':
         return <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-md text-[10px] font-bold">Đã hủy</span>;
       default:
-        return <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-[10px] font-bold">{ord.status}</span>;
+        return <span className="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-200 rounded-md text-[10px] font-bold">{status}</span>;
     }
+  };
+
+  const getSyncStatusText = (shipStatus: ShipmentStatus, serverOrderStatus?: string) => {
+    if (!serverOrderStatus) return <span className="text-[9px] text-slate-400 font-medium block">Chờ kết nối đơn</span>;
+    if (shipStatus === 'DELIVERED' && serverOrderStatus === 'COMPLETED') {
+      return <span className="text-[9px] text-emerald-600 font-semibold block">✓ Đã giao hoàn tất</span>;
+    }
+    if ((shipStatus === 'DELIVERY_FAILED' || shipStatus === 'FAILED') && (serverOrderStatus === 'RETURNING' || serverOrderStatus === 'CANCELLED')) {
+      return <span className="text-[9px] text-amber-600 font-semibold block">✓ Đã chuyển hoàn kho</span>;
+    }
+    if (shipStatus === 'IN_TRANSIT' && serverOrderStatus === 'SHIPPING') {
+      return <span className="text-[9px] text-blue-600 font-semibold block">✓ Đang giao bưu cục</span>;
+    }
+    if (shipStatus === 'PICKED_UP' && (serverOrderStatus === 'SHIPPING' || serverOrderStatus === 'PREPARING')) {
+      return <span className="text-[9px] text-indigo-600 font-semibold block">✓ Bưu tá đã nhận</span>;
+    }
+    if ((shipStatus === 'PREPARING' || shipStatus === 'WAITING_PICKUP') && (serverOrderStatus === 'PREPARING' || serverOrderStatus === 'CONFIRMED')) {
+      return <span className="text-[9px] text-purple-600 font-semibold block">✓ Kho đang đóng gói</span>;
+    }
+    return <span className="text-[9px] text-slate-500 font-medium block">✓ Đã liên kết CSDL</span>;
   };
 
   return (
@@ -447,7 +469,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Tổng vận đơn</span>
           <strong className="text-lg font-black text-slate-900 mt-0.5 block">{totalCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Tất cả kiện hàng</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Tất cả kiện hàng CSDL</span>
         </div>
 
         <div 
@@ -458,7 +480,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider block">Đang chuẩn bị</span>
           <strong className="text-lg font-black text-purple-700 mt-0.5 block">{preparingCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Kho đang đóng gói</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Chờ đóng gói (READY_TO_PICK)</span>
         </div>
 
         <div 
@@ -469,7 +491,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">Đã lấy hàng</span>
           <strong className="text-lg font-black text-blue-700 mt-0.5 block">{pickedUpCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Đã tiếp nhận từ kho</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Bưu tá nhận (PICKED)</span>
         </div>
 
         <div 
@@ -480,7 +502,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Đang giao</span>
           <strong className="text-lg font-black text-indigo-700 mt-0.5 block">{inTransitCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Đang luân chuyển</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Đang vận chuyển</span>
         </div>
 
         <div 
@@ -491,7 +513,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Giao thành công</span>
           <strong className="text-lg font-black text-emerald-700 mt-0.5 block">{deliveredCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Hoàn tất & Ghi nhận DT</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Hoàn tất (DELIVERED)</span>
         </div>
 
         <div 
@@ -502,7 +524,7 @@ export const PortalShipmentsView: React.FC = () => {
         >
           <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Giao thất bại</span>
           <strong className="text-lg font-black text-rose-700 mt-0.5 block">{failedCount}</strong>
-          <span className="text-[10px] text-slate-500 mt-0.5 block">Tự động hủy đơn hàng</span>
+          <span className="text-[10px] text-slate-500 mt-0.5 block">Chờ xử lý hoàn kho</span>
         </div>
       </div>
 
@@ -676,7 +698,7 @@ export const PortalShipmentsView: React.FC = () => {
                       <div>
                         <span className="font-bold text-slate-800 block">{ship.carrier}</span>
                         <span className="text-[10px] text-slate-400 block font-mono">
-                          {new Date(ship.updatedAt).toLocaleDateString('vi-VN')}
+                          {ship.updatedAt ? new Date(ship.updatedAt).toLocaleDateString('vi-VN') : 'Mới cập nhật'}
                         </span>
                       </div>
                     </td>
@@ -695,17 +717,20 @@ export const PortalShipmentsView: React.FC = () => {
 
                     {/* Cột 4: Thu hộ COD */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      {ship.codAmount > 0 ? (
+                      {Number(ship.codAmount) > 0 ? (
                         <div>
                           <strong className="font-mono font-bold text-slate-900 text-xs">
                             {formatVND(ship.codAmount)}
                           </strong>
-                          <span className="text-[10px] text-slate-400 block">Thu tiền mặt</span>
+                          <span className="text-[10px] text-slate-400 block">Thu tiền mặt (COD)</span>
                         </div>
                       ) : (
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">
-                          Đã thanh toán Online
-                        </span>
+                        <div>
+                          <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-[10px] font-bold">
+                            Đã thanh toán Online
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">0₫</span>
+                        </div>
                       )}
                     </td>
 
@@ -724,10 +749,8 @@ export const PortalShipmentsView: React.FC = () => {
                     {/* Cột 6: Đơn hàng đồng bộ */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
                       <div className="space-y-0.5 inline-block">
-                        {getOrderStatusBadge(ship.orderCode)}
-                        <span className="text-[9px] text-emerald-600 font-semibold block">
-                          ✓ Đồng bộ 100%
-                        </span>
+                        {getOrderStatusBadge(ship.orderCode, ship.orderStatus)}
+                        {getSyncStatusText(ship.status, ship.orderStatus)}
                       </div>
                     </td>
 

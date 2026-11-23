@@ -1827,17 +1827,17 @@ export const PortalOrdersView: React.FC = () => {
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/90">
                             <span className="text-[10px] text-slate-400 font-bold uppercase block">Đơn vị vận chuyển</span>
                             <strong className="text-slate-900 text-xs block mt-1">
-                              {order.carrier || shipmentRecord?.carrier || 'Giao Hàng Nhanh Express'}
+                              {order.carrier || shipmentRecord?.carrier || 'Chưa chỉ định hãng VC'}
                             </strong>
-                            <span className="text-[10px] text-slate-500 block mt-0.5">Tiêu chuẩn hỏa tốc</span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">Tiêu chuẩn vận chuyển</span>
                           </div>
 
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/90">
                             <span className="text-[10px] text-slate-400 font-bold uppercase block">Mã vận đơn bưu cục</span>
                             <strong className="text-blue-700 text-xs font-mono block mt-1">
-                              {order.trackingCode || shipmentRecord?.trackingCode || 'GHN-89230192'}
+                              {order.trackingCode || shipmentRecord?.trackingCode || 'Chưa cấp mã vận đơn'}
                             </strong>
-                            <span className="text-[10px] text-blue-500 font-mono block mt-0.5">Barcode bưu điện</span>
+                            <span className="text-[10px] text-blue-500 font-mono block mt-0.5">Mã tra cứu CSDL</span>
                           </div>
 
                           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/90">
@@ -1858,7 +1858,7 @@ export const PortalOrdersView: React.FC = () => {
                               {STATUS_PIPELINE.find(s => s.key === order.status)?.label || order.status}
                             </span>
                             <span className="text-[10px] text-emerald-600 block mt-0.5 font-semibold">
-                              ✓ Đồng bộ 100% dữ liệu
+                              ✓ Khớp trạng thái CSDL
                             </span>
                           </div>
                         </div>
