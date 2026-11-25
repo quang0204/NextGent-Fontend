@@ -150,7 +150,7 @@ export const PortalDashboardView: React.FC = () => {
       if (res) setPaymentSummary(res);
     }).catch(() => {});
 
-    orderService.getAdminOrders({ page: 1, size: 200, status: 'ALL' })
+    orderService.getAdminOrders({ page: 1, size: 100, status: 'ALL' })
       .then(res => {
         if (res?.content && res.content.length > 0) {
           sharedStore.syncExternalOrders(res.content);
@@ -158,7 +158,7 @@ export const PortalDashboardView: React.FC = () => {
       })
       .catch(() => {});
 
-    inventoryService.getInventories({ page: 1, size: 200 })
+    inventoryService.getInventories({ page: 1, size: 100 })
       .then(res => {
         if (res?.content && res.content.length > 0) {
           setInventories(res.content);

@@ -39,42 +39,55 @@ export const PortalShipmentsView: React.FC = () => {
   const [newStatus, setNewStatus] = useState<ShipmentStatus>('IN_TRANSIT');
   const [failReason, setFailReason] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedShipmentIds, setSelectedShipmentIds] = useState<number[]>([]);
   const [bulkStatusTarget, setBulkStatusTarget] = useState<'PICKED_UP' | 'IN_TRANSIT' | 'DELIVERED' | 'DELIVERY_FAILED'>('IN_TRANSIT');
   const [bulkFailReason, setBulkFailReason] = useState('');
   const [isBulkUpdating, setIsBulkUpdating] = useState(false);
 
-  // API 9.2: Tải danh sách vận đơn thực tế từ Backend
+  // API 9.2: Tải danh sách vận đơn thực tế từ Backend (tuân thủ ALLOWED_PAGE_SIZES <= 100)
   const loadBackendShipments = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ success: boolean; data: any }>('/admin/shipments', {
-        params: { page: 1, size: 200, status: 'ALL' }
-      });
-      if (res.data?.data?.content) {
-        const backendItems: PortalShipment[] = res.data.data.content.map((b: any) => ({
-          shipmentId: b.shipmentId,
-          orderId: b.orderId,
-          orderCode: b.orderCode,
-          carrier: b.carrier || 'Chưa phân bổ',
-          trackingCode: b.trackingCode || `VĐ-${b.shipmentId}`,
-          status: (b.status === 'READY_TO_PICK' ? 'PREPARING' :
-                   b.status === 'PICKED' ? 'PICKED_UP' :
-                   b.status === 'FAILED_DELIVERY' ? 'DELIVERY_FAILED' :
-                   b.status) as ShipmentStatus,
-          failReason: b.failReason,
-          recipientName: b.recipientName || 'Khách hàng',
-          recipientPhone: b.recipientPhone || 'N/A',
-          shippingAddress: b.shippingAddress || 'Địa chỉ nhận hàng',
-          codAmount: b.codAmount != null ? Number(b.codAmount) : (b.paymentMethod === 'COD' ? Number(b.orderTotalAmount) || 0 : 0),
-          orderStatus: b.orderStatus,
-          updatedBy: b.updatedBy,
-          updatedAt: b.updatedAt
-        }));
-        setShipments(backendItems);
-        sharedStore.syncExternalShipments(backendItems, true);
+      setLoadError(null);
+      const allItems: any[] = [];
+      let page = 1;
+      let hasNext = true;
+      while (hasNext && page <= 10) {
+        const res = await apiClient.get<{ success: boolean; data: any }>('/admin/shipments', {
+          params: { page, size: 100, status: 'ALL' }
+        });
+        const pageData = res.data?.data;
+        const content = Array.isArray(pageData?.content) ? pageData.content : [];
+        allItems.push(...content);
+        hasNext = Boolean(pageData?.hasNext);
+        page += 1;
       }
-    } catch {
-      // Giữ dữ liệu sharedStore mặc định nếu chưa đăng nhập hoặc mạng offline
+
+      const backendItems: PortalShipment[] = allItems.map((b: any) => ({
+        shipmentId: b.shipmentId,
+        orderId: b.orderId,
+        orderCode: b.orderCode || `ORD-${b.orderId || b.shipmentId}`,
+        carrier: b.carrier || 'Chưa phân bổ',
+        trackingCode: b.trackingCode || `VĐ-${b.shipmentId}`,
+        status: (b.status === 'READY_TO_PICK' ? 'PREPARING' :
+                 b.status === 'PICKED' ? 'PICKED_UP' :
+                 b.status === 'FAILED_DELIVERY' ? 'DELIVERY_FAILED' :
+                 b.status) as ShipmentStatus,
+        failReason: b.failReason,
+        recipientName: b.recipientName || 'Khách hàng',
+        recipientPhone: b.recipientPhone || 'N/A',
+        shippingAddress: b.shippingAddress || 'Địa chỉ nhận hàng',
+        codAmount: b.codAmount != null ? Number(b.codAmount) : (b.paymentMethod === 'COD' ? Number(b.orderTotalAmount) || 0 : 0),
+        orderStatus: b.orderStatus,
+        updatedBy: b.updatedBy,
+        updatedAt: b.updatedAt
+      }));
+      setShipments(backendItems);
+      sharedStore.syncExternalShipments(backendItems, true);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Không thể tải danh sách vận đơn từ máy chủ';
+      setLoadError(msg);
+      console.warn('[PortalShipmentsView] loadBackendShipments error:', msg);
     }
   }, []);
 
@@ -185,9 +198,20 @@ export const PortalShipmentsView: React.FC = () => {
     e.preventDefault();
     if (!editingShipment) return;
 
+    if (isTerminalShipment(editingShipment.status)) {
+      showNotification(`Vận đơn ${editingShipment.trackingCode} đã ở trạng thái kết thúc.`);
+      setEditingShipment(null);
+      return;
+    }
+
     const isFailStatus = newStatus === 'PICKUP_FAILED' || newStatus === 'DELIVERY_FAILED' || newStatus === 'FAILED';
     if (isFailStatus && !failReason.trim()) {
       alert('Vui lòng chọn hoặc nhập lý do thất bại để hệ thống ghi nhận đối soát!');
+      return;
+    }
+
+    if (newStatus === editingShipment.status) {
+      showNotification('Vui lòng chọn trạng thái tiến trình tiếp theo.');
       return;
     }
 
@@ -281,7 +305,7 @@ export const PortalShipmentsView: React.FC = () => {
     }
   };
 
-  const carriers = Array.from(new Set(shipments.map(s => s.carrier)));
+  const carriers = Array.from(new Set(shipments.map(s => s.carrier).filter(Boolean)));
 
   // Thống kê nhanh KPI vận đơn (Tiến trình: Đang chuẩn bị hàng -> Đã lấy hàng -> Đang giao hàng -> Giao thành công / Giao thất bại)
   const totalCount = shipments.length;
@@ -456,6 +480,23 @@ export const PortalShipmentsView: React.FC = () => {
         <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold flex items-center gap-2 shadow-xs animate-in slide-in-from-top-2">
           <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {loadError && (
+        <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-semibold flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-rose-600 flex-shrink-0" />
+            <span>Lỗi tải dữ liệu vận đơn: {loadError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={loadBackendShipments}
+            className="px-3 py-1.5 bg-white hover:bg-rose-100 border border-rose-300 text-rose-700 rounded-lg font-bold inline-flex items-center gap-1.5 transition"
+          >
+            <RefreshCw size={13} />
+            <span>Thử lại</span>
+          </button>
         </div>
       )}
 
@@ -756,14 +797,21 @@ export const PortalShipmentsView: React.FC = () => {
 
                     {/* Cột 7: Thao tác cập nhật */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => handleStartUpdate(ship)}
-                        className="px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-200 text-blue-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition shadow-2xs"
-                        title="Cập nhật tiến trình giao nhận và tự động đồng bộ sang Đơn hàng"
-                      >
-                        <Edit size={13} />
-                        <span>Cập nhật tiến trình</span>
-                      </button>
+                      {isTerminalShipment(ship.status) ? (
+                        <span className="px-3 py-1.5 bg-slate-100 text-slate-500 border border-slate-200 rounded-xl font-bold text-xs inline-flex items-center gap-1.5">
+                          <PackageCheck size={13} />
+                          <span>Đã chốt</span>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleStartUpdate(ship)}
+                          className="px-3 py-1.5 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-200 text-blue-700 rounded-xl font-bold text-xs inline-flex items-center gap-1.5 transition shadow-2xs"
+                          title="Cập nhật tiến trình giao nhận và tự động đồng bộ sang Đơn hàng"
+                        >
+                          <Edit size={13} />
+                          <span>Cập nhật tiến trình</span>
+                        </button>
+                      )}
                     </td>
 
                   </tr>
