@@ -100,38 +100,41 @@ export const PortalReviewsTicketsView: React.FC = () => {
     const currentStatus = target?.status === 'HIDDEN' || sharedStore.isReviewHidden(reviewId) ? 'HIDDEN' : 'PUBLISHED';
     const nextStatus: 'PUBLISHED' | 'HIDDEN' = currentStatus === 'PUBLISHED' ? 'HIDDEN' : 'PUBLISHED';
 
-    setReviews(prev =>
-      prev.map(r => (Number(r.reviewId) === Number(reviewId) ? { ...r, status: nextStatus } : r))
-    );
-    showToast(
-      nextStatus === 'HIDDEN'
-        ? 'Đã ẩn đánh giá khỏi giao diện người dùng'
-        : 'Đã công khai đánh giá lên sản phẩm'
-    );
-
-    await reviewService.updateAdminReviewStatus(reviewId, nextStatus, target);
+    try {
+      await reviewService.updateAdminReviewStatus(reviewId, nextStatus, target);
+      setReviews(prev =>
+        prev.map(r => (Number(r.reviewId) === Number(reviewId) ? { ...r, status: nextStatus } : r))
+      );
+      showToast(
+        nextStatus === 'HIDDEN'
+          ? 'Đã ẩn đánh giá khỏi giao diện người dùng'
+          : 'Đã công khai đánh giá lên sản phẩm'
+      );
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || err?.message || 'Không thể cập nhật trạng thái đánh giá.');
+    }
   };
 
   const handleSendStoreReply = async (reviewId: number) => {
     if (!storeReplyText.trim()) return;
     try {
       await reviewService.replyAdminReview(reviewId, storeReplyText.trim());
-    } catch (err) {
-      console.warn('[PortalReviewsTicketsView] replyAdminReview error', err);
+      setReviews(prev => prev.map(r => {
+        if (r.reviewId === reviewId) {
+          return {...r,
+            storeReply: storeReplyText.trim(),
+            reply: storeReplyText.trim(),
+            repliedAt: new Date().toISOString()
+          };
+        }
+        return r;
+      }));
+      setReplyingReviewId(null);
+      setStoreReplyText('');
+      showToast('Đã đăng phản hồi chính thức từ NextGen Smart Tech thành công!');
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || err?.message || 'Không thể gửi phản hồi đánh giá.');
     }
-    setReviews(prev => prev.map(r => {
-      if (r.reviewId === reviewId) {
-        return {...r,
-          storeReply: storeReplyText.trim(),
-          reply: storeReplyText.trim(),
-          repliedAt: new Date().toISOString()
-        };
-      }
-      return r;
-    }));
-    setReplyingReviewId(null);
-    setStoreReplyText('');
-    showToast('Đã đăng phản hồi chính thức từ NextGen Smart Tech thành công!');
   };
 
   const handleResolveTicket = async (ticketId: number, status: 'RESOLVED' | 'REJECTED') => {
@@ -140,13 +143,14 @@ export const PortalReviewsTicketsView: React.FC = () => {
       return;
     }
 
-    try {
-      await ticketService.updateAdminTicket(ticketId, {
-        status: status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED',
-        resolutionNote: ticketReplyText.trim(),
-      });
-    } catch (err) {
-      console.warn('[PortalReviewsTicketsView] updateAdminTicket error', err);
+    const res = await ticketService.updateAdminTicket(ticketId, {
+      status: status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED',
+      resolutionNote: ticketReplyText.trim(),
+    });
+
+    if (!res.success) {
+      showToast(res.message || 'Không thể cập nhật phiếu hỗ trợ.');
+      return;
     }
 
     setTickets(prev => prev.map(t => {

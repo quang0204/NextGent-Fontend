@@ -218,6 +218,7 @@ const mapApiProductToFrontend = (it: any): Product => {
     brandName,
     categoryName,
     categoryId: it.category?.categoryId || it.categoryId,
+    categoryEffectiveVisible: it.category?.effectiveVisible ?? true,
     parentCategoryId: it.category?.parentId ?? null,
     rootCategoryId: it.category?.rootCategoryId || (it.category?.parentId ? it.category.parentId : (it.category?.categoryId || it.categoryId)),
     rootCategoryName: it.category?.rootCategoryName || (it.category?.parentName ? it.category.parentName : categoryName),
@@ -747,7 +748,7 @@ export const productService = {
     } catch (err) {
       console.warn('[productService.getRelatedProducts] Backend offline or failed', err);
     }
-    return sharedStore.getRelatedProducts(id, limit);
+    return [];
   },
 
   /**
@@ -825,15 +826,8 @@ export const productService = {
    * Khai báo sản phẩm mới (Master-Detail)
    */
   async createAdminProduct(payload: CreateAdminProductPayload): Promise<any> {
-    try {
-      const res = await apiClient.post<any>('/admin/products', payload);
-      if (res.data?.data) {
-        return res.data.data;
-      }
-    } catch (err) {
-      console.warn('[productService.createAdminProduct] Fallback to sharedStore', err);
-    }
-    return null;
+    const res = await apiClient.post<any>('/admin/products', payload);
+    return res.data?.data ?? res.data ?? null;
   },
 
   /**
@@ -841,15 +835,8 @@ export const productService = {
    * Cập nhật thông tin chung & Thông số kỹ thuật
    */
   async updateAdminProduct(id: number, payload: UpdateAdminProductPayload): Promise<any> {
-    try {
-      const res = await apiClient.put<any>(`/admin/products/${id}`, payload);
-      if (res.data?.data) {
-        return res.data.data;
-      }
-    } catch (err) {
-      console.warn('[productService.updateAdminProduct] Fallback to sharedStore', err);
-    }
-    return null;
+    const res = await apiClient.put<any>(`/admin/products/${id}`, payload);
+    return res.data?.data ?? res.data ?? null;
   },
 
   /**
@@ -929,16 +916,9 @@ export const productService = {
    * Bật/Tắt trạng thái kinh doanh của sản phẩm
    */
   async updateProductStatus(id: number, status: 'ACTIVE' | 'INACTIVE', reason?: string): Promise<any> {
+    const res = await apiClient.patch<any>(`/admin/products/${id}/status`, { status, reason });
     sharedStore.updateProductStatus(id, status);
-    try {
-      const res = await apiClient.patch<any>(`/admin/products/${id}/status`, { status, reason });
-      if (res.data?.data) {
-        return res.data.data;
-      }
-    } catch (err) {
-      console.warn('[productService.updateProductStatus] Fallback to sharedStore', err);
-    }
-    return null;
+    return res.data?.data ?? res.data ?? null;
   },
 
   // Lấy danh sách thương hiệu (API 3.6: GET /api/v1/brands)

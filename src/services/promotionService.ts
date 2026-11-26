@@ -357,55 +357,17 @@ export const promotionService = {
           data: res.data.data,
         };
       }
+      return {
+        success: false,
+        message: 'Máy chủ không trả về dữ liệu chiến dịch khuyến mãi.',
+      };
     } catch (error: any) {
-      console.warn('[promotionService.createPromotion] Backend failed, fallback to sharedStore', error);
-      if (error.response?.data?.message) {
-        return {
-          success: false,
-          message: error.response.data.message,
-        };
-      }
+      console.warn('[promotionService.createPromotion] Backend failed', error);
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Không thể tạo chiến dịch khuyến mãi.',
+      };
     }
-
-    // Fallback: Lưu vào sharedStore
-    const products = sharedStore.getProducts();
-    const variants: PortalPromotionVariant[] = [];
-    payload.variants.forEach((v) => {
-      for (const p of products) {
-        const found = p.variants.find((item) => item.variantId === v.variantId);
-        if (found) {
-          variants.push({
-            promoVariantId: Date.now() + Math.floor(Math.random() * 1000),
-            promotionId: 0,
-            variantId: found.variantId,
-            productId: p.productId,
-            productName: p.name,
-            sku: found.sku,
-            color: found.color,
-            romGb: found.romGb || 0,
-            listPrice: found.listPrice || 30000000,
-            promoPrice: v.promoPrice,
-          });
-          break;
-        }
-      }
-    });
-
-    const newPromo = sharedStore.addPromotion({
-      name: payload.name,
-      description: payload.description,
-      startAt: payload.startAt,
-      endAt: payload.endAt,
-      status: payload.status,
-      createdBy: 'Nguyễn Văn Admin (ADMIN)',
-      variants,
-    });
-
-    return {
-      success: true,
-      message: 'Tạo mới chiến dịch khuyến mãi thành công!',
-      data: newPromo,
-    };
   },
 
   /**
@@ -433,11 +395,10 @@ export const promotionService = {
         data: res.data?.data,
       };
     } catch (error: any) {
-      console.warn(`[promotionService.updatePromotionStatus] Backend failed for promo ${id}, fallback to sharedStore`, error);
-      sharedStore.togglePromotionStatus(id);
+      console.warn(`[promotionService.updatePromotionStatus] Backend failed for promo ${id}`, error);
       return {
-        success: true,
-        message: 'Đã cập nhật trạng thái chiến dịch.',
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Không thể cập nhật trạng thái chiến dịch.',
       };
     }
   },
@@ -706,46 +667,17 @@ export const promotionService = {
           data: d,
         };
       }
-    } catch (error: any) {
-      console.warn('[promotionService.createVoucher] Backend failed, fallback to local store', error);
-      if (error.response?.data?.message) {
-        return {
-          success: false,
-          message: error.response.data.message,
-        };
-      }
-    }
-
-    // Fallback: Local save
-    const cleanCode = payload.code.trim().toUpperCase();
-    const all = sharedStore.getVouchers();
-    if (all.some((v) => v.code === cleanCode)) {
       return {
         success: false,
-        message: `Mã Voucher "${cleanCode}" đã tồn tại trên hệ thống! Vui lòng chọn mã khác.`,
+        message: 'Máy chủ không trả về dữ liệu Voucher.',
+      };
+    } catch (error: any) {
+      console.warn('[promotionService.createVoucher] Backend failed', error);
+      return {
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Không thể khởi tạo mã Voucher.',
       };
     }
-
-    const newV: PortalVoucher = {
-      voucherId: Date.now(),
-      code: cleanCode,
-      discountType: normalizedType,
-      discountValue: Number(payload.discountValue),
-      maxDiscount: normalizedType === 'PERCENT' && payload.maxDiscount ? Number(payload.maxDiscount) : undefined,
-      minOrderValue: Number(payload.minOrderValue),
-      usageLimit: Number(payload.usageLimit),
-      usedCount: 0,
-      startAt: payload.startAt || new Date().toISOString(),
-      expiredAt: payload.expiredAt,
-      isActive: payload.isActive ?? true,
-    };
-    sharedStore.setVouchers([newV, ...all]);
-
-    return {
-      success: true,
-      message: 'Khởi tạo mã Voucher thành công!',
-      data: newV,
-    };
   },
 
   /**
@@ -774,13 +706,10 @@ export const promotionService = {
         data: res.data?.data,
       };
     } catch (error: any) {
-      console.warn(`[promotionService.toggleVoucherStatus] Backend failed for voucher ${id}, fallback to local store`, error);
-      const all = sharedStore.getVouchers();
-      const updated = all.map((v) => (v.voucherId === id ? { ...v, isActive: !v.isActive } : v));
-      sharedStore.setVouchers(updated);
+      console.warn(`[promotionService.toggleVoucherStatus] Backend failed for voucher ${id}`, error);
       return {
-        success: true,
-        message: 'Đã thay đổi trạng thái kích hoạt Voucher.',
+        success: false,
+        message: error?.response?.data?.message || error?.message || 'Không thể thay đổi trạng thái Voucher.',
       };
     }
   },

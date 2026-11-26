@@ -301,7 +301,7 @@ export const PortalProductsView: React.FC = () => {
   };
 
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
-  const handleCreateProduct = (e: React.FormEvent) => {
+  const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     const errors: Record<string, string> = {};
 
@@ -409,26 +409,6 @@ export const PortalProductsView: React.FC = () => {
       highlights: []
     };
 
-    // Thêm bản ghi tồn kho cho từng biến thể
-    const currentInventories = sharedStore.getInventories();
-    const newInventoryRecords = createdVariants.map(v => ({
-      variantId: v.variantId,
-      productId: newProdId,
-      productName: newProdName.trim(),
-      sku: v.sku,
-      color: v.color,
-      romGb: v.romGb,
-      onHandQty: v.onHandQty,
-      reservedQty: 0,
-      availableQty: v.availableQty,
-      minThreshold: 5,
-      status: 'IN_STOCK' as const
-    }));
-    const updatedInv = [...newInventoryRecords, ...currentInventories];
-    localStorage.setItem('np_inventory_v2', JSON.stringify(updatedInv));
-
-    sharedStore.addProduct(newProd);
-
     const matchedCategory = categories.find(c => c.name.toLowerCase() === newCategory.toLowerCase());
     const matchedBrand = brands.find(b => b.name.toLowerCase() === newBrand.toLowerCase());
 
@@ -451,57 +431,67 @@ export const PortalProductsView: React.FC = () => {
         }))
     );
 
-    // API 4.5: Khai báo sản phẩm mới (Master-Detail)
-    productService.createAdminProduct({
-      categoryId: matchedCategory ? matchedCategory.id : 1,
-      brandId: matchedBrand ? matchedBrand.brandId : 1,
-      name: newProdName.trim(),
-      description: newWarranty.trim(),
-      warrantyPolicy: newWarranty.trim(),
-      status: 'ACTIVE',
-      images: allCleanImages.map((img, idx) => ({
-        imageUrl: img,
-        isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
-        sortOrder: idx + 1,
-      })),
-      specs: cleanSpecs,
-      variants: draftVariants.map(v => ({
-        sku: v.sku.trim().toUpperCase(),
+    try {
+      // API 4.5: Khai báo sản phẩm mới (Master-Detail)
+      await productService.createAdminProduct({
+        categoryId: matchedCategory ? matchedCategory.id : 1,
+        brandId: matchedBrand ? matchedBrand.brandId : 1,
+        name: newProdName.trim(),
+        description: newWarranty.trim(),
+        warrantyPolicy: newWarranty.trim(),
+        status: 'ACTIVE',
+        images: allCleanImages.map((img, idx) => ({
+          imageUrl: img,
+          isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
+          sortOrder: idx + 1,
+        })),
+        specs: cleanSpecs,
+        variants: draftVariants.map(v => ({
+          sku: v.sku.trim().toUpperCase(),
+          color: v.color,
+          ramGb: v.ramGb,
+          romGb: v.romGb,
+          connectionType: v.connectionType,
+          attributes: v.attributes,
+          listPrice: v.listPrice,
+          salePrice: v.salePrice > 0 ? v.salePrice : v.listPrice,
+          initialOnHandQty: v.initialStock,
+          minThreshold: 5,
+        })),
+      });
+
+      const currentInventories = sharedStore.getInventories();
+      const newInventoryRecords = createdVariants.map(v => ({
+        variantId: v.variantId,
+        productId: newProdId,
+        productName: newProdName.trim(),
+        sku: v.sku,
         color: v.color,
-        ramGb: v.ramGb,
         romGb: v.romGb,
-        connectionType: v.connectionType,
-        attributes: v.attributes,
-        listPrice: v.listPrice,
-        salePrice: v.salePrice > 0 ? v.salePrice : v.listPrice,
-        initialOnHandQty: v.initialStock,
+        onHandQty: v.onHandQty,
+        reservedQty: 0,
+        availableQty: v.availableQty,
         minThreshold: 5,
-      })),
-    }).then(() => {
-      productService.getProducts().then(prods => {
-        if (prods && prods.length > 0) setProducts(prods);
-      }).catch(() => {});
-    }).catch(err => console.warn('[PortalProductsView] createAdminProduct error', err));
+        status: 'IN_STOCK' as const
+      }));
+      localStorage.setItem('np_inventory_v2', JSON.stringify([...newInventoryRecords, ...currentInventories]));
+      sharedStore.addProduct(newProd);
 
-    sharedStore.addAuditLog({
-      performedBy: 'Nguyễn Thế Minh (Admin)',
-      action: 'CREATE_PRODUCT',
-      entityName: 'Products',
-      entityId: String(newProdId),
-      oldValue: 'None',
-      newValue: `Thêm sản phẩm "${newProdName}" với ${createdVariants.length} biến thể SKU (Tổng tồn: ${createdVariants.reduce((s, v) => s + v.onHandQty, 0)} máy)`
-    });
-
-    setProducts([...sharedStore.getProducts()]);
-    setShowAddModal(false);
-    setNewProdName('');
-    setNewWarranty('');
-    setNewThumbnail('');
-    setNewGallery([]);
-    setNewSpecGroups([]);
-    setDraftVariants([createEmptyDraftVariant()]);
-    setAddFormErrors({});
-    showToast(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`, 'success');
+      const liveProds = await productService.getAdminProducts().catch(() => []);
+      setProducts(liveProds && liveProds.length > 0 ? liveProds : [...sharedStore.getProducts()]);
+      setShowAddModal(false);
+      setNewProdName('');
+      setNewWarranty('');
+      setNewThumbnail('');
+      setNewGallery([]);
+      setNewSpecGroups([]);
+      setDraftVariants([createEmptyDraftVariant()]);
+      setAddFormErrors({});
+      showToast(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`, 'success');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Không thể thêm sản phẩm lên máy chủ.';
+      showToast(msg, 'error');
+    }
   };
 
   // Bật / Tắt trạng thái kinh doanh của sản phẩm (đồng bộ tới toàn bộ biến thể)
@@ -512,22 +502,23 @@ export const PortalProductsView: React.FC = () => {
     if (!confirm(`Bạn có chắc chắn muốn ${actionText} sản phẩm "${p.name}"? ${isCurrentlyActive ? 'Toàn bộ biến thể SKU cũng sẽ tạm ngừng bán.' : 'Toàn bộ biến thể SKU sẽ được mở bán lại.'}`)) {
       return;
     }
-    await productService.updateProductStatus(p.productId, nextStatus, `Quản trị viên chuyển trạng thái sang ${nextStatus}`);
+    try {
+      await productService.updateProductStatus(p.productId, nextStatus, `Quản trị viên chuyển trạng thái sang ${nextStatus}`);
 
-    // Đồng bộ ngay trong sharedStore cho cả sản phẩm và tất cả biến thể
-    const updatedVariants = Array.isArray(p.variants)
-      ? p.variants.map(v => ({ ...v, isActive: nextStatus === 'ACTIVE' }))
-      : [];
-    sharedStore.updateProduct(p.productId, {
-      status: nextStatus,
-      variants: updatedVariants
-    });
-    setProducts([...sharedStore.getProducts()]);
+      const updatedVariants = Array.isArray(p.variants)
+        ? p.variants.map(v => ({ ...v, isActive: nextStatus === 'ACTIVE' }))
+        : [];
+      sharedStore.updateProduct(p.productId, {
+        status: nextStatus,
+        variants: updatedVariants
+      });
+      setProducts([...sharedStore.getProducts()]);
 
-    // Đồng bộ lại dữ liệu chuẩn từ Backend
-    productService.getAdminProducts().then(prods => {
+      const prods = await productService.getAdminProducts().catch(() => []);
       if (prods && prods.length > 0) setProducts(prods);
-    });
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || err?.message || 'Không thể đổi trạng thái sản phẩm.', 'error');
+    }
   };
 
   // ================= QUẢN LÝ CHỈNH SỬA SẢN PHẨM & BIẾN THỂ ĐẦY ĐỦ =================
@@ -958,6 +949,7 @@ export const PortalProductsView: React.FC = () => {
             });
           } catch (varErr) {
             console.warn('[PortalProductsView] Error saving variant in product edit', v.sku, varErr);
+            throw varErr;
           }
         }
       }
@@ -1352,6 +1344,14 @@ export const PortalProductsView: React.FC = () => {
                             >
                               {p.status === 'INACTIVE' ? 'NGỪNG KINH DOANH' : 'ĐANG KINH DOANH'}
                             </button>
+                            {p.status !== 'INACTIVE' && p.categoryEffectiveVisible === false && (
+                              <span
+                                className="block mt-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200"
+                                title="Sản phẩm vẫn giữ trạng thái ĐANG KINH DOANH, nhưng tạm ẩn trên website vì danh mục hoặc danh mục cha đang ẩn"
+                              >
+                                Ẩn theo danh mục cha
+                              </span>
+                            )}
                           </td>
 
                           <td className="p-3.5 text-center whitespace-nowrap">

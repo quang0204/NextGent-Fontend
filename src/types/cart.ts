@@ -16,6 +16,8 @@ export interface CartItem {
   lineTotal?: number;
   availableStock?: number;
   inStock?: boolean;
+  isAvailable?: boolean;
+  unavailableReason?: string;
   ramGb?: number;
   romGb?: number;
   addedAt?: string;
@@ -38,6 +40,8 @@ export interface BackendCartItem {
   lineTotal: number;
   availableStock: number;
   inStock: boolean;
+  isAvailable?: boolean;
+  unavailableReason?: string;
   addedAt?: string;
 }
 
@@ -101,6 +105,8 @@ export const mapBackendCartItemToCartItem = (b: BackendCartItem): CartItem => ({
   availableQty: b.availableStock ?? 999,
   isFlashSale: b.isFlashSale ?? false,
   inStock: b.inStock ?? true,
+  isAvailable: b.isAvailable ?? true,
+  unavailableReason: b.unavailableReason,
   availableStock: b.availableStock,
   lineTotal: b.lineTotal,
   ramGb: b.ramGb,

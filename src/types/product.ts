@@ -50,6 +50,7 @@ export interface Product {
   brandName: string;
   categoryName: string;
   categoryId?: number;
+  categoryEffectiveVisible?: boolean;
   rootCategoryId?: number;
   rootCategoryName?: string;
   parentCategoryId?: number;
@@ -97,6 +98,7 @@ export interface AdminProductDetailResponse {
   name: string;
   categoryId: number;
   categoryName: string;
+  categoryEffectiveVisible?: boolean;
   brandId: number;
   brandName: string;
   description: string;

@@ -435,37 +435,34 @@ export const PortalOrdersView: React.FC = () => {
       // Đồng bộ hoàn tất giao hàng xuống Vận đơn Backend
       else if (nextStatus === 'COMPLETED') {
         const ship = shipments.find(s => s.orderId === orderId);
-        if (ship?.shipmentId) {
-          try {
-            const shipRes = await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
-              status: 'DELIVERED',
-              codCollected: true,
-              note: 'Xác nhận giao hàng thành công & thu tiền COD từ Bảng Đơn hàng'
-            });
-            apiSuccess = true;
-            apiMsg = shipRes.data?.message || 'Đã xác nhận giao hàng thành công & thu tiền COD!';
-          } catch (e: any) {
-            console.warn('[handleTransition-COMPLETED] backend shipment sync failed', e);
-          }
+        if (!ship?.shipmentId) {
+          throw new Error('Không tìm thấy mã vận đơn trên hệ thống để xác nhận giao hàng.');
         }
+        const shipRes = await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
+          status: 'DELIVERED',
+          codCollected: true,
+          note: 'Xác nhận giao hàng thành công & thu tiền COD từ Bảng Đơn hàng'
+        });
+        apiSuccess = true;
+        apiMsg = shipRes.data?.message || 'Đã xác nhận giao hàng thành công & thu tiền COD!';
+      }
+
+      if (!apiSuccess) {
+        throw new Error(apiMsg || 'Không thể cập nhật trạng thái đơn hàng trên máy chủ.');
       }
 
       const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
         performedBy: 'Nguyễn Thanh Hùng (Staff)'
       });
 
-      if (res.success || apiSuccess) {
-        setBulkActionFeedback(`✓ ${apiMsg || `Đã chuyển đơn hàng sang trạng thái ${nextStatus}!`}`);
-        setTimeout(() => setBulkActionFeedback(null), 4000);
-        setOrders([...sharedStore.getOrders()]);
-        setShipments([...sharedStore.getShipments()]);
-        await loadAdminOrders();
-      } else {
-        alert(res.message);
-      }
+      setBulkActionFeedback(`✓ ${apiMsg || res.message || `Đã chuyển đơn hàng sang trạng thái ${nextStatus}!`}`);
+      setTimeout(() => setBulkActionFeedback(null), 4000);
+      setOrders([...sharedStore.getOrders()]);
+      setShipments([...sharedStore.getShipments()]);
+      await loadAdminOrders();
     } catch (err: any) {
       console.error('[handleTransition] error', err);
-      alert(err.message || 'Lỗi khi cập nhật trạng thái đơn hàng.');
+      alert(err?.response?.data?.message || err?.message || 'Lỗi khi cập nhật trạng thái đơn hàng.');
     }
   };
 
@@ -513,18 +510,22 @@ export const PortalOrdersView: React.FC = () => {
     if (!cancelModal) return;
     const finalReason = customCancelReason.trim()? customCancelReason.trim(): cancelReason;
 
-    const ok =
-      (await orderService.cancelOrder(cancelModal.orderCode, finalReason, 'Quản trị viên (Admin)')) ||
-      sharedStore.cancelOrder(cancelModal.orderId, finalReason, 'Quản trị viên (Admin)');
-    if (ok) {
-      setBulkActionFeedback(`✓ Đã hủy đơn hàng #${cancelModal.orderCode} và giải phóng tồn kho thành công!`);
-      setTimeout(() => setBulkActionFeedback(null), 3500);
-      loadAdminOrders();
-    } else {
-      alert('Không thể hủy đơn hàng này do trạng thái hiện tại không hợp lệ (Chỉ cho phép hủy khi đang Chờ thanh toán hoặc Chờ xác nhận).');
+    try {
+      const ok = await orderService.cancelOrder(cancelModal.orderCode, finalReason, 'Quản trị viên (Admin)');
+      if (ok) {
+        sharedStore.cancelOrder(cancelModal.orderId, finalReason, 'Quản trị viên (Admin)');
+        setBulkActionFeedback(`✓ Đã hủy đơn hàng #${cancelModal.orderCode} và giải phóng tồn kho thành công!`);
+        setTimeout(() => setBulkActionFeedback(null), 3500);
+        loadAdminOrders();
+      } else {
+        alert('Không thể hủy đơn hàng này.');
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Không thể hủy đơn hàng này.');
+    } finally {
+      setCancelModal(null);
+      setCustomCancelReason('');
     }
-    setCancelModal(null);
-    setCustomCancelReason('');
   };
 
   // Ký duyệt hoàn kho
@@ -577,41 +578,51 @@ export const PortalOrdersView: React.FC = () => {
   };
 
   // Duyệt hàng loạt theo trạng thái đích
-  const handleBulkApprove = (targetStatus: OrderStatus, actionName: string) => {
+  const handleBulkApprove = async (targetStatus: OrderStatus, actionName: string) => {
     if (selectedOrderIds.length === 0) return;
 
     let successCount = 0;
     let failCount = 0;
 
-    selectedOrderIds.forEach(orderId => {
+    for (const orderId of selectedOrderIds) {
       const order = orders.find(o => o.orderId === orderId);
-      if (!order) return;
+      if (!order) continue;
 
-      if (targetStatus === 'CONFIRMED' && (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT' || order.status === 'PENDING')) {
-        orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
-      } else if (targetStatus === 'SHIPPING' && (order.status === 'PREPARING' || order.status === 'PICKED_UP')) {
-        orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
-      } else if (targetStatus === 'COMPLETED' && order.status === 'SHIPPING') {
-        const ship = shipments.find(s => s.orderCode === order.orderCode || s.orderId === order.orderId);
-        if (ship?.shipmentId) {
-          apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
+      try {
+        let calledBackend = false;
+        if (targetStatus === 'CONFIRMED' && (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING_PAYMENT' || order.status === 'PENDING')) {
+          await orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+          calledBackend = true;
+        } else if (targetStatus === 'SHIPPING' && (order.status === 'PREPARING' || order.status === 'PICKED_UP')) {
+          await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+          calledBackend = true;
+        } else if (targetStatus === 'COMPLETED' && order.status === 'SHIPPING') {
+          const ship = shipments.find(s => s.orderCode === order.orderCode || s.orderId === order.orderId);
+          if (!ship?.shipmentId) {
+            failCount++;
+            continue;
+          }
+          await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
             status: 'DELIVERED',
             codCollected: true,
             note: 'Duyệt hoàn tất giao hàng & thu tiền COD từ Bảng Đơn hàng'
-          }).catch((err: any) => console.warn('[bulk-delivered] sync failed', err));
+          });
+          calledBackend = true;
         }
-      }
 
-      const res = sharedStore.transitionOrderStatus(orderId, targetStatus, {
-        performedBy: 'Nguyễn Thanh Hùng (Staff)'
-      });
+        if (!calledBackend) {
+          failCount++;
+          continue;
+        }
 
-      if (res.success) {
+        sharedStore.transitionOrderStatus(orderId, targetStatus, {
+          performedBy: 'Nguyễn Thanh Hùng (Staff)'
+        });
         successCount++;
-      } else {
+      } catch {
         failCount++;
       }
-    });
+    }
 
     if (successCount > 0) {
       setBulkActionFeedback(`✓ Đã ${actionName} thành công cho ${successCount} đơn hàng!${failCount > 0? ` (${failCount} đơn không đủ điều kiện chuyển bước)`: ''}`);
@@ -619,18 +630,18 @@ export const PortalOrdersView: React.FC = () => {
       setSelectedOrderIds([]);
       loadAdminOrders();
     } else {
-      alert(`Không thể thực hiện cho các đơn đã chọn vì không phù hợp với quy trình tuần tự nghiêm ngặt.`);
+      alert(`Không thể thực hiện cho các đơn đã chọn vì không phù hợp với quy trình hoặc lỗi xác thực.`);
     }
   };
 
   // Duyệt tự động bước tiếp theo cho toàn bộ đơn được chọn
-  const handleBulkStepForward = () => {
+  const handleBulkStepForward = async () => {
     if (selectedOrderIds.length === 0) return;
 
     let processedCount = 0;
-    selectedOrderIds.forEach(orderId => {
+    for (const orderId of selectedOrderIds) {
       const order = orders.find(o => o.orderId === orderId);
-      if (!order) return;
+      if (!order) continue;
 
       let nextStatus: OrderStatus | null = null;
       if (order.status === 'WAITING_CONFIRMATION' || order.status === 'PENDING') nextStatus = 'CONFIRMED';
@@ -639,26 +650,39 @@ export const PortalOrdersView: React.FC = () => {
       else if (order.status === 'SHIPPING') nextStatus = 'COMPLETED';
 
       if (nextStatus) {
-        if (nextStatus === 'CONFIRMED') {
-          orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
-        } else if (nextStatus === 'SHIPPING') {
-          orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
-        }
-        const res = sharedStore.transitionOrderStatus(orderId, nextStatus, {
-          performedBy: 'Nguyễn Thanh Hùng (Staff)'
-        });
-        if (res.success) {
+        try {
+          if (nextStatus === 'CONFIRMED') {
+            await orderService.confirmOrder(orderId, { carrier: order.carrier || 'Giao Hàng Nhanh (GHN)', note: 'Duyệt xác nhận đơn hàng MB02' });
+          } else if (nextStatus === 'PREPARING') {
+            await orderService.prepareOrder(orderId);
+          } else if (nextStatus === 'SHIPPING') {
+            await orderService.packExportOrder(orderId, { packageWeightGrams: 650, exportNote: 'Đã dán niêm phong bảo hành và bọc bóng khí 4 lớp', assignedShipper: 'Tài xế GHN' });
+          } else if (nextStatus === 'COMPLETED') {
+            const ship = shipments.find(s => s.orderCode === order.orderCode || s.orderId === order.orderId);
+            if (!ship?.shipmentId) continue;
+            await apiClient.put(`/admin/shipments/${ship.shipmentId}/status`, {
+              status: 'DELIVERED',
+              codCollected: true,
+              note: 'Duyệt hoàn tất giao hàng & thu tiền COD từ Bảng Đơn hàng'
+            });
+          }
+          sharedStore.transitionOrderStatus(orderId, nextStatus, {
+            performedBy: 'Nguyễn Thanh Hùng (Staff)'
+          });
           processedCount++;
+        } catch {
+          // Stop silently incrementing when backend rejects.
         }
       }
-    });
+    }
 
     if (processedCount > 0) {
       setBulkActionFeedback(`✓ Đã tự động duyệt bước tiếp theo cho ${processedCount} đơn hàng!`);
       setTimeout(() => setBulkActionFeedback(null), 4000);
       setSelectedOrderIds([]);
+      loadAdminOrders();
     } else {
-      alert('Các đơn hàng được chọn hiện đang ở trạng thái Hoàn tất hoặc Đã hủy, không có bước duyệt tiếp theo.');
+      alert('Không thể duyệt bước tiếp theo cho các đơn hàng đã chọn.');
     }
   };
 

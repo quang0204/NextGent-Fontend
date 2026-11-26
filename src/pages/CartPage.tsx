@@ -30,6 +30,7 @@ export const CartPage: React.FC = () => {
     toggleSelectItem, 
     selectAllItems, 
     deselectAllItems, 
+    getSelectedItems,
     getSelectedTotalAmount,
     getSelectedCount,
     setBuyNowItem
@@ -82,7 +83,9 @@ export const CartPage: React.FC = () => {
   const subtotal = getSelectedTotalAmount();
   const selectedCount = getSelectedCount();
   const finalTotal = Math.max(0, subtotal - voucherDiscount);
-  const isAllSelected = items.length > 0 && selectedItemIds.length === items.length;
+  const selectableItems = items.filter(i => i.isAvailable !== false);
+  const isAllSelected =
+    selectableItems.length > 0 && selectableItems.every(i => selectedItemIds.includes(i.id));
 
   // API 6.6: POST /api/v1/vouchers/apply
   const applyVoucherByCode = async (codeToApply: string) => {
@@ -121,6 +124,13 @@ export const CartPage: React.FC = () => {
     }
     if (selectedItemIds.length === 0) {
       showToast('Vui lòng tích chọn ít nhất 1 sản phẩm để tiến hành thanh toán!', 'warning');
+      return;
+    }
+    if (getSelectedItems().some(i => i.isAvailable === false)) {
+      showToast(
+        'Vui lòng xóa sản phẩm thuộc danh mục đang tạm ẩn hoặc ngừng kinh doanh trước khi thanh toán!',
+        'warning'
+      );
       return;
     }
     const query = appliedVoucher ? `?voucher=${appliedVoucher}` : '';
@@ -204,23 +214,35 @@ export const CartPage: React.FC = () => {
 
           <div className="divide-y divide-hairline-soft">
             {items.map((item) => {
-              const isSelected = selectedItemIds.includes(item.id);
+              const isUnavailable = item.isAvailable === false;
+              const isSelected = !isUnavailable && selectedItemIds.includes(item.id);
               const isMaxReached = item.quantity >= item.availableQty;
 
               return (
                 <div 
                   key={item.id} 
                   className={`p-4 sm:p-5 flex gap-3 sm:gap-4 items-center transition-colors ${
-                    isSelected ? 'bg-canvas' : 'bg-surface-soft/20 opacity-75'
+                    isUnavailable
+                      ? 'bg-rose-50/40 opacity-75'
+                      : isSelected
+                      ? 'bg-canvas'
+                      : 'bg-surface-soft/20 opacity-75'
                   }`}
                 >
                   {/* Select Checkbox for item */}
                   <input
                     type="checkbox"
                     checked={isSelected}
+                    disabled={isUnavailable}
                     onChange={() => toggleSelectItem(item.id)}
-                    className="w-4 h-4 rounded border-hairline text-primary focus:ring-primary accent-[#0064e0] cursor-pointer flex-shrink-0"
-                    title={isSelected ? "Bỏ chọn sản phẩm này" : "Chọn sản phẩm này để mua"}
+                    className="w-4 h-4 rounded border-hairline text-primary focus:ring-primary accent-[#0064e0] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                    title={
+                      isUnavailable
+                        ? 'Sản phẩm hoặc danh mục hiện tạm ẩn'
+                        : isSelected
+                        ? 'Bỏ chọn sản phẩm này'
+                        : 'Chọn sản phẩm này để mua'
+                    }
                   />
 
                   <img
@@ -262,14 +284,19 @@ export const CartPage: React.FC = () => {
                       )}
                     </div>
 
-                    {item.inStock === false && (
+                    {isUnavailable ? (
+                      <div className="text-[11px] text-critical font-bold flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        {item.unavailableReason || 'Sản phẩm hoặc danh mục hiện tạm ẩn — không thể thanh toán'}
+                      </div>
+                    ) : item.inStock === false ? (
                       <div className="text-[11px] text-critical font-bold flex items-center gap-1">
                         <AlertCircle size={12} />
                         Sản phẩm tạm thời hết hàng
                       </div>
-                    )}
+                    ) : null}
 
-                    {isMaxReached && item.inStock !== false && (
+                    {isMaxReached && !isUnavailable && item.inStock !== false && (
                       <div className="text-[11px] text-attention font-medium flex items-center gap-1">
                         <AlertCircle size={12} />
                         Đã chọn số lượng khả dụng tối đa ({item.availableQty})
@@ -308,9 +335,15 @@ export const CartPage: React.FC = () => {
                     </span>
                     <button
                       onClick={() => handleQuantityDelta(item.id, 1)}
-                      disabled={isMaxReached}
+                      disabled={isMaxReached || isUnavailable}
                       className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-canvas disabled:opacity-30 text-charcoal transition"
-                      title={isMaxReached ? "Đã đạt giới hạn tồn kho khả dụng" : "Tăng số lượng"}
+                      title={
+                        isUnavailable
+                          ? 'Sản phẩm hoặc danh mục hiện tạm ẩn'
+                          : isMaxReached
+                          ? 'Đã đạt giới hạn tồn kho khả dụng'
+                          : 'Tăng số lượng'
+                      }
                     >
                       <Plus size={12} />
                     </button>

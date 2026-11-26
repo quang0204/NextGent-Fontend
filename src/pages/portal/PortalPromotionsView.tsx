@@ -194,7 +194,11 @@ export const PortalPromotionsView: React.FC = () => {
 
   // API 6.9: PATCH /api/v1/admin/vouchers/{id}/toggle
   const handleToggleVoucher = async (id: number) => {
-    await promotionService.toggleVoucherStatus(id);
+    const res = await promotionService.toggleVoucherStatus(id);
+    if (!res.success) {
+      alert(res.message || 'Không thể thay đổi trạng thái Voucher.');
+      return;
+    }
     loadVouchers();
   };
 
@@ -203,7 +207,11 @@ export const PortalPromotionsView: React.FC = () => {
     const target = promotions.find(p => p.promotionId === id);
     if (!target) return;
     const nextStatus = target.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
-    await promotionService.updatePromotionStatus(id, nextStatus);
+    const res = await promotionService.updatePromotionStatus(id, nextStatus);
+    if (!res.success) {
+      alert(res.message || 'Không thể cập nhật trạng thái chiến dịch.');
+      return;
+    }
     loadPromotions();
   };
 

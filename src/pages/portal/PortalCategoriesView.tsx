@@ -205,11 +205,24 @@ export const PortalCategoriesView: React.FC = () => {
     }
   };
 
+  const confirmHideCategory = (cat: CategoryItem): boolean => {
+    const childCount = cat.children?.length || 0;
+    const prodCount = cat.productCount || 0;
+    if (childCount === 0 && prodCount === 0) return true;
+    return window.confirm(
+      `Ẩn danh mục "${cat.name}" sẽ tạm ẩn toàn bộ ${childCount} danh mục con và ${prodCount} sản phẩm trực thuộc khỏi website khách hàng (trạng thái riêng của từng sản phẩm và danh mục con vẫn được giữ nguyên). Bạn có muốn tiếp tục?`
+    );
+  };
+
   // Xử lý lưu danh mục (API 3.3 Create hoặc API 3.4 Update)
   const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setFormError('Vui lòng nhập tên danh mục!');
+      return;
+    }
+
+    if (editingCategory && editingCategory.isVisible && !isVisible && !confirmHideCategory(editingCategory)) {
       return;
     }
 
@@ -249,6 +262,9 @@ export const PortalCategoriesView: React.FC = () => {
   // Xử lý bật/tắt hiển thị danh mục nhanh
   const handleToggleVisibility = async (cat: CategoryItem) => {
     const nextVisible = !cat.isVisible;
+    if (!nextVisible && !confirmHideCategory(cat)) {
+      return;
+    }
     try {
       await categoryService.updateCategory(cat.categoryId, {
         parentId: cat.parentId,
@@ -321,19 +337,37 @@ export const PortalCategoriesView: React.FC = () => {
 
   // Lấy danh sách ID con cháu để chống chọn vòng lặp trong dropdown
   const getDescendantIds = (catId: number): number[] => {
-    let ids: number[] = [catId];
-    const findChildren = (nodes: CategoryItem[]) => {
+    const findSubtree = (nodes: CategoryItem[]): CategoryItem | null => {
       for (const node of nodes) {
-        if (node.parentId === catId || ids.includes(node.parentId || 0)) {
-          if (!ids.includes(node.categoryId)) ids.push(node.categoryId);
+        if (node.categoryId === catId) return node;
+        if (node.children?.length) {
+          const found = findSubtree(node.children);
+          if (found) return found;
         }
-        if (node.children) findChildren(node.children);
       }
+      return null;
     };
-    findChildren(categoryTree);
-    return ids;
+    const collect = (node: CategoryItem | null): number[] =>
+      node ? [node.categoryId, ...(node.children || []).flatMap(collect)] : [];
+    return collect(findSubtree(categoryTree));
   };
 
+  const getAncestorHiddenSet = (nodes: CategoryItem[], parentHidden = false): Set<number> => {
+    const hidden = new Set<number>();
+    for (const node of nodes) {
+      if (parentHidden && node.isVisible) {
+        hidden.add(node.categoryId);
+      }
+      if (node.children?.length) {
+        for (const childId of getAncestorHiddenSet(node.children, parentHidden || !node.isVisible)) {
+          hidden.add(childId);
+        }
+      }
+    }
+    return hidden;
+  };
+
+  const ancestorHiddenIds = getAncestorHiddenSet(categoryTree);
   const forbiddenParentIds = editingCategory ? getDescendantIds(editingCategory.categoryId) : [];
 
   return (
@@ -509,12 +543,17 @@ export const PortalCategoriesView: React.FC = () => {
                           {cat.isVisible ? <Eye size={12} /> : <EyeOff size={12} />}
                           <span>{cat.isVisible ? 'Hiển thị' : 'Đang ẩn'}</span>
                         </button>
+                        {cat.isVisible && ancestorHiddenIds.has(cat.categoryId) && (
+                          <div className="text-[10px] font-medium text-amber-700 mt-1">
+                            Ẩn theo danh mục cha
+                          </div>
+                        )}
                       </td>
 
                       {/* Thao tác */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {isRoot && (
+                          {cat.depth < 4 && (
                             <button
                               onClick={() => handleOpenAddModal(cat.categoryId)}
                               className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition"
@@ -628,11 +667,11 @@ export const PortalCategoriesView: React.FC = () => {
                   className="w-full h-10 px-3.5 bg-white border border-slate-300 rounded-xl text-slate-900 text-xs focus:ring-1 focus:ring-blue-500 focus:border-blue-500 focus:outline-none"
                 >
                   <option value="">— Cấp gốc (Danh mục cha cao nhất) —</option>
-                  {categoryTree
+                  {flatCategories
                     .filter(c => !forbiddenParentIds.includes(c.categoryId))
                     .map(c => (
                       <option key={c.categoryId} value={c.categoryId}>
-                        {c.name}
+                        {`${'— '.repeat(c.depth)}${c.name}${c.isVisible ? '' : ' (Đang ẩn)'}`}
                       </option>
                     ))}
                 </select>

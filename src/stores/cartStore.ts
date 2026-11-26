@@ -85,15 +85,13 @@ export const useCartStore = create<CartStore>((set, get) => ({
       const data = await cartService.getCart();
       if (data && Array.isArray(data.items)) {
         const mapped = data.items.map(mapBackendCartItemToCartItem);
+        const selectableIds = mapped.filter(m => m.isAvailable !== false).map(m => m.id);
         const currentSelected = get().selectedItemIds;
-        // Retain previous selections that still exist, or select all if fresh
-        const newSelected = currentSelected.length > 0 
-          ? mapped.filter(m => currentSelected.includes(m.id)).map(m => m.id)
-          : mapped.map(m => m.id);
+        const retainedSelected = currentSelected.filter((id) => selectableIds.includes(id));
 
         set({ 
           items: mapped, 
-          selectedItemIds: newSelected.length > 0 ? newSelected : mapped.map(m => m.id),
+          selectedItemIds: currentSelected.length > 0 ? retainedSelected : selectableIds,
           isLoading: false 
         });
         return;
@@ -245,6 +243,13 @@ export const useCartStore = create<CartStore>((set, get) => ({
     const itemToUpdate = get().items.find((i) => i.id === id);
     if (!itemToUpdate) return { success: false, message: 'Sản phẩm không có trong giỏ hàng' };
 
+    if (delta > 0 && itemToUpdate.isAvailable === false) {
+      return {
+        success: false,
+        message: itemToUpdate.unavailableReason || 'Sản phẩm hoặc danh mục hiện tạm ẩn!'
+      };
+    }
+
     const oldQty = itemToUpdate.quantity;
     const newQty = oldQty + delta;
     if (newQty < 1) return { success: false };
@@ -320,7 +325,11 @@ export const useCartStore = create<CartStore>((set, get) => ({
   // Selection logic for cart checkout
   toggleSelectItem: (id: string) => {
     set((state) => {
+      const target = state.items.find((i) => i.id === id);
       const isSelected = state.selectedItemIds.includes(id);
+      if (!isSelected && target?.isAvailable === false) {
+        return { selectedItemIds: state.selectedItemIds };
+      }
       const newSelected = isSelected
         ? state.selectedItemIds.filter((itemId) => itemId !== id)
         : [...state.selectedItemIds, id];
@@ -330,7 +339,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   selectAllItems: () => {
     set((state) => ({
-      selectedItemIds: state.items.map((i) => i.id)
+      selectedItemIds: state.items.filter((i) => i.isAvailable !== false).map((i) => i.id)
     }));
   },
 

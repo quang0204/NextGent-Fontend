@@ -257,32 +257,19 @@ export const inventoryService = {
         };
       }
     } catch (error: any) {
-      console.warn('[inventoryService.createStockAdjustment] Backend failed, fallback to local store', error);
-
-      // Nếu lỗi do logic số lượng thực tế nhỏ hơn tồn giữ chỗ thì báo lỗi rõ cho thủ kho
-      if (error.response?.data?.message && error.response.data.message.includes('nhỏ hơn số lượng đang giữ chỗ')) {
-        return {
-          success: false,
-          message: error.response.data.message,
-        };
-      }
-    }
-
-    // 2. Fallback tự động vào sharedStore (đảm bảo thủ kho luôn tạo được phiếu không bị gián đoạn)
-    const targetSku = payload.sku || sharedStore.getInventories().find(i => i.variantId === payload.variantId)?.sku;
-    if (targetSku) {
-      const fallbackRes = sharedStore.createStockAdjustment(
-        targetSku,
-        payload.actualCount,
-        payload.reason,
-        'Nguyễn Thanh Hùng (Thủ kho)'
-      );
-      return fallbackRes;
+      console.warn('[inventoryService.createStockAdjustment] Backend failed', error);
+      return {
+        success: false,
+        message:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Không thể lập phiếu kiểm kê trên máy chủ.',
+      };
     }
 
     return {
       success: false,
-      message: 'Không tìm thấy thông tin biến thể SKU để tạo phiếu kiểm kê.',
+      message: 'Máy chủ không trả về dữ liệu phiếu kiểm kê.',
     };
   },
 
@@ -420,13 +407,13 @@ export const inventoryService = {
         data: res.data?.data,
       };
     } catch (error: any) {
-      console.warn(`[inventoryService.packExportOrder] Backend failed for order ${orderId}, fallback to sharedStore`, error);
-      const res = sharedStore.transitionOrderStatus(orderId, 'SHIPPING', {
-        reason: exportNote || 'Đóng gói hoàn tất và xuất kho vật lý',
-      });
+      console.warn(`[inventoryService.packExportOrder] Backend failed for order ${orderId}`, error);
       return {
-        success: res.success,
-        message: res.message,
+        success: false,
+        message:
+          error?.response?.data?.message ||
+          error?.message ||
+          'Không thể đóng gói và xuất kho đơn hàng.',
       };
     }
   },

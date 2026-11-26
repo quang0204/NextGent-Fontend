@@ -61,7 +61,14 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response Interceptor: Xử lý 401 Silent Refresh Token & In log phản hồi
+const clearSessionAndNotify = (reason?: string) => {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('nextpick_user_v2');
+  window.dispatchEvent(new CustomEvent('auth:session-expired', { detail: { reason } }));
+};
+
+// Response Interceptor: Xử lý 401 Silent Refresh Token & cưỡng chế đăng xuất khi bị khóa
 apiClient.interceptors.response.use(
   (response) => {
     if (import.meta.env.DEV) {
@@ -81,10 +88,22 @@ apiClient.interceptors.response.use(
     }
 
     const status = error.response.status;
+    const responseData = error.response.data as any;
     const requestUrl = originalRequest.url || '';
 
+    const isPublicAuthFlow =
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/register') ||
+      requestUrl.includes('/auth/forgot') ||
+      requestUrl.includes('/auth/reset-password');
+
+    if (status === 403 && responseData?.error === 'USER_LOCKED' && !isPublicAuthFlow) {
+      clearSessionAndNotify(responseData?.reason || responseData?.message);
+      return Promise.reject(error);
+    }
+
     // Bỏ qua nếu lỗi 401 xảy ra ở chính endpoint refresh-token, logout hoặc các bước login
-    const isAuthEndpoint = 
+    const isAuthEndpoint =
       requestUrl.includes('/auth/refresh-token') ||
       requestUrl.includes('/auth/login') ||
       requestUrl.includes('/auth/logout');
@@ -110,8 +129,7 @@ apiClient.interceptors.response.use(
 
       if (!refreshToken) {
         isRefreshing = false;
-        localStorage.removeItem('access_token');
-        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        clearSessionAndNotify();
         return Promise.reject(error);
       }
 
@@ -141,11 +159,14 @@ apiClient.interceptors.response.use(
         } else {
           throw new Error('Refresh token did not return a valid accessToken');
         }
-      } catch (refreshErr) {
+      } catch (refreshErr: any) {
         processQueue(refreshErr, null);
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.dispatchEvent(new CustomEvent('auth:session-expired'));
+        const refreshData = refreshErr?.response?.data;
+        const lockReason =
+          refreshData?.error === 'USER_LOCKED'
+            ? (refreshData?.reason || refreshData?.message)
+            : undefined;
+        clearSessionAndNotify(lockReason);
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;

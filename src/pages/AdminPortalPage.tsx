@@ -115,7 +115,7 @@ class PortalErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
 }
 
 export const AdminPortalPage: React.FC = () => {
-  const { user, isAuthenticated, token } = useAuthStore();
+  const { user, isAuthenticated, token, fetchMe } = useAuthStore();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
   const userRole = user?.role;
@@ -137,8 +137,33 @@ export const AdminPortalPage: React.FC = () => {
     }
   }, [isStaffOnly, activeTab]);
 
-  // 1. Nếu chưa đăng nhập hoặc phiên làm việc đã hết hạn -> chuyển hướng đến trang đăng nhập (kèm redirect param)
-  if (!user || !isAuthenticated || !token) {
+  // Kiểm tra lại phiên với server khi chuyển tab, focus cửa sổ hoặc định kỳ 20s để phát hiện tài khoản bị khóa kịp thời.
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+    fetchMe().catch(() => {});
+
+    const verifySession = () => {
+      if (document.visibilityState === 'visible') {
+        fetchMe().catch(() => {});
+      }
+    };
+    window.addEventListener('focus', verifySession);
+    document.addEventListener('visibilitychange', verifySession);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchMe().catch(() => {});
+      }
+    }, 20000);
+
+    return () => {
+      window.removeEventListener('focus', verifySession);
+      document.removeEventListener('visibilitychange', verifySession);
+      window.clearInterval(intervalId);
+    };
+  }, [activeTab, isAuthenticated, token, fetchMe]);
+
+  // 1. Nếu chưa đăng nhập, phiên hết hạn hoặc tài khoản đã bị khóa -> chuyển hướng đến trang đăng nhập
+  if (!user || !isAuthenticated || !token || user.status === 'LOCKED') {
     return <Navigate to="/auth?redirect=/admin" replace />;
   }
 

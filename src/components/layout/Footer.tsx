@@ -153,7 +153,7 @@ export const Footer: React.FC = () => {
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-primary block leading-none">
-                Đồ án Tốt nghiệp
+              Khóa Luận Tốt nghiệp
               </span>
               <h4 className="font-bold text-ink-deep text-xs mt-0.5">
                 Cử nhân Công nghệ Thông tin

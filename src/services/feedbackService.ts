@@ -392,21 +392,14 @@ export const reviewService = {
    * Cửa hàng phản hồi đánh giá (Portal - STAFF / ADMIN)
    */
   async replyAdminReview(id: number, replyText: string): Promise<ProductReview | null> {
-    const localUpdated = sharedStore.replyReview(id, replyText);
-    try {
-      const res = await apiClient.put<{
-        success: boolean;
-        message: string;
-        data: any;
-      }>(`/admin/reviews/${id}/reply`, { reply: replyText });
+    const res = await apiClient.put<{
+      success: boolean;
+      message: string;
+      data: any;
+    }>(`/admin/reviews/${id}/reply`, { reply: replyText });
 
-      if (res.data?.data) {
-        return mapApiReview(res.data.data);
-      }
-    } catch (err) {
-      console.warn('[reviewService.replyAdminReview] Fallback to sharedStore', err);
-    }
-    return localUpdated;
+    sharedStore.replyReview(id, replyText);
+    return res.data?.data ? mapApiReview(res.data.data) : null;
   },
 
   /**
@@ -418,22 +411,15 @@ export const reviewService = {
     status: 'PUBLISHED' | 'HIDDEN',
     reviewSnapshot?: ProductReview
   ): Promise<ProductReview | null> {
-    const localUpdated = sharedStore.updateReviewStatus(id, status, reviewSnapshot);
-    try {
-      const apiStatus = status === 'HIDDEN' ? 'HIDDEN' : 'VISIBLE';
-      const res = await apiClient.patch<{
-        success: boolean;
-        message: string;
-        data: any;
-      }>(`/admin/reviews/${id}/status`, { status: apiStatus });
+    const apiStatus = status === 'HIDDEN' ? 'HIDDEN' : 'VISIBLE';
+    const res = await apiClient.patch<{
+      success: boolean;
+      message: string;
+      data: any;
+    }>(`/admin/reviews/${id}/status`, { status: apiStatus });
 
-      if (res.data?.data) {
-        return mapApiReview(res.data.data, reviewSnapshot);
-      }
-    } catch (err) {
-      console.warn('[reviewService.updateAdminReviewStatus] Fallback to sharedStore', err);
-    }
-    return localUpdated;
+    const localUpdated = sharedStore.updateReviewStatus(id, status, reviewSnapshot);
+    return res.data?.data ? mapApiReview(res.data.data, reviewSnapshot) : localUpdated;
   },
 };
 
@@ -718,33 +704,17 @@ export const ticketService = {
           ticket: mappedTicket,
         };
       }
+      return {
+        success: false,
+        message: 'Máy chủ không trả về dữ liệu phiếu hỗ trợ.',
+      };
     } catch (err: any) {
-      console.warn('[ticketService.updateAdminTicket] Fallback to sharedStore', err);
-      if (err.response?.data?.message) {
-        return {
-          success: false,
-          message: err.response.data.message,
-        };
-      }
+      console.warn('[ticketService.updateAdminTicket] Backend failed', err);
+      return {
+        success: false,
+        message: err?.response?.data?.message || err?.message || 'Không thể cập nhật phiếu hỗ trợ.',
+      };
     }
-
-    // Fallback: update local
-    sharedStore.updateTicket(id, {
-      status: (payload.status === 'RESOLVED' ? 'RESOLVED' : 'REJECTED') as any,
-      reply: payload.resolutionNote,
-      resolutionNote: payload.resolutionNote,
-      handledBy: 'Trần Thị CSKH (STAFF)',
-      handledByName: 'Trần Thị CSKH (STAFF)',
-      handledAt: new Date().toISOString(),
-      resolvedAt: new Date().toISOString()
-    });
-    const tickets = sharedStore.getTickets();
-    const t = tickets.find((item) => item.ticketId === id);
-    return {
-      success: true,
-      message: 'Cập nhật phiếu hỗ trợ thành công (lưu cục bộ)',
-      ticket: t,
-    };
   },
 };
 
@@ -865,29 +835,17 @@ export const faqService = {
           faq: mappedFaq,
         };
       }
+      return {
+        success: false,
+        message: 'Máy chủ không trả về dữ liệu FAQ.',
+      };
     } catch (err: any) {
-      console.warn('[faqService.createAdminFaq] Fallback to sharedStore', err);
-      if (err.response?.data?.message) {
-        return {
-          success: false,
-          message: err.response.data.message,
-        };
-      }
+      console.warn('[faqService.createAdminFaq] Backend failed', err);
+      return {
+        success: false,
+        message: err?.response?.data?.message || err?.message || 'Không thể thêm FAQ.',
+      };
     }
-
-    // Fallback: Lưu vào sharedStore
-    const localFaq = sharedStore.addFaq({
-      topic: payload.category,
-      question: payload.question,
-      answer: payload.answer,
-      isVisible: payload.isActive ?? true,
-      sortOrder: payload.displayOrder ?? 1,
-    });
-    return {
-      success: true,
-      message: 'Thêm FAQ thành công (lưu cục bộ)',
-      faq: localFaq,
-    };
   },
 
   async getAdminFaqs(): Promise<PortalFaqItem[]> {

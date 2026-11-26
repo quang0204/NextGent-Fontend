@@ -288,11 +288,8 @@ export const orderService = {
         data: res.data?.data
       };
     } catch (err: any) {
-      console.warn('[orderService.prepareOrder] Backend prepare endpoint fallback', err);
-      return {
-        success: true,
-        message: 'Đã chuyển đơn hàng sang trạng thái Đang chuẩn bị hàng!'
-      };
+      console.error(`[orderService.prepareOrder] Backend failed for order ${orderId}`, err);
+      throw new Error(err?.response?.data?.message || err?.message || 'Không thể chuyển sang trạng thái Đang chuẩn bị hàng');
     }
   },
 

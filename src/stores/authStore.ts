@@ -96,6 +96,41 @@ export const useAuthStore = create<AuthStore>((set, get) => {
       useWishlistStore.getState().switchUser(null);
       useNotificationStore.getState().clearOnLogout();
     });
+
+    // Đồng bộ phiên giữa nhiều tab cùng trình duyệt (tránh tab cũ gửi nhầm token của tài khoản khác).
+    window.addEventListener('storage', (event) => {
+      if (
+        event.key !== null &&
+        event.key !== STORAGE_ACCESS_TOKEN_KEY &&
+        event.key !== STORAGE_USER_KEY &&
+        event.key !== STORAGE_REFRESH_TOKEN_KEY
+      ) {
+        return;
+      }
+      const nextToken = localStorage.getItem(STORAGE_ACCESS_TOKEN_KEY);
+      const nextRefresh = localStorage.getItem(STORAGE_REFRESH_TOKEN_KEY);
+      const nextUser = getStoredUser();
+      const prevUserId = get().user?.userId ?? null;
+      const nextUserId = nextToken && nextUser ? Number(nextUser.userId) : null;
+
+      set({
+        user: nextToken && nextUser ? nextUser : null,
+        token: nextToken,
+        refreshToken: nextRefresh,
+        isAuthenticated: !!(nextToken && nextUser),
+      });
+
+      if (nextUserId !== prevUserId) {
+        if (nextUserId) {
+          useCartStore.getState().syncOnLogin(nextUserId);
+          useWishlistStore.getState().switchUser(nextUserId);
+        } else {
+          useCartStore.getState().switchUser(null);
+          useWishlistStore.getState().switchUser(null);
+          useNotificationStore.getState().clearOnLogout();
+        }
+      }
+    });
   }
 
   const initialUser = getStoredUser();

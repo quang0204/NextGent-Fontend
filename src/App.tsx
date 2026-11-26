@@ -82,13 +82,19 @@ const AuthSessionMonitor: React.FC = () => {
 
   useEffect(() => {
     let lastNoticeAt = 0;
-    const handleSessionExpired = () => {
+    const handleSessionExpired = (event: Event) => {
+      const reason = (event as CustomEvent<{ reason?: string }>)?.detail?.reason;
       const now = Date.now();
       if (now - lastNoticeAt > 1500) {
         lastNoticeAt = now;
         useToastStore
           .getState()
-          .showToast('Phiên đăng nhập đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.', 'warning');
+          .showToast(
+            reason
+              ? `Tài khoản đã bị khóa: ${reason}`
+              : 'Phiên đăng nhập đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.',
+            reason ? 'error' : 'warning'
+          );
       }
       const { pathname, search } = window.location;
       if (!pathname.startsWith('/auth')) {

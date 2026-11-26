@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { brandService, BrandItem, BrandPayload } from '../../services/brandService';
+import { categoryService, CategoryItem } from '../../services/categoryService';
 import { sharedStore } from '../../services/sharedStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useToastStore } from '../../stores/toastStore';
@@ -32,13 +33,30 @@ function generateSlug(str: string): string {
     .replace(/\s+/g, '-');
 }
 
-export const ROOT_CATEGORIES = [
-  { categoryId: 1, name: 'Điện thoại di động' },
-  { categoryId: 2, name: 'Máy tính bảng' },
-  { categoryId: 3, name: 'Laptop & PC' },
-  { categoryId: 4, name: 'Phụ kiện & Âm thanh' },
-  { categoryId: 15, name: 'Đồng hồ thông minh' },
-];
+interface BrandCategoryOption {
+  categoryId: number;
+  parentId: number | null;
+  name: string;
+  isVisible: boolean;
+  depth: number;
+}
+
+function flattenBrandCategories(nodes: CategoryItem[], depth = 0): BrandCategoryOption[] {
+  const result: BrandCategoryOption[] = [];
+  for (const node of nodes) {
+    result.push({
+      categoryId: node.categoryId,
+      parentId: node.parentId ?? null,
+      name: node.name,
+      isVisible: node.isVisible !== false,
+      depth,
+    });
+    if (node.children && node.children.length > 0) {
+      result.push(...flattenBrandCategories(node.children, depth + 1));
+    }
+  }
+  return result;
+}
 
 export const PortalBrandsView: React.FC = () => {
   const { user } = useAuthStore();
@@ -46,6 +64,7 @@ export const PortalBrandsView: React.FC = () => {
   const isAdmin = user?.role === 'ADMIN';
 
   const [brands, setBrands] = useState<BrandItem[]>([]);
+  const [categories, setCategories] = useState<BrandCategoryOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -63,6 +82,49 @@ export const PortalBrandsView: React.FC = () => {
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<number[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // Tải danh sách danh mục thật từ DB để liên kết & hiển thị tên mới nhất
+  const loadCategories = useCallback(async () => {
+    try {
+      const res: any = await categoryService.getCategories(true);
+      const rawData = Array.isArray(res)
+        ? res
+        : (Array.isArray(res?.data)
+            ? res.data
+            : (Array.isArray(res?.data?.data) ? res.data.data : null));
+      if (rawData) {
+        const flatted = flattenBrandCategories(rawData);
+        setCategories(flatted);
+        sharedStore.setCategories(
+          flatted.map((c, idx) => ({
+            categoryId: c.categoryId,
+            parentId: c.parentId,
+            name: c.name,
+            description: '',
+            isVisible: c.isVisible,
+            sortOrder: idx + 1,
+            productCount: 0,
+          }))
+        );
+        return;
+      }
+    } catch (err) {
+      console.warn('API getCategories error in PortalBrandsView, falling back to sharedStore', err);
+    }
+
+    const localCats = sharedStore.getCategories();
+    if (localCats.length > 0) {
+      setCategories(
+        localCats.map(c => ({
+          categoryId: c.categoryId,
+          parentId: c.parentId ?? null,
+          name: c.name,
+          isVisible: c.isVisible !== false,
+          depth: c.parentId ? 1 : 0,
+        }))
+      );
+    }
+  }, []);
 
   // Tải danh sách thương hiệu (API 3.6: GET /api/v1/brands?includeHidden=true)
   const loadBrands = useCallback(async () => {
@@ -105,9 +167,11 @@ export const PortalBrandsView: React.FC = () => {
 
   useEffect(() => {
     loadBrands();
-  }, [loadBrands]);
+    loadCategories();
+  }, [loadBrands, loadCategories]);
 
   const handleOpenAddModal = () => {
+    loadCategories();
     setEditingBrand(null);
     setName('');
     setSlug('');
@@ -122,6 +186,7 @@ export const PortalBrandsView: React.FC = () => {
   };
 
   const handleOpenEditModal = (b: BrandItem) => {
+    loadCategories();
     setEditingBrand(b);
     setName(b.name);
     setSlug(b.slug || generateSlug(b.name));
@@ -296,6 +361,7 @@ export const PortalBrandsView: React.FC = () => {
         logoUrl: b.logoUrl,
         description: b.description,
         isVisible: nextVisible,
+        categoryIds: b.categoryIds,
       });
       const isWarn = !nextVisible && (b.totalProducts || 0) > 0;
       const defaultMsg = isWarn
@@ -499,7 +565,7 @@ export const PortalBrandsView: React.FC = () => {
                           {b.categoryIds && b.categoryIds.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {b.categoryIds.map(cid => {
-                                const cat = ROOT_CATEGORIES.find(c => c.categoryId === cid);
+                                const cat = categories.find(c => c.categoryId === cid);
                                 return (
                                   <span key={cid} className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-medium border border-blue-200">
                                     {cat?.name || `#${cid}`}
@@ -748,24 +814,32 @@ export const PortalBrandsView: React.FC = () => {
                 <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                   Ngành hàng kinh doanh (Liên kết danh mục)
                 </label>
-                <div className="grid grid-cols-2 gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-                  {ROOT_CATEGORIES.map(cat => (
-                    <label key={cat.categoryId} className="flex items-center gap-2 cursor-pointer text-slate-700 hover:text-blue-600">
-                      <input
-                        type="checkbox"
-                        checked={selectedCategoryIds.includes(cat.categoryId)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCategoryIds(prev => [...prev, cat.categoryId]);
-                          } else {
-                            setSelectedCategoryIds(prev => prev.filter(id => id !== cat.categoryId));
-                          }
-                        }}
-                        className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                      />
-                      <span className="text-[11px] font-medium">{cat.name}</span>
-                    </label>
-                  ))}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl max-h-44 overflow-y-auto">
+                  {categories.length === 0 ? (
+                    <div className="col-span-2 text-[11px] text-slate-400 italic py-1">
+                      Chưa tải được danh mục nào từ máy chủ.
+                    </div>
+                  ) : (
+                    categories.map(cat => (
+                      <label key={cat.categoryId} className="flex items-center gap-2 cursor-pointer text-slate-700 hover:text-blue-600">
+                        <input
+                          type="checkbox"
+                          checked={selectedCategoryIds.includes(cat.categoryId)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCategoryIds(prev => [...prev, cat.categoryId]);
+                            } else {
+                              setSelectedCategoryIds(prev => prev.filter(id => id !== cat.categoryId));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 flex-shrink-0"
+                        />
+                        <span className="text-[11px] font-medium truncate" title={cat.name}>
+                          {`${'— '.repeat(cat.depth)}${cat.name}${cat.isVisible ? '' : ' (Đang ẩn)'}`}
+                        </span>
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
 
