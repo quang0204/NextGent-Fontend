@@ -70,7 +70,8 @@ export const useNotificationStore = create<NotificationStore>((set, get) => ({
 
   addNotification: async (item) => {
     const newItem = await notificationService.createNotification(item);
-    if (get().activeUserId === item.userId) {
+    const activeId = get().activeUserId;
+    if (activeId !== null && Number(activeId) === Number(item.userId)) {
       set(state => {
         const updated = [newItem, ...state.notifications];
         return {

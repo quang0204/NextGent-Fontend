@@ -74,7 +74,11 @@ const getStoredUser = (): UserProfile | null => {
   try {
     const raw = localStorage.getItem(STORAGE_USER_KEY);
     if (!raw) return null;
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    if (parsed && parsed.userId !== undefined && parsed.userId !== null) {
+      parsed.userId = Number(parsed.userId);
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -104,7 +108,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     newRefreshToken?: string
   ) => {
     const profile: UserProfile = {
-      userId: userDto.userId,
+      userId: Number(userDto.userId),
       fullName: userDto.fullName,
       email: userDto.email,
       phone: userDto.phone,
