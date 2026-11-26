@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { sharedStore } from '../../services/sharedStore';
 import { productService } from '../../services/productService';
 import { categoryService } from '../../services/categoryService';
@@ -58,6 +58,7 @@ interface DraftVariant {
 }
 
 export const PortalProductsView: React.FC = () => {
+  const { showToast } = useToastStore();
   const [products, setProducts] = useState<Product[]>(sharedStore.getProducts());
   const [brands, setBrands] = useState<Brand[]>(sharedStore.getBrands());
   const [categories, setCategories] = useState<any[]>([]);
@@ -117,6 +118,19 @@ export const PortalProductsView: React.FC = () => {
     }
   ]);
 
+  const [addFormErrors, setAddFormErrors] = useState<Record<string, string>>({});
+  const addProdNameRef = useRef<HTMLInputElement | null>(null);
+  const addVariantFieldRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const focusAddField = (el: HTMLInputElement | null) => {
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => {
+      el.focus();
+      el.select?.();
+    }, 50);
+  };
+
   const handleAddDraftVariant = () => {
     const hasRam = variantSchema.some(f => f.key === 'ramGb');
     const hasRom = variantSchema.some(f => f.key === 'romGb');
@@ -142,6 +156,14 @@ export const PortalProductsView: React.FC = () => {
     const updated = [...draftVariants];
     updated[idx] = {...updated[idx], [field]: val };
     setDraftVariants(updated);
+    const errKey = `${String(field)}-${idx}`;
+    if (addFormErrors[errKey]) {
+      setAddFormErrors(prev => {
+        const next = { ...prev };
+        delete next[errKey];
+        return next;
+      });
+    }
   };
 
   const handleRemoveDraftVariant = (idx: number) => {
@@ -304,20 +326,67 @@ export const PortalProductsView: React.FC = () => {
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
+    const errors: Record<string, string> = {};
+
     if (!newProdName.trim()) {
-      alert('Vui lòng nhập tên sản phẩm!');
+      errors['prodName'] = 'Vui lòng nhập tên sản phẩm!';
+      setAddFormErrors(errors);
+      showToast('Vui lòng nhập tên sản phẩm!', 'error');
+      focusAddField(addProdNameRef.current);
       return;
     }
 
-    const skus = draftVariants.map(v => v.sku.trim().toUpperCase());
-    if (skus.some(s =>!s)) {
-      alert('Vui lòng nhập đầy đủ mã SKU cho tất cả các biến thể!');
-      return;
+    const seenSkus = new Set<string>();
+    for (let idx = 0; idx < draftVariants.length; idx++) {
+      const v = draftVariants[idx];
+      const sku = v.sku.trim().toUpperCase();
+      if (!sku) {
+        const msg = `Biến thể #${idx + 1}: Vui lòng nhập mã SKU!`;
+        errors[`sku-${idx}`] = 'Vui lòng nhập mã SKU';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`sku-${idx}`]);
+        return;
+      }
+      if (seenSkus.has(sku)) {
+        const msg = `Mã SKU "${sku}" bị trùng lặp trong cùng sản phẩm!`;
+        errors[`sku-${idx}`] = 'Mã SKU bị trùng';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`sku-${idx}`]);
+        return;
+      }
+      seenSkus.add(sku);
+
+      if (!Number.isFinite(v.listPrice) || Number(v.listPrice) <= 0) {
+        const msg = `Biến thể #${idx + 1}: Giá niêm yết phải lớn hơn 0 đồng!`;
+        errors[`listPrice-${idx}`] = 'Giá niêm yết phải > 0';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`listPrice-${idx}`]);
+        return;
+      }
+
+      if (!Number.isFinite(v.salePrice) || Number(v.salePrice) <= 0) {
+        const msg = `Biến thể #${idx + 1}: Giá bán phải lớn hơn 0 đồng!`;
+        errors[`salePrice-${idx}`] = 'Giá bán phải > 0';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`salePrice-${idx}`]);
+        return;
+      }
+
+      if (!Number.isFinite(v.initialStock) || Number(v.initialStock) <= 0) {
+        const msg = `Biến thể #${idx + 1}: Số lượng tồn ban đầu phải lớn hơn 0!`;
+        errors[`initialStock-${idx}`] = 'Tồn ban đầu phải > 0';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`initialStock-${idx}`]);
+        return;
+      }
     }
-    if (new Set(skus).size!== skus.length) {
-      alert('Các mã SKU biến thể trong cùng một sản phẩm không được trùng nhau!');
-      return;
-    }
+
+    setAddFormErrors({});
 
     const newProdId = Date.now();
 
@@ -419,7 +488,7 @@ export const PortalProductsView: React.FC = () => {
         connectionType: v.connectionType,
         attributes: v.attributes,
         listPrice: v.listPrice,
-        salePrice: v.salePrice || v.listPrice,
+        salePrice: v.salePrice,
         initialOnHandQty: v.initialStock,
         minThreshold: 5,
       })),
@@ -441,7 +510,8 @@ export const PortalProductsView: React.FC = () => {
     setProducts([...sharedStore.getProducts()]);
     setShowAddModal(false);
     setNewProdName('');
-    alert(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`);
+    setAddFormErrors({});
+    showToast(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`, 'success');
   };
 
   // Bật / Tắt trạng thái kinh doanh của sản phẩm (đồng bộ tới toàn bộ biến thể)
@@ -607,13 +677,17 @@ export const PortalProductsView: React.FC = () => {
 
     const sku = (v.sku || '').trim().toUpperCase();
     if (!sku) {
-      alert('Mã SKU không được để trống!');
+      showToast('Mã SKU không được để trống!', 'error');
       return;
     }
     const listPrice = Number(v.listPrice || 0);
-    const salePrice = Number(v.salePrice || listPrice);
-    if (listPrice <= 0 && salePrice <= 0) {
-      alert('Giá biến thể phải lớn hơn 0 đồng!');
+    const salePrice = Number(v.salePrice || 0);
+    if (!Number.isFinite(listPrice) || listPrice <= 0) {
+      showToast(`Biến thể [${sku}]: Giá niêm yết gốc phải lớn hơn 0 đồng!`, 'error');
+      return;
+    }
+    if (!Number.isFinite(salePrice) || salePrice <= 0) {
+      showToast(`Biến thể [${sku}]: Giá bán hiện hành phải lớn hơn 0 đồng!`, 'error');
       return;
     }
 
@@ -622,9 +696,9 @@ export const PortalProductsView: React.FC = () => {
       const minThresh = Number(v.inventory?.minThreshold ?? v.minThreshold ?? 5);
       const payload = {
         sku,
-        listPrice: listPrice > 0 ? listPrice : salePrice,
-        salePrice: salePrice > 0 ? salePrice : listPrice,
-        compareAtPrice: listPrice > 0 ? listPrice : salePrice,
+        listPrice,
+        salePrice,
+        compareAtPrice: listPrice,
         minThreshold: minThresh,
         isActive: v.isActive !== false,
         color: v.color,
@@ -726,22 +800,26 @@ export const PortalProductsView: React.FC = () => {
     if (!editingProduct) return;
     const sku = newVarDraftInEdit.sku.trim().toUpperCase();
     if (!sku) {
-      alert('Vui lòng nhập mã SKU cho biến thể mới!');
+      showToast('Vui lòng nhập mã SKU cho biến thể mới!', 'error');
       return;
     }
     if (editProdVariants.some(v => (v.sku || '').toUpperCase() === sku)) {
-      alert(`Mã SKU "${sku}" đã tồn tại trong sản phẩm này!`);
+      showToast(`Mã SKU "${sku}" đã tồn tại trong sản phẩm này!`, 'error');
       return;
     }
-    if (newVarDraftInEdit.listPrice <= 0) {
-      alert('Giá niêm yết gốc phải lớn hơn 0 đồng!');
+    if (!Number.isFinite(newVarDraftInEdit.listPrice) || newVarDraftInEdit.listPrice <= 0) {
+      showToast('Giá niêm yết gốc phải lớn hơn 0 đồng!', 'error');
       return;
     }
-    const finalSalePrice = newVarDraftInEdit.salePrice || newVarDraftInEdit.listPrice;
-    if (finalSalePrice <= 0) {
-      alert('Giá bán hiện hành phải lớn hơn 0 đồng!');
+    if (!Number.isFinite(newVarDraftInEdit.salePrice) || newVarDraftInEdit.salePrice <= 0) {
+      showToast('Giá bán hiện hành phải lớn hơn 0 đồng!', 'error');
       return;
     }
+    if (!Number.isFinite(newVarDraftInEdit.initialStock) || newVarDraftInEdit.initialStock <= 0) {
+      showToast('Số lượng tồn kho ban đầu phải lớn hơn 0!', 'error');
+      return;
+    }
+    const finalSalePrice = newVarDraftInEdit.salePrice;
 
     setIsAddingVariantInEdit(true);
     try {
@@ -804,8 +882,22 @@ export const PortalProductsView: React.FC = () => {
       return;
     }
     if (!editProdThumbnail.trim()) {
-      alert('Vui lòng chọn hoặc thêm ảnh đại diện cho sản phẩm!');
+      showToast('Vui lòng chọn hoặc thêm ảnh đại diện cho sản phẩm!', 'error');
       return;
+    }
+    for (let i = 0; i < editProdVariants.length; i++) {
+      const v = editProdVariants[i];
+      if (!v) continue;
+      const lp = Number(v.listPrice || 0);
+      const sp = Number(v.salePrice || 0);
+      if (!Number.isFinite(lp) || lp <= 0) {
+        showToast(`Biến thể [${v.sku || `#${i + 1}`}]: Giá niêm yết gốc phải lớn hơn 0 đồng!`, 'error');
+        return;
+      }
+      if (!Number.isFinite(sp) || sp <= 0) {
+        showToast(`Biến thể [${v.sku || `#${i + 1}`}]: Giá bán hiện hành phải lớn hơn 0 đồng!`, 'error');
+        return;
+      }
     }
 
     setIsSavingProduct(true);
@@ -855,10 +947,10 @@ export const PortalProductsView: React.FC = () => {
       for (const v of editProdVariants) {
         if (v && v.variantId) {
           const listPrice = Number(v.listPrice || 0);
-          const salePrice = Number(v.salePrice || listPrice);
+          const salePrice = Number(v.salePrice || 0);
           const minThresh = Number(v.inventory?.minThreshold ?? v.minThreshold ?? 5);
-          const effectiveList = listPrice > 0 ? listPrice : salePrice;
-          const effectiveSale = salePrice > 0 ? salePrice : listPrice;
+          const effectiveList = listPrice;
+          const effectiveSale = salePrice;
           const varImageUrl = (!v.imageUrl || v.imageUrl === oldThumb) ? (trimmedThumb || v.imageUrl) : v.imageUrl;
           try {
             await productService.updateAdminVariant(v.variantId, {
@@ -976,8 +1068,12 @@ export const PortalProductsView: React.FC = () => {
 
   const handleSaveVariantEdit = async () => {
     if (!editingVariant) return;
-    if (editSalePrice <= 0) {
-      alert('Giá bán biến thể phải lớn hơn 0 đồng!');
+    if (!Number.isFinite(editListPrice) || editListPrice <= 0) {
+      showToast('Giá niêm yết gốc biến thể phải lớn hơn 0 đồng!', 'error');
+      return;
+    }
+    if (!Number.isFinite(editSalePrice) || editSalePrice <= 0) {
+      showToast('Giá bán biến thể phải lớn hơn 0 đồng!', 'error');
       return;
     }
 
@@ -985,7 +1081,7 @@ export const PortalProductsView: React.FC = () => {
     const finalImage = editVariantImage.trim() || editingVariant.variant.imageUrl || currentProd?.thumbnail || '';
     const finalColor = editVariantColor.trim() || editingVariant.variant.color;
 
-    const listPrice = editListPrice > 0 ? editListPrice : editSalePrice;
+    const listPrice = editListPrice;
     const salePrice = editSalePrice;
 
     const partialVariant: Partial<ProductVariant> = {
@@ -1337,7 +1433,7 @@ export const PortalProductsView: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleCreateProduct} className="space-y-6">
+            <form onSubmit={handleCreateProduct} noValidate className="space-y-6">
               {/* 1. THÔNG TIN CƠ BẢN */}
               <div className="space-y-3 bg-surface-soft/40 p-4 rounded-xl border border-hairline-soft">
                 <span className="font-bold text-ink-deep text-xs uppercase tracking-wider block">
@@ -1348,13 +1444,30 @@ export const PortalProductsView: React.FC = () => {
                   <div className="sm:col-span-2">
                     <label className="block font-medium text-charcoal mb-1">Tên sản phẩm / Model (*):</label>
                     <input
+                      ref={addProdNameRef}
                       type="text"
                       required
                       placeholder="VD: iPhone 16 Pro Max 5G..."
                       value={newProdName}
-                      onChange={(e) => setNewProdName(e.target.value)}
-                      className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none font-bold"
+                      onChange={(e) => {
+                        setNewProdName(e.target.value);
+                        if (addFormErrors['prodName']) {
+                          setAddFormErrors(prev => {
+                            const next = { ...prev };
+                            delete next['prodName'];
+                            return next;
+                          });
+                        }
+                      }}
+                      className={`w-full h-10 px-3 bg-canvas border rounded-lg text-ink text-xs focus:border-2 focus:outline-none font-bold ${
+                        addFormErrors['prodName']
+                          ? 'border-rose-500 focus:border-rose-600 ring-2 ring-rose-500/20'
+                          : 'border-hairline focus:border-fb-blue'
+                      }`}
                     />
+                    {addFormErrors['prodName'] && (
+                      <p className="text-[11px] text-rose-600 font-semibold mt-1">{addFormErrors['prodName']}</p>
+                    )}
                   </div>
 
                   <div>
@@ -1478,46 +1591,86 @@ export const PortalProductsView: React.FC = () => {
                         <div>
                           <label className="text-[10px] font-bold text-steel block mb-0.5">Mã SKU (*):</label>
                           <input
+                            ref={(el) => { addVariantFieldRefs.current[`sku-${vIdx}`] = el; }}
                             type="text"
                             required
                             placeholder="IP16PM-256-NAT"
                             value={v.sku}
                             onChange={(e) => handleUpdateDraftVariant(vIdx, 'sku', e.target.value)}
-                            className="w-full h-8 px-2 bg-surface-soft border border-hairline-soft rounded font-mono uppercase text-xs focus:bg-canvas"
+                            className={`w-full h-8 px-2 bg-surface-soft border rounded font-mono uppercase text-xs focus:bg-canvas focus:outline-none ${
+                              addFormErrors[`sku-${vIdx}`]
+                                ? 'border-rose-500 ring-2 ring-rose-500/20'
+                                : 'border-hairline-soft'
+                            }`}
                           />
+                          {addFormErrors[`sku-${vIdx}`] && (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">{addFormErrors[`sku-${vIdx}`]}</p>
+                          )}
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá niêm yết (VNĐ):</label>
+                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá niêm yết (VNĐ) *:</label>
                           <input
+                            ref={(el) => { addVariantFieldRefs.current[`listPrice-${vIdx}`] = el; }}
                             type="number"
+                            min={1}
                             step={100000}
                             value={v.listPrice}
                             onChange={(e) => handleUpdateDraftVariant(vIdx, 'listPrice', Number(e.target.value))}
-                            className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono"
+                            className={`w-full h-8 px-2 bg-canvas border rounded text-xs font-mono focus:outline-none ${
+                              addFormErrors[`listPrice-${vIdx}`] || v.listPrice <= 0
+                                ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700'
+                                : 'border-hairline-soft'
+                            }`}
                           />
+                          {(addFormErrors[`listPrice-${vIdx}`] || v.listPrice <= 0) && (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                              {addFormErrors[`listPrice-${vIdx}`] || 'Giá niêm yết phải > 0'}
+                            </p>
+                          )}
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá bán (sale_price):</label>
+                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá bán (sale_price) *:</label>
                           <input
+                            ref={(el) => { addVariantFieldRefs.current[`salePrice-${vIdx}`] = el; }}
                             type="number"
+                            min={1}
                             step={100000}
                             value={v.salePrice}
                             onChange={(e) => handleUpdateDraftVariant(vIdx, 'salePrice', Number(e.target.value))}
-                            className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono font-bold text-primary"
+                            className={`w-full h-8 px-2 bg-canvas border rounded text-xs font-mono font-bold focus:outline-none ${
+                              addFormErrors[`salePrice-${vIdx}`] || v.salePrice <= 0
+                                ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700'
+                                : 'border-hairline-soft text-primary'
+                            }`}
                           />
+                          {(addFormErrors[`salePrice-${vIdx}`] || v.salePrice <= 0) && (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                              {addFormErrors[`salePrice-${vIdx}`] || 'Giá bán phải > 0'}
+                            </p>
+                          )}
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-steel block mb-0.5">Tồn kho ban đầu:</label>
+                          <label className="text-[10px] font-bold text-steel block mb-0.5">Tồn kho ban đầu *:</label>
                           <input
+                            ref={(el) => { addVariantFieldRefs.current[`initialStock-${vIdx}`] = el; }}
                             type="number"
-                            min={0}
+                            min={1}
                             value={v.initialStock}
                             onChange={(e) => handleUpdateDraftVariant(vIdx, 'initialStock', Number(e.target.value))}
-                            className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono font-bold text-success"
+                            className={`w-full h-8 px-2 bg-canvas border rounded text-xs font-mono font-bold focus:outline-none ${
+                              addFormErrors[`initialStock-${vIdx}`] || v.initialStock <= 0
+                                ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700'
+                                : 'border-hairline-soft text-success'
+                            }`}
                           />
+                          {(addFormErrors[`initialStock-${vIdx}`] || v.initialStock <= 0) && (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                              {addFormErrors[`initialStock-${vIdx}`] || 'Tồn ban đầu phải > 0'}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1852,24 +2005,34 @@ export const PortalProductsView: React.FC = () => {
                               <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
                               <input
                                 type="number"
-                                min={0}
+                                min={1}
                                 step={10000}
                                 value={v.listPrice !== undefined && v.listPrice !== null ? v.listPrice : ''}
                                 onChange={(e) => handleUpdateEditVariant(varIdx, { listPrice: e.target.value === '' ? '' : Number(e.target.value) })}
-                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-slate-700 focus:outline-none focus:border-blue-600"
+                                className={`w-full h-8 px-2.5 bg-white border rounded text-xs font-mono font-bold focus:outline-none ${
+                                  Number(v.listPrice || 0) <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-slate-700 focus:border-blue-600'
+                                }`}
                               />
+                              {Number(v.listPrice || 0) <= 0 && (
+                                <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá niêm yết phải &gt; 0</p>
+                              )}
                             </div>
 
                             <div>
                               <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
                               <input
                                 type="number"
-                                min={0}
+                                min={1}
                                 step={10000}
-                                value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : (v.listPrice ?? '')}
+                                value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : ''}
                                 onChange={(e) => handleUpdateEditVariant(varIdx, { salePrice: e.target.value === '' ? '' : Number(e.target.value) })}
-                                className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded text-xs font-mono font-bold text-emerald-700 focus:outline-none focus:border-blue-600"
+                                className={`w-full h-8 px-2.5 bg-white border rounded text-xs font-mono font-bold focus:outline-none ${
+                                  Number(v.salePrice || 0) <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-emerald-700 focus:border-blue-600'
+                                }`}
                               />
+                              {Number(v.salePrice || 0) <= 0 && (
+                                <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
+                              )}
                             </div>
 
                             <div>
@@ -2181,33 +2344,48 @@ export const PortalProductsView: React.FC = () => {
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     step={10000}
                     value={newVarDraftInEdit.listPrice}
                     onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                    className={`w-full h-9 px-3 bg-white border rounded-lg font-mono font-bold text-xs focus:outline-none ${
+                      newVarDraftInEdit.listPrice <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-slate-900 focus:border-blue-600'
+                    }`}
                   />
+                  {newVarDraftInEdit.listPrice <= 0 && (
+                    <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá niêm yết phải &gt; 0</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     step={10000}
-                    value={newVarDraftInEdit.salePrice ?? newVarDraftInEdit.listPrice}
+                    value={newVarDraftInEdit.salePrice}
                     onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                    className={`w-full h-9 px-3 bg-white border rounded-lg font-mono font-bold text-xs focus:outline-none ${
+                      newVarDraftInEdit.salePrice <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-slate-900 focus:border-blue-600'
+                    }`}
                   />
+                  {newVarDraftInEdit.salePrice <= 0 && (
+                    <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
+                  )}
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Tồn kho ban đầu:</label>
+                  <label className="text-[11px] font-bold text-slate-700 block mb-1">Tồn kho ban đầu *:</label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     value={newVarDraftInEdit.initialStock}
                     onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: Number(e.target.value) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
+                    className={`w-full h-9 px-3 bg-white border rounded-lg font-mono font-bold text-xs focus:outline-none ${
+                      newVarDraftInEdit.initialStock <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-slate-900 focus:border-blue-600'
+                    }`}
                   />
+                  {newVarDraftInEdit.initialStock <= 0 && (
+                    <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Tồn ban đầu phải &gt; 0</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -2417,23 +2595,33 @@ export const PortalProductsView: React.FC = () => {
                     <input
                       type="number"
                       step={50000}
-                      min={0}
+                      min={1}
                       value={editSalePrice ? editSalePrice : ''}
                       onChange={(e) => setEditSalePrice(e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
-                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs font-extrabold font-mono focus:outline-none focus:border-blue-600 text-blue-700"
+                      className={`w-full h-8 px-2.5 bg-white border rounded-lg text-xs font-extrabold font-mono focus:outline-none ${
+                        editSalePrice <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 focus:border-blue-600 text-blue-700'
+                      }`}
                     />
+                    {editSalePrice <= 0 && (
+                      <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
+                    )}
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ):</label>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
                     <input
                       type="number"
                       step={50000}
-                      min={0}
+                      min={1}
                       value={editListPrice ? editListPrice : ''}
                       onChange={(e) => setEditListPrice(e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
-                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-600 text-xs font-bold font-mono focus:outline-none focus:border-blue-600"
+                      className={`w-full h-8 px-2.5 bg-white border rounded-lg text-xs font-bold font-mono focus:outline-none ${
+                        editListPrice <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-slate-600 focus:border-blue-600'
+                      }`}
                     />
+                    {editListPrice <= 0 && (
+                      <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá niêm yết phải &gt; 0</p>
+                    )}
                   </div>
                 </div>
 
