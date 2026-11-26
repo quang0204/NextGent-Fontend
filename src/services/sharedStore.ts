@@ -599,19 +599,19 @@ export const sharedStore = {
     const cat = categories.find(c => c.categoryId === id);
     if (!cat) return { success: false, message: 'Danh mục không tồn tại' };
 
-    // Kiểm tra ràng buộc toàn vẹn: không cho xóa nếu có sản phẩm hoặc có danh mục con
-    const hasProducts = products.some(p => p.categoryName.toLowerCase() === cat.name.toLowerCase());
-    if (hasProducts) {
-      return {
-        success: false,
-        message: `Ràng buộc toàn vẹn: Không thể xóa danh mục "${cat.name}" vì đang có sản phẩm liên kết!`
-      };
-    }
+    // Kiểm tra ràng buộc toàn vẹn: ưu tiên chặn danh mục con trước rồi mới tới sản phẩm (khớp Backend)
     const hasChildren = categories.some(c => c.parentId === id);
     if (hasChildren) {
       return {
         success: false,
         message: `Không thể xóa danh mục "${cat.name}" vì đang có danh mục cấp con trực thuộc!`
+      };
+    }
+    const hasProducts = products.some(p => p.categoryName.toLowerCase() === cat.name.toLowerCase());
+    if (hasProducts) {
+      return {
+        success: false,
+        message: `Ràng buộc toàn vẹn: Không thể xóa danh mục "${cat.name}" vì đang có sản phẩm liên kết!`
       };
     }
 

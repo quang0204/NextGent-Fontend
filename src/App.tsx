@@ -1,8 +1,9 @@
 import React, { Suspense, lazy, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { StorefrontLayout } from './components/layout/StorefrontLayout';
 import { useAuthStore } from './stores/authStore';
 import { useCartStore } from './stores/cartStore';
+import { useToastStore } from './stores/toastStore';
 import { HomePage } from './pages/HomePage';
 import { ToastContainer } from './components/common/ToastContainer';
 
@@ -27,6 +28,82 @@ const AdminLoadingFallback: React.FC = () => (
   </div>
 );
 
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[AppErrorBoundary] Uncaught render error:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-canvas px-4 text-center">
+          <div className="max-w-md space-y-4 p-6 rounded-2xl border border-hairline-soft bg-surface-soft">
+            <h2 className="text-lg font-bold text-ink-deep">Phiên hoặc giao diện vừa gặp gián đoạn</h2>
+            <p className="text-xs text-steel">
+              Vui lòng tải lại trang hoặc đăng nhập lại để tiếp tục.
+            </p>
+            <div className="flex items-center justify-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 text-xs font-bold rounded-full border border-hairline-soft bg-canvas text-ink"
+              >
+                Tải lại trang
+              </button>
+              <a
+                href="/auth"
+                className="px-4 py-2 text-xs font-bold rounded-full bg-primary text-white"
+              >
+                Đăng nhập lại
+              </a>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const AuthSessionMonitor: React.FC = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    let lastNoticeAt = 0;
+    const handleSessionExpired = () => {
+      const now = Date.now();
+      if (now - lastNoticeAt > 1500) {
+        lastNoticeAt = now;
+        useToastStore
+          .getState()
+          .showToast('Phiên đăng nhập đã hết hạn hoặc bị thu hồi. Vui lòng đăng nhập lại.', 'warning');
+      }
+      const { pathname, search } = window.location;
+      if (!pathname.startsWith('/auth')) {
+        const currentTarget = `${pathname}${search}`;
+        navigate(`/auth?redirect=${encodeURIComponent(currentTarget)}`, { replace: true });
+      }
+    };
+
+    window.addEventListener('auth:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', handleSessionExpired);
+  }, [navigate]);
+
+  return null;
+};
+
 export const App: React.FC = () => {
   const fetchMe = useAuthStore((state) => state.fetchMe);
   const fetchCart = useCartStore((state) => state.fetchCart);
@@ -38,8 +115,10 @@ export const App: React.FC = () => {
 
   return (
     <BrowserRouter>
+      <AuthSessionMonitor />
       <ToastContainer />
-      <Routes>
+      <AppErrorBoundary>
+        <Routes>
         {/* Storefront Layout with Persistent Header, Navigation & Footer */}
         <Route element={<StorefrontLayout />}>
           <Route path="/" element={<HomePage />} />
@@ -78,7 +157,8 @@ export const App: React.FC = () => {
             </Suspense>
           }
         />
-      </Routes>
+        </Routes>
+      </AppErrorBoundary>
     </BrowserRouter>
   );
 };

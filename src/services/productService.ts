@@ -474,10 +474,15 @@ export const productService = {
     const effectiveFlashSale = params?.isFlashSale !== undefined ? params.isFlashSale : parsedSearch?.isFlashSale;
     const effectiveInstallment = params?.isInstallment0 !== undefined ? params.isInstallment0 : parsedSearch?.isInstallment0;
 
-    // 1. Lọc danh mục (bao gồm cả danh mục nhận diện từ câu tìm kiếm hoặc categoryId)
+    // 1. Lọc danh mục (khớp trực tiếp hoặc thuộc danh mục cha/gốc khi Backend trả về cả nhánh con)
     if (params?.categoryId) {
       const targetId = Number(params.categoryId);
-      results = results.filter(p => Number(p.categoryId) === targetId);
+      results = results.filter(
+        p =>
+          Number(p.categoryId) === targetId ||
+          Number(p.parentCategoryId) === targetId ||
+          Number(p.rootCategoryId) === targetId
+      );
     } else if (effectiveCategory && effectiveCategory !== 'all') {
       const catFiltered = results.filter(p => matchesCategory(p, effectiveCategory));
       if (catFiltered.length > 0 || !params?.search) {

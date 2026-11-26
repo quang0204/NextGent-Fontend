@@ -272,20 +272,20 @@ export const PortalCategoriesView: React.FC = () => {
       return;
     }
 
-    // 1. Chặn hoàn toàn hành vi xóa nếu đang có sản phẩm liên kết
-    if ((cat.productCount || 0) > 0) {
+    // 1. Chặn hoàn toàn nếu đang có danh mục con (kiểm tra trước vì productCount ở cha gồm cả tổng từ nhánh con)
+    if (cat.children && cat.children.length > 0) {
       showToast(
-        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang có ${cat.productCount} sản phẩm liên kết! Vui lòng chuyển sản phẩm sang danh mục khác trước khi xóa.`,
+        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang chứa ${cat.children.length} danh mục con trực thuộc! Vui lòng xóa hoặc di chuyển các nhánh con trước.`,
         'error',
         6000
       );
       return;
     }
 
-    // 2. Chặn hoàn toàn nếu đang có danh mục con
-    if (cat.children && cat.children.length > 0) {
+    // 2. Chặn hoàn toàn hành vi xóa nếu đang có sản phẩm liên kết trực tiếp
+    if ((cat.productCount || 0) > 0) {
       showToast(
-        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang chứa ${cat.children.length} danh mục con trực thuộc! Vui lòng xóa hoặc di chuyển các nhánh con trước.`,
+        `HỆ THỐNG CHẶN HOÀN TOÀN: Không thể xóa danh mục "${cat.name}" vì đang có ${cat.productCount} sản phẩm liên kết! Vui lòng chuyển sản phẩm sang danh mục khác trước khi xóa.`,
         'error',
         6000
       );

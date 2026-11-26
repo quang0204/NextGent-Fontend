@@ -351,8 +351,8 @@ export const useAuthStore = create<AuthStore>((set, get) => {
           return updatedUser;
         }
       } catch (e: any) {
-        // Nếu lỗi 401 hoặc tài khoản bị khóa
-        if (e.statusCode === 401 || e.statusCode === 403) {
+        // Nếu lỗi 401 hoặc tài khoản bị khóa (tránh gọi /auth/logout lại nếu interceptor đã xóa token)
+        if ((e.statusCode === 401 || e.statusCode === 403) && localStorage.getItem(STORAGE_ACCESS_TOKEN_KEY)) {
           get().logout();
         }
       }

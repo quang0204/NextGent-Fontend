@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
 import { useCartStore } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
@@ -42,7 +42,7 @@ export const CheckoutPage: React.FC = () => {
     clearBuyNowItem, 
     getSelectedItems 
   } = useCartStore();
-  const { user, addAddress, fetchAddresses } = useAuthStore();
+  const { user, isAuthenticated, addAddress, fetchAddresses } = useAuthStore();
   const { showToast } = useToastStore();
   const [isSavingAddress, setIsSavingAddress] = useState(false);
 
@@ -66,18 +66,18 @@ export const CheckoutPage: React.FC = () => {
   const defaultAddr = addresses.find(a => a.isDefault) || addresses[0];
   const [fullName, setFullName] = useState(defaultAddr?.recipientName || user?.fullName || '');
   const [phone, setPhone] = useState(defaultAddr?.phone || user?.phone || '');
-  const [province, setProvince] = useState(defaultAddr?.province || 'Hà Nội');
-  const [district, setDistrict] = useState(defaultAddr?.district || 'Quận Hai Bà Trưng');
-  const [ward, setWard] = useState(defaultAddr?.ward || 'Phường Đồng Tâm');
+  const [province, setProvince] = useState(defaultAddr?.province || '');
+  const [district, setDistrict] = useState(defaultAddr?.district || '');
+  const [ward, setWard] = useState(defaultAddr?.ward || '');
   const [addressLine, setAddressLine] = useState(defaultAddr?.addressLine || '');
   const [note, setNote] = useState('');
 
   // New address form fields
   const [newRecipient, setNewRecipient] = useState(user?.fullName || '');
   const [newPhone, setNewPhone] = useState(user?.phone || '');
-  const [newProvince, setNewProvince] = useState('Hà Nội');
-  const [newDistrict, setNewDistrict] = useState('Quận Hai Bà Trưng');
-  const [newWard, setNewWard] = useState('Phường Đồng Tâm');
+  const [newProvince, setNewProvince] = useState('');
+  const [newDistrict, setNewDistrict] = useState('');
+  const [newWard, setNewWard] = useState('');
   const [newAddressLine, setNewAddressLine] = useState('');
   const [newIsDefault, setNewIsDefault] = useState(false);
 
@@ -97,7 +97,9 @@ export const CheckoutPage: React.FC = () => {
 
   // API 6.5: GET /api/v1/vouchers/valid
   useEffect(() => {
-    fetchAddresses().catch(() => {});
+    if (isAuthenticated && user) {
+      fetchAddresses().catch(() => {});
+    }
     promotionService.getValidVouchers().then(res => {
       if (res && res.length > 0) {
         setVouchers(res.map(v => ({
@@ -165,9 +167,9 @@ export const CheckoutPage: React.FC = () => {
       showToast('Số điện thoại không đúng định dạng (10 chữ số)!', 'error');
       return false;
     }
-    if (!newAddressLine.trim()) {
-      setErrorMsg('Vui lòng nhập địa chỉ chi tiết (số nhà, đường) cho địa chỉ mới.');
-      showToast('Vui lòng nhập địa chỉ chi tiết!', 'error');
+    if (!newProvince.trim() || !newDistrict.trim() || !newWard.trim() || !newAddressLine.trim()) {
+      setErrorMsg('Vui lòng nhập đầy đủ Tỉnh/TP, Quận/Huyện, Phường/Xã và địa chỉ chi tiết.');
+      showToast('Vui lòng nhập đầy đủ 4 cấp địa chỉ!', 'error');
       return false;
     }
 
@@ -206,6 +208,9 @@ export const CheckoutPage: React.FC = () => {
       setWard(newWard.trim());
       setAddressLine(newAddressLine.trim());
 
+      setNewProvince('');
+      setNewDistrict('');
+      setNewWard('');
       setNewAddressLine('');
       setIsAddingNewAddress(false);
       setErrorMsg('');
@@ -265,8 +270,8 @@ export const CheckoutPage: React.FC = () => {
       setErrorMsg('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số).');
       return;
     }
-    if (!addressLine.trim()) {
-      setErrorMsg('Vui lòng nhập địa chỉ cụ thể nhận hàng.');
+    if (!province.trim() || !district.trim() || !ward.trim() || !addressLine.trim()) {
+      setErrorMsg('Địa chỉ nhận hàng thiếu thông tin Tỉnh/TP, Quận/Huyện, Phường/Xã hoặc số nhà/đường.');
       return;
     }
     if (checkoutItems.length === 0) {
@@ -276,7 +281,7 @@ export const CheckoutPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const fullShippingAddress = `${addressLine.trim()}, ${ward}, ${district}, ${province}`;
+      const fullShippingAddress = formatFullAddress(addressLine, ward, district, province);
       const res = await orderService.createOrder(
         {
           recipientName: fullName.trim(),
@@ -324,6 +329,10 @@ export const CheckoutPage: React.FC = () => {
       setIsSubmitting(false);
     }
   };
+
+  if (!user || !isAuthenticated) {
+    return <Navigate to="/auth?redirect=/checkout" replace />;
+  }
 
   if (checkoutItems.length === 0) {
     return (
@@ -461,7 +470,7 @@ export const CheckoutPage: React.FC = () => {
                             )}
                           </div>
                           <p className="text-xs text-charcoal leading-relaxed line-clamp-2">
-                            {addr.addressLine}, {addr.ward}, {addr.district}, {addr.province}
+                            {formatFullAddress(addr.addressLine, addr.ward, addr.district, addr.province)}
                           </p>
                         </div>
                       </div>
@@ -524,6 +533,7 @@ export const CheckoutPage: React.FC = () => {
                     <input
                       type="text"
                       required
+                      placeholder="VD: Lâm Đồng"
                       value={newProvince}
                       onChange={(e) => setNewProvince(e.target.value)}
                       className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink focus:border-2 focus:border-fb-blue focus:outline-none transition-colors"
@@ -535,6 +545,7 @@ export const CheckoutPage: React.FC = () => {
                     <input
                       type="text"
                       required
+                      placeholder="VD: TP. Đà Lạt"
                       value={newDistrict}
                       onChange={(e) => setNewDistrict(e.target.value)}
                       className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink focus:border-2 focus:border-fb-blue focus:outline-none transition-colors"
@@ -546,6 +557,7 @@ export const CheckoutPage: React.FC = () => {
                     <input
                       type="text"
                       required
+                      placeholder="VD: Phường 4"
                       value={newWard}
                       onChange={(e) => setNewWard(e.target.value)}
                       className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink focus:border-2 focus:border-fb-blue focus:outline-none transition-colors"

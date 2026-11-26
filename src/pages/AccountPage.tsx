@@ -59,11 +59,6 @@ export const AccountPage: React.FC = () => {
     urlTab && validTabs.includes(urlTab) ? (urlTab as any) : (location.pathname === '/support-history' ? 'support' : 'profile')
   );
 
-  if (!user || !isAuthenticated) {
-    const currentPath = location.pathname === '/support-history' ? '/support-history' : '/account';
-    return <Navigate to={`/auth?redirect=${encodeURIComponent(currentPath)}`} replace />;
-  }
-
   const [supportCount, setSupportCount] = useState(0);
 
   useEffect(() => {
@@ -153,18 +148,19 @@ export const AccountPage: React.FC = () => {
 
   // Tải profile mới nhất và danh sách địa chỉ từ API khi vào trang
   useEffect(() => {
+    if (!isAuthenticated || !user) return;
     fetchProfile();
     fetchAddresses();
-  }, [fetchProfile, fetchAddresses]);
+  }, [isAuthenticated, user?.userId, fetchProfile, fetchAddresses]);
 
   // New address state
   const [showAddAddr, setShowAddAddr] = useState(false);
   const [newRecipient, setNewRecipient] = useState('');
   const [newPhone, setNewPhone] = useState('');
   const [newAddressLine, setNewAddressLine] = useState('');
-  const [newProvince, setNewProvince] = useState('Hà Nội');
-  const [newDistrict, setNewDistrict] = useState('Quận Cầu Giấy');
-  const [newWard, setNewWard] = useState('Phường Dịch Vọng Hậu');
+  const [newProvince, setNewProvince] = useState('');
+  const [newDistrict, setNewDistrict] = useState('');
+  const [newWard, setNewWard] = useState('');
   const [newIsDefault, setNewIsDefault] = useState(false);
 
   // Edit address state
@@ -179,16 +175,9 @@ export const AccountPage: React.FC = () => {
 
 
 
-  if (!user) {
-    return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center space-y-4">
-        <h2 className="text-xl font-medium text-ink-deep">Vui lòng đăng nhập</h2>
-        <p className="text-xs text-steel">Bạn cần đăng nhập để quản lý thông tin tài khoản và sổ địa chỉ.</p>
-        <Link to="/auth" className="btn-marketing inline-block text-xs font-bold px-6 py-3 rounded-full mt-2">
-          Đăng nhập ngay
-        </Link>
-      </div>
-    );
+  if (!user || !isAuthenticated) {
+    const currentPath = location.pathname === '/support-history' ? '/support-history' : '/account';
+    return <Navigate to={`/auth?redirect=${encodeURIComponent(currentPath)}`} replace />;
   }
 
   // Luồng Bước 1: API 2.2 POST /api/v1/users/profile/update-request
@@ -404,7 +393,17 @@ export const AccountPage: React.FC = () => {
   // API 2.4: POST /api/v1/users/addresses
   const handleAddNewAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newRecipient.trim() || !newPhone.trim() || !newAddressLine.trim()) return;
+    if (
+      !newRecipient.trim() ||
+      !newPhone.trim() ||
+      !newProvince.trim() ||
+      !newDistrict.trim() ||
+      !newWard.trim() ||
+      !newAddressLine.trim()
+    ) {
+      showToast('Vui lòng nhập đầy đủ Tỉnh/TP, Quận/Huyện, Phường/Xã và địa chỉ chi tiết!', 'error');
+      return;
+    }
 
     const fullAddr = formatFullAddress(
       newAddressLine.trim(),
@@ -425,20 +424,12 @@ export const AccountPage: React.FC = () => {
       });
 
       if (res.data) {
-        addAddress({
-          recipientName: res.data.recipientName,
-          phone: res.data.phone,
-          province: newProvince.trim(),
-          district: newDistrict.trim(),
-          ward: newWard.trim(),
-          addressLine: newAddressLine.trim(),
-          isDefault: res.data.isDefault,
-        });
+        await fetchAddresses();
         showToast('Thêm địa chỉ giao hàng mới thành công!', 'success');
       }
     } catch (err: any) {
-      if (err.statusCode === 400) {
-        showToast(err.message || 'Số lượng địa chỉ đã đạt giới hạn tối đa (tối đa 10 địa chỉ).', 'error');
+      if (err?.statusCode) {
+        showToast(err.message || 'Không thể lưu địa chỉ giao hàng. Vui lòng kiểm tra lại.', 'error');
         return;
       }
       addAddress({
@@ -455,6 +446,9 @@ export const AccountPage: React.FC = () => {
 
     setNewRecipient('');
     setNewPhone('');
+    setNewProvince('');
+    setNewDistrict('');
+    setNewWard('');
     setNewAddressLine('');
     setNewIsDefault(false);
     setShowAddAddr(false);
@@ -466,16 +460,27 @@ export const AccountPage: React.FC = () => {
     setEditRecipient(addr.recipientName);
     setEditPhone(addr.phone);
     setEditAddressLine(comp.detail);
-    setEditProvince(comp.province || 'Hà Nội');
-    setEditDistrict(comp.district || 'Quận Cầu Giấy');
-    setEditWard(comp.ward || 'Phường Dịch Vọng Hậu');
+    setEditProvince(comp.province);
+    setEditDistrict(comp.district);
+    setEditWard(comp.ward);
     setEditIsDefault(addr.isDefault);
   };
 
   // API 2.5: PUT /api/v1/users/addresses/{addressId}
   const handleSaveEditAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingAddr || !editRecipient.trim() || !editPhone.trim() || !editAddressLine.trim()) return;
+    if (
+      !editingAddr ||
+      !editRecipient.trim() ||
+      !editPhone.trim() ||
+      !editProvince.trim() ||
+      !editDistrict.trim() ||
+      !editWard.trim() ||
+      !editAddressLine.trim()
+    ) {
+      showToast('Vui lòng nhập đầy đủ Tỉnh/TP, Quận/Huyện, Phường/Xã và địa chỉ chi tiết!', 'error');
+      return;
+    }
 
     const fullAddr = formatFullAddress(
       editAddressLine.trim(),
@@ -494,20 +499,23 @@ export const AccountPage: React.FC = () => {
         district: editDistrict.trim(),
         ward: editWard.trim(),
       });
+      await fetchAddresses();
       showToast('Cập nhật địa chỉ nhận hàng thành công!', 'success');
     } catch (err: any) {
-      console.warn('API updateAddress err', err);
+      if (err?.statusCode) {
+        showToast(err.message || 'Không thể cập nhật địa chỉ nhận hàng!', 'error');
+        return;
+      }
+      updateAddress(editingAddr.addressId, {
+        recipientName: editRecipient.trim(),
+        phone: editPhone.trim(),
+        province: editProvince.trim(),
+        district: editDistrict.trim(),
+        ward: editWard.trim(),
+        addressLine: editAddressLine.trim(),
+        isDefault: editIsDefault,
+      });
     }
-
-    updateAddress(editingAddr.addressId, {
-      recipientName: editRecipient.trim(),
-      phone: editPhone.trim(),
-      province: editProvince.trim(),
-      district: editDistrict.trim(),
-      ward: editWard.trim(),
-      addressLine: editAddressLine.trim(),
-      isDefault: editIsDefault,
-    });
 
     setEditingAddr(null);
   };
@@ -762,6 +770,7 @@ export const AccountPage: React.FC = () => {
                       <input
                         type="text"
                         required
+                        placeholder="VD: Lâm Đồng"
                         value={newProvince}
                         onChange={(e) => setNewProvince(e.target.value)}
                         className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs"
@@ -772,6 +781,7 @@ export const AccountPage: React.FC = () => {
                       <input
                         type="text"
                         required
+                        placeholder="VD: TP. Đà Lạt"
                         value={newDistrict}
                         onChange={(e) => setNewDistrict(e.target.value)}
                         className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs"
@@ -782,6 +792,7 @@ export const AccountPage: React.FC = () => {
                       <input
                         type="text"
                         required
+                        placeholder="VD: Phường 4"
                         value={newWard}
                         onChange={(e) => setNewWard(e.target.value)}
                         className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs"

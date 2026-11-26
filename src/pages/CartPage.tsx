@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useCartStore } from '../stores/cartStore';
+import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { formatVND } from '../components/common/PriceDisplay';
 import { sharedStore } from '../services/sharedStore';
@@ -34,17 +35,18 @@ export const CartPage: React.FC = () => {
     setBuyNowItem
   } = useCartStore();
   const { showToast } = useToastStore();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
-  // Kiểm tra xác thực: Nếu là khách vãng lai khi vào trang giỏ hàng thì lập tức chuyển hướng sang đăng nhập/đăng ký
+  // Kiểm tra xác thực: Nếu là khách vãng lai hoặc phiên vừa hết hạn khi vào giỏ hàng thì chuyển hướng sang đăng nhập
   useEffect(() => {
     const token = localStorage.getItem('access_token');
-    if (!token) {
+    if (!token || !isAuthenticated) {
       showToast('Vui lòng đăng nhập hoặc đăng ký tài khoản để quản lý giỏ hàng!', 'info');
-      navigate('/auth?redirect=/cart');
+      navigate('/auth?redirect=/cart', { replace: true });
       return;
     }
     fetchCart();
-  }, [fetchCart, navigate, showToast]);
+  }, [isAuthenticated, fetchCart, navigate, showToast]);
 
   // Reset any direct buy now session when visiting regular cart
   useEffect(() => {

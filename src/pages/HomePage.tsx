@@ -1,9 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { productService, applyActivePromotionsToProducts } from '../services/productService';
+import { categoryService, CategoryItem } from '../services/categoryService';
 import { promotionService, getCountdownParts } from '../services/promotionService';
 import { Product, Brand } from '../types/product';
 import { resolveBrandLogo } from '../utils/brandUtils';
+import {
+  DEFAULT_ROOT_CATEGORIES,
+  resolveLegacyCategoryKey,
+  getRootCategoryPath,
+  collectCategoryTreeIds,
+  getCategoryIcon,
+  productMatchesCategoryBranch,
+  rankHotProducts,
+} from '../utils/categoryUtils';
 import { ProductCard } from '../components/product/ProductCard';
 import { ProductCardSkeleton } from '../components/product/ProductCardSkeleton';
 import { formatVND } from '../components/common/PriceDisplay';
@@ -17,81 +27,32 @@ import {
   ChevronDown, 
   CreditCard,
   Cpu,
-  Smartphone,
   Laptop,
-  Tablet,
-  Headphones,
   Flame,
   Star
 } from 'lucide-react';
 
-const classifyProductCategory = (p: Product): 'phone' | 'laptop' | 'tablet' | 'accessory' => {
-  const pName = (p.name || '').toLowerCase();
-  const cName = (p.categoryName || '').toLowerCase();
-  const catId = Number(p.categoryId || 0);
-  const hasRom = Array.isArray(p.variants) && p.variants.some(v => (v.romGb || 0) >= 32);
-
-  if (
-    pName.includes('tai nghe') || pName.includes('airpods') || pName.includes('earbuds') ||
-    pName.includes('củ sạc') || pName.includes('sạc dự phòng') || pName.includes('pin dự phòng') ||
-    pName.includes('cáp') || pName.includes('dây sạc') || pName.includes('loa ') ||
-    pName.includes('loa bluetooth') || pName.includes('ốp lưng') || pName.includes('bao da') ||
-    pName.includes('kính cường lực') || pName.includes('magsafe') || pName.includes('anker') ||
-    pName.includes('marshall') || pName.includes('chuột') || pName.includes('bàn phím') ||
-    pName.includes('adapter') || pName.includes('hub ') || pName.includes('phụ kiện')
-  ) {
-    return 'accessory';
-  }
-
-  if (
-    pName.includes('laptop') || pName.includes('lap top') || pName.includes('macbook') ||
-    pName.includes('mac book') || pName.includes('thinkpad') || pName.includes('zenbook') ||
-    pName.includes('vivobook') || pName.includes('legion') || pName.includes('ideapad') ||
-    pName.includes('rog ') || pName.includes('tuf ') || pName.includes('máy tính xách tay')
-  ) {
-    return 'laptop';
-  }
-
-  if (
-    pName.includes('ipad') || pName.includes('i pad') || pName.includes('galaxy tab') ||
-    pName.includes('samsung tab') || pName.includes('xiaomi pad') || pName.includes('redmi pad') ||
-    pName.includes('matepad') || pName.includes('máy tính bảng') || pName.includes('tablet')
-  ) {
-    return 'tablet';
-  }
-
-  if (
-    pName.includes('iphone') || pName.includes('i phone') || pName.includes('điện thoại') ||
-    pName.includes('smartphone') || pName.includes('galaxy s') || pName.includes('galaxy z') ||
-    pName.includes('galaxy a') || pName.includes('redmi note') || pName.includes('xiaomi 1') ||
-    pName.includes('oppo') || pName.includes('vivo') || pName.includes('realme') || pName.includes('pixel')
-  ) {
-    return 'phone';
-  }
-
-  if (
-    catId === 4 || catId === 12 || catId === 13 || catId === 14 ||
-    cName.includes('phụ kiện') || cName.includes('âm thanh') || cName.includes('tai nghe') ||
-    cName.includes('sạc') || cName.includes('cáp') || cName.includes('loa')
-  ) {
-    return hasRom ? 'phone' : 'accessory';
-  }
-
-  if (
-    catId === 3 || catId === 10 || catId === 11 ||
-    cName.includes('laptop') || cName.includes('macbook') || cName.includes('pc') || cName.includes('máy tính xách tay')
-  ) {
-    return 'laptop';
-  }
-
-  if (
-    catId === 2 || catId === 8 || catId === 9 ||
-    cName.includes('máy tính bảng') || cName.includes('tablet') || cName.includes('ipad')
-  ) {
-    return 'tablet';
-  }
-
-  return 'phone';
+const SECTION_META_BY_KEY: Record<string, { title: string; subtitle: string; ctaText: string }> = {
+  phone: {
+    title: 'Điện thoại nổi bật & Bán chạy',
+    subtitle: 'Smartphone chính hãng 100% • Bảo hành 12 tháng • Hỗ trợ trả góp 0%',
+    ctaText: 'Xem tất cả Điện thoại',
+  },
+  laptop: {
+    title: 'Laptop & Máy tính xách tay',
+    subtitle: 'Laptop văn phòng mỏng nhẹ, đồ họa & gaming hiệu năng đỉnh cao',
+    ctaText: 'Xem tất cả Laptop',
+  },
+  tablet: {
+    title: 'Máy tính bảng (Tablet)',
+    subtitle: 'Màn hình sắc nét, học tập, làm việc & giải trí sáng tạo không giới hạn',
+    ctaText: 'Xem tất cả Tablet',
+  },
+  accessory: {
+    title: 'Phụ kiện công nghệ chính hãng',
+    subtitle: 'Củ cáp sạc nhanh GaN, tai nghe True Wireless, pin sạc & loa Bluetooth',
+    ctaText: 'Xem tất cả Phụ kiện',
+  },
 };
 
 interface HeroBannerSlide {
@@ -147,6 +108,7 @@ export const HomePage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [visibleCount, setVisibleCount] = useState<number>(12);
   const [bestSellers, setBestSellers] = useState<Product[]>([]);
+  const [categoriesTree, setCategoriesTree] = useState<CategoryItem[]>(DEFAULT_ROOT_CATEGORIES);
 
   // Flash Sale Auto-slide & Navigation Controls
   const flashSaleSliderRef = useRef<HTMLDivElement>(null);
@@ -158,13 +120,14 @@ export const HomePage: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
-      // API 4.2 & API 6.1: Nạp sản phẩm, thương hiệu, Flash Sale và chiến dịch khuyến mãi đang diễn ra
-      const [allProducts, allBrands, featuredFlashSale, activePromos, topSellers] = await Promise.all([
+      // API 3.1, 4.2 & 6.1: Nạp danh mục gốc, sản phẩm, thương hiệu, Flash Sale và khuyến mãi
+      const [allProducts, allBrands, featuredFlashSale, activePromos, topSellers, catsRes] = await Promise.all([
         productService.getProducts(),
         productService.getBrands(),
         productService.getFeaturedProducts('FLASH_SALE', 12).catch(() => []),
         promotionService.getActivePromotions().catch(() => []),
         productService.getFeaturedProducts('BEST_SELLER', 24).catch(() => []),
+        categoryService.getCategories(false).catch(() => ({ data: [] })),
       ]);
       let mergedProducts = [...allProducts];
       // Backend fallback trả best-seller (không có promotion) khi không có chiến dịch đang chạy -> bỏ qua
@@ -189,6 +152,10 @@ export const HomePage: React.FC = () => {
       setProducts(mergedProducts);
       setBrands(allBrands);
       setBestSellers(topSellers);
+      if (catsRes && Array.isArray(catsRes.data) && catsRes.data.length > 0) {
+        const visibleRoots = catsRes.data.filter((c) => c.isVisible !== false);
+        if (visibleRoots.length > 0) setCategoriesTree(visibleRoots);
+      }
       setIsLoading(false);
     };
     fetchData();
@@ -222,7 +189,7 @@ export const HomePage: React.FC = () => {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [flashSaleProducts.length]);
-  // Phân bổ sản phẩm theo từng ngành hàng cốt lõi: Chọn lọc đúng 4 sản phẩm NỔI BẬT & BÁN CHẠY NHẤT
+  // Phân bổ sản phẩm theo toàn bộ danh mục gốc từ DB: Chọn lọc tối đa 4 sản phẩm NỔI BẬT & BÁN CHẠY NHẤT
   const categorySections = useMemo(() => {
     const baseList = selectedBrand === 'all'
       ? products
@@ -230,74 +197,30 @@ export const HomePage: React.FC = () => {
 
     const bestSellerIds = new Set(bestSellers.map(b => b.productId));
 
-    // Thuật toán xếp hạng độ Nổi Bật & Bán Chạy thực tế:
-    // 1. Nằm trong Top Best Seller từ hệ sinh thái đơn hàng (backend query): +10.000 điểm
-    // 2. Thuộc chiến dịch Flash Sale đang chạy: +5.000 điểm
-    // 3. Số lượng bán thực tế (soldCount): +soldCount * 10 điểm
-    // 4. Điểm đánh giá thực tế từ khách (rating): +rating * 20 điểm
-    // 5. Tổng lượt review uy tín: +reviewCount
-    const getHotScore = (p: Product) => {
-      let score = 0;
-      if (bestSellerIds.has(p.productId)) score += 10000;
-      if (p.isFlashSale) score += 5000;
-      score += (p.soldCount || 0) * 10;
-      score += (p.rating || 0) * 20;
-      score += (p.reviewCount || 0);
-      return score;
-    };
+    return categoriesTree
+      .filter(cat => cat.isVisible !== false)
+      .map(cat => {
+        const branchIds = collectCategoryTreeIds(cat);
+        const ranked = rankHotProducts(
+          baseList.filter(p => productMatchesCategoryBranch(p, cat.categoryId, branchIds)),
+          bestSellerIds
+        );
+        const legacyKey = resolveLegacyCategoryKey(cat);
+        const meta = legacyKey ? SECTION_META_BY_KEY[legacyKey] : undefined;
 
-    const sortByTopSelling = (list: Product[]) => {
-      return [...list].sort((a, b) => getHotScore(b) - getHotScore(a));
-    };
-
-    const phones = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'phone'));
-    const laptops = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'laptop'));
-    const tablets = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'tablet'));
-    const accessories = sortByTopSelling(baseList.filter(p => classifyProductCategory(p) === 'accessory'));
-
-    return [
-      {
-        id: 'phone',
-        title: 'Điện thoại nổi bật & Bán chạy',
-        subtitle: 'Smartphone chính hãng 100% • Bảo hành 12 tháng • Hỗ trợ trả góp 0%',
-        icon: Smartphone,
-        targetUrl: '/products?category=phone',
-        ctaText: 'Xem tất cả Điện thoại',
-        totalCount: phones.length,
-        items: phones.slice(0, 4),
-      },
-      {
-        id: 'laptop',
-        title: 'Laptop & Máy tính xách tay',
-        subtitle: 'Laptop văn phòng mỏng nhẹ, đồ họa & gaming hiệu năng đỉnh cao',
-        icon: Laptop,
-        targetUrl: '/products?category=laptop',
-        ctaText: 'Xem tất cả Laptop',
-        totalCount: laptops.length,
-        items: laptops.slice(0, 4),
-      },
-      {
-        id: 'tablet',
-        title: 'Máy tính bảng (Tablet)',
-        subtitle: 'Màn hình sắc nét, học tập, làm việc & giải trí sáng tạo không giới hạn',
-        icon: Tablet,
-        targetUrl: '/products?category=tablet',
-        ctaText: 'Xem tất cả Tablet',
-        totalCount: tablets.length,
-        items: tablets.slice(0, 4),
-      },
-      {
-        id: 'accessory',
-        title: 'Phụ kiện công nghệ chính hãng',
-        subtitle: 'Củ cáp sạc nhanh GaN, tai nghe True Wireless, pin sạc & loa Bluetooth',
-        icon: Headphones,
-        targetUrl: '/products?category=accessory',
-        ctaText: 'Xem tất cả Phụ kiện',
-        totalCount: accessories.length,
-        items: accessories.slice(0, 4),
-      },
-    ].filter(sec => sec.items.length > 0);
-  }, [products, selectedBrand, bestSellers]);
+        return {
+          id: String(cat.categoryId),
+          title: meta?.title || `${cat.name} nổi bật & Bán chạy`,
+          subtitle: meta?.subtitle || cat.description || `${cat.name} chính hãng • Bảo hành 12 tháng • Giá tốt mỗi ngày`,
+          icon: getCategoryIcon(cat),
+          targetUrl: getRootCategoryPath(cat),
+          ctaText: meta?.ctaText || `Xem tất cả ${cat.name}`,
+          totalCount: ranked.length,
+          items: ranked.slice(0, 4),
+        };
+      })
+      .filter(sec => sec.items.length > 0);
+  }, [products, selectedBrand, bestSellers, categoriesTree]);
 
   // Quan sát khi người dùng cuộn màn hình đến khu vực Flash Sale
   useEffect(() => {
