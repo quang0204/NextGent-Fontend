@@ -18,8 +18,21 @@ import {
   AlertTriangle,
   ShieldCheck,
   Loader2,
-  ShoppingBag
+  ShoppingBag,
+  Eye,
+  EyeOff
 } from 'lucide-react';
+
+type RegFieldKey = 'fullName' | 'phone' | 'email' | 'password' | 'confirmPassword' | 'terms';
+
+const REG_FIELD_LABELS: Record<RegFieldKey, string> = {
+  fullName: 'Họ và tên',
+  phone: 'Số điện thoại',
+  email: 'Email',
+  password: 'Mật khẩu',
+  confirmPassword: 'Xác nhận mật khẩu',
+  terms: 'Điều khoản dịch vụ',
+};
 
 const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z0-9]).{8,}$/;
 const PASSWORD_POLICY_MSG = 'Mật khẩu phải có tối thiểu 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt.';
@@ -105,6 +118,16 @@ export const AuthPage: React.FC = () => {
   const [regOtpCode, setRegOtpCode] = useState('');
   const [regCountdown, setRegCountdown] = useState(0);
   const [regExpiresIn, setRegExpiresIn] = useState(0);
+  const [regTried, setRegTried] = useState(false);
+  const [regSummaryKeys, setRegSummaryKeys] = useState<RegFieldKey[]>([]);
+  const [regShakeCount, setRegShakeCount] = useState(0);
+  const [regSubmitDone, setRegSubmitDone] = useState(false);
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
+
+  const regUid = useId();
+  const regBoxRefs = useRef<Partial<Record<RegFieldKey, HTMLDivElement | null>>>({});
+  const regInputRefs = useRef<Partial<Record<RegFieldKey, HTMLElement | null>>>({});
 
   // -------------------------------------------------------------
   // API 7, 8, 9: Forgot & Reset Password State
@@ -194,6 +217,11 @@ export const AuthPage: React.FC = () => {
     setLoginOtpStatus('idle');
     setRegOtpStatus('idle');
     setForgotOtpStatus('idle');
+    setRegTried(false);
+    setRegSummaryKeys([]);
+    setRegSubmitDone(false);
+    setShowRegPassword(false);
+    setShowRegConfirmPassword(false);
     const params: Record<string, string> = {};
     if (tab === 'register') params.mode = 'register';
     if (tab === 'forgot') params.mode = 'forgot';
@@ -367,39 +395,70 @@ export const AuthPage: React.FC = () => {
     }
   };
 
+  const getRegisterErrors = (values = {
+    fullName: regFullName,
+    phone: regPhone,
+    email: regEmail,
+    password: regPassword,
+    confirmPassword: regConfirmPassword,
+    terms: regAgreeTerms,
+  }): Partial<Record<RegFieldKey, string>> => {
+    const errs: Partial<Record<RegFieldKey, string>> = {};
+    if (!values.fullName.trim()) {
+      errs.fullName = 'Vui lòng nhập họ và tên của bạn.';
+    }
+    if (!isValidVietnamesePhone(values.phone.trim())) {
+      errs.phone = 'Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số).';
+    }
+    if (!isValidEmail(values.email.trim())) {
+      errs.email = 'Vui lòng nhập định dạng email hợp lệ (vd: ten@domain.com).';
+    }
+    if (!values.password || !PASSWORD_REGEX.test(values.password)) {
+      errs.password = PASSWORD_POLICY_MSG;
+    }
+    if (!values.confirmPassword || values.confirmPassword !== values.password) {
+      errs.confirmPassword = 'Mật khẩu xác nhận không khớp. Vui lòng kiểm tra lại.';
+    }
+    if (!values.terms) {
+      errs.terms = 'Bạn cần đồng ý với Điều khoản dịch vụ và Chính sách bảo mật.';
+    }
+    return errs;
+  };
+
+  const focusRegField = (key: RegFieldKey) => {
+    const prefersReduced =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    regBoxRefs.current[key]?.scrollIntoView({ behavior: prefersReduced ? 'auto' : 'smooth', block: 'center' });
+    window.setTimeout(
+      () => regInputRefs.current[key]?.focus({ preventScroll: true }),
+      prefersReduced ? 0 : 180
+    );
+  };
+
   // --------------------------------------------------------------------------
   // API 4: POST /api/v1/auth/register-initiate
   // --------------------------------------------------------------------------
   const handleInitiateRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || regSubmitDone) return;
     setErrorMsg('');
 
-    if (!regFullName.trim()) {
-      setErrorMsg('Vui lòng nhập họ và tên của bạn.');
+    const regErrors = getRegisterErrors();
+    const badKeys = (Object.keys(REG_FIELD_LABELS) as RegFieldKey[]).filter((k) => Boolean(regErrors[k]));
+
+    if (badKeys.length > 0) {
+      setRegTried(true);
+      setRegSummaryKeys(badKeys);
+      setRegShakeCount((c) => c + 1);
+      focusRegField(badKeys[0]);
       return;
     }
+
     const cleanPhone = regPhone.trim();
-    if (!isValidVietnamesePhone(cleanPhone)) {
-      setErrorMsg('Số điện thoại không đúng định dạng di động Việt Nam (10 chữ số).');
-      return;
-    }
     const cleanEmail = regEmail.trim();
-    if (!isValidEmail(cleanEmail)) {
-      setErrorMsg('Vui lòng nhập định dạng email hợp lệ.');
-      return;
-    }
-    if (!regPassword || !PASSWORD_REGEX.test(regPassword)) {
-      setErrorMsg(PASSWORD_POLICY_MSG);
-      return;
-    }
-    if (regPassword !== regConfirmPassword) {
-      setErrorMsg('Mật khẩu xác nhận không khớp. Vui lòng kiểm tra lại.');
-      return;
-    }
-    if (!regAgreeTerms) {
-      setErrorMsg('Bạn cần đồng ý với Điều khoản dịch vụ và Chính sách bảo mật.');
-      return;
-    }
+    const prefersReduced =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const doneBeatMs = prefersReduced ? 180 : 520;
 
     setLoading(true);
     try {
@@ -411,12 +470,19 @@ export const AuthPage: React.FC = () => {
         confirmPassword: regConfirmPassword,
       });
 
-      setRegToken(data.registrationToken);
-      setRegCountdown(data.cooldownSeconds || 60);
-      setRegExpiresIn(data.expiresInSeconds || 300);
-      setIsRegOtpStep(true);
-      setRegOtpCode('');
-      showToast(`Mã xác thực kích hoạt đã gửi về hòm thư Email ${data.targetEmail}`, 'info');
+      setRegSubmitDone(true);
+      loginSuccessTimerRef.current = window.setTimeout(() => {
+        loginSuccessTimerRef.current = null;
+        setRegSubmitDone(false);
+        setRegTried(false);
+        setRegSummaryKeys([]);
+        setRegToken(data.registrationToken);
+        setRegCountdown(data.cooldownSeconds || 60);
+        setRegExpiresIn(data.expiresInSeconds || 300);
+        setIsRegOtpStep(true);
+        setRegOtpCode('');
+        showToast(`Mã xác thực kích hoạt đã gửi về hòm thư Email ${data.targetEmail}`, 'info');
+      }, doneBeatMs);
     } catch (err: any) {
       if (err.statusCode === 409) {
         setErrorMsg('Số điện thoại hoặc Email này đã được đăng ký tài khoản trên hệ thống.');
@@ -924,106 +990,300 @@ export const AuthPage: React.FC = () => {
         {/* ========================================================= */}
         {activeTab === 'register' && (
           <div className="space-y-5">
-            {!isRegOtpStep ? (
-              /* Bước 1: API 4 - register-initiate */
-              <form onSubmit={handleInitiateRegister} className="space-y-3.5 text-xs">
-                <div>
-                  <label className="block font-medium text-charcoal mb-1.5">
-                    Họ và tên <span className="text-critical">*</span>:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    disabled={loading}
-                    placeholder="Nhập họ và tên"
-                    value={regFullName}
-                    onChange={(e) => setRegFullName(e.target.value)}
-                    className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
-                  />
+            {!isRegOtpStep ? (() => {
+              const liveRegErrors = getRegisterErrors();
+              const remainingBadCount = regSummaryKeys.filter((k) => Boolean(liveRegErrors[k])).length;
+              const hasActiveSummary = regTried && remainingBadCount > 0;
+              const shakeClass = regShakeCount > 0 ? (regShakeCount % 2 === 1 ? ' is-shake-a' : ' is-shake-b') : '';
+
+              return (
+                /* Bước 1: API 4 - register-initiate (Lucian UX/UI #244 smart validation & summary card) */
+                <div className={`u244${hasActiveSummary ? ' is-err' : ''}`}>
+                  <form onSubmit={handleInitiateRegister} noValidate aria-label="Biểu mẫu đăng ký tài khoản">
+                    <div className="u244-sm" role="alert">
+                      <div>
+                        <div className="u244-sb">
+                          <b>
+                            <i aria-hidden="true">!</i>
+                            <span>{remainingBadCount} mục cần kiểm tra lại</span>
+                          </b>
+                          <ul>
+                            {regSummaryKeys.map((key) => {
+                              const fixed = !liveRegErrors[key];
+                              return (
+                                <li key={key} className={fixed ? 'is-fixed' : undefined}>
+                                  <button type="button" onClick={() => focusRegField(key)}>
+                                    {REG_FIELD_LABELS[key]}
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.fullName = el; }}
+                      className={`u244-fd${
+                        regTried && liveRegErrors.fullName ? ` is-bad${shakeClass}` : ''
+                      }${!liveRegErrors.fullName && regFullName.trim().length > 0 ? ' is-good' : ''}`}
+                    >
+                      <label htmlFor={`${regUid}-fullName`}>
+                        Họ và tên <span className="text-critical">*</span>
+                      </label>
+                      <div className="u244-bx">
+                        <input
+                          ref={(el) => { regInputRefs.current.fullName = el; }}
+                          id={`${regUid}-fullName`}
+                          type="text"
+                          autoComplete="name"
+                          disabled={loading || regSubmitDone}
+                          placeholder="Nhập họ và tên"
+                          value={regFullName}
+                          aria-invalid={regTried && Boolean(liveRegErrors.fullName)}
+                          aria-describedby={`${regUid}-msg-fullName`}
+                          onChange={(e) => setRegFullName(e.target.value)}
+                          className="u244-in"
+                        />
+                        <span className="u244-ok" aria-hidden="true" />
+                      </div>
+                      <div className="u244-ms">
+                        <div>
+                          <span id={`${regUid}-msg-fullName`}>
+                            {liveRegErrors.fullName || 'Vui lòng nhập họ và tên của bạn.'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.phone = el; }}
+                      className={`u244-fd${
+                        regTried && liveRegErrors.phone ? ` is-bad${shakeClass}` : ''
+                      }${!liveRegErrors.phone && regPhone.trim().length > 0 ? ' is-good' : ''}`}
+                    >
+                      <label htmlFor={`${regUid}-phone`}>
+                        Số điện thoại di động <span className="text-critical">*</span>
+                      </label>
+                      <div className="u244-bx">
+                        <input
+                          ref={(el) => { regInputRefs.current.phone = el; }}
+                          id={`${regUid}-phone`}
+                          type="tel"
+                          autoComplete="tel"
+                          disabled={loading || regSubmitDone}
+                          placeholder="Nhập số điện thoại (10 số)"
+                          value={regPhone}
+                          aria-invalid={regTried && Boolean(liveRegErrors.phone)}
+                          aria-describedby={`${regUid}-msg-phone`}
+                          onChange={(e) => setRegPhone(e.target.value)}
+                          className="u244-in font-mono"
+                        />
+                        <span className="u244-ok" aria-hidden="true" />
+                      </div>
+                      <div className="u244-ms">
+                        <div>
+                          <span id={`${regUid}-msg-phone`}>
+                            {liveRegErrors.phone || 'Số điện thoại không đúng định dạng.'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.email = el; }}
+                      className={`u244-fd${
+                        regTried && liveRegErrors.email ? ` is-bad${shakeClass}` : ''
+                      }${!liveRegErrors.email && regEmail.trim().length > 0 ? ' is-good' : ''}`}
+                    >
+                      <label htmlFor={`${regUid}-email`}>
+                        Địa chỉ Email <span className="text-critical">*</span>
+                      </label>
+                      <div className="u244-bx">
+                        <input
+                          ref={(el) => { regInputRefs.current.email = el; }}
+                          id={`${regUid}-email`}
+                          type="email"
+                          autoComplete="email"
+                          disabled={loading || regSubmitDone}
+                          placeholder="Nhập email nhận mã kích hoạt"
+                          value={regEmail}
+                          aria-invalid={regTried && Boolean(liveRegErrors.email)}
+                          aria-describedby={`${regUid}-msg-email`}
+                          onChange={(e) => setRegEmail(e.target.value)}
+                          className="u244-in"
+                        />
+                        <span className="u244-ok" aria-hidden="true" />
+                      </div>
+                      <div className="u244-ms">
+                        <div>
+                          <span id={`${regUid}-msg-email`}>
+                            {liveRegErrors.email || 'Vui lòng nhập định dạng email hợp lệ.'}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-steel mt-1">
+                        Hệ thống sẽ gửi mã OTP kích hoạt tài khoản trực tiếp về Email này.
+                      </p>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.password = el; }}
+                      className={`u244-fd${
+                        regTried && liveRegErrors.password ? ` is-bad${shakeClass}` : ''
+                      }${!liveRegErrors.password && regPassword.length > 0 ? ' is-good' : ''}`}
+                    >
+                      <label htmlFor={`${regUid}-password`}>
+                        Mật khẩu <span className="text-critical">*</span>
+                      </label>
+                      <div className="u244-bx">
+                        <input
+                          ref={(el) => { regInputRefs.current.password = el; }}
+                          id={`${regUid}-password`}
+                          type={showRegPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          disabled={loading || regSubmitDone}
+                          placeholder="Tối thiểu 8 ký tự (hoa, thường, số, đặc biệt)"
+                          value={regPassword}
+                          aria-invalid={regTried && Boolean(liveRegErrors.password)}
+                          aria-describedby={`${regUid}-msg-password`}
+                          onChange={(e) => setRegPassword(e.target.value)}
+                          className="u244-in u244-in-pw"
+                        />
+                        <button
+                          type="button"
+                          disabled={loading || regSubmitDone}
+                          aria-label={showRegPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                          aria-pressed={showRegPassword}
+                          onClick={() => setShowRegPassword((prev) => !prev)}
+                          className="u244-eye"
+                        >
+                          {showRegPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <span className="u244-ok" aria-hidden="true" />
+                      </div>
+                      <div className="u244-ms">
+                        <div>
+                          <span id={`${regUid}-msg-password`}>
+                            {liveRegErrors.password || PASSWORD_POLICY_MSG}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.confirmPassword = el; }}
+                      className={`u244-fd${
+                        regTried && liveRegErrors.confirmPassword ? ` is-bad${shakeClass}` : ''
+                      }${
+                        !liveRegErrors.confirmPassword && regConfirmPassword.length > 0 ? ' is-good' : ''
+                      }`}
+                    >
+                      <label htmlFor={`${regUid}-confirmPassword`}>
+                        Nhập lại mật khẩu <span className="text-critical">*</span>
+                      </label>
+                      <div className="u244-bx">
+                        <input
+                          ref={(el) => { regInputRefs.current.confirmPassword = el; }}
+                          id={`${regUid}-confirmPassword`}
+                          type={showRegConfirmPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          disabled={loading || regSubmitDone}
+                          placeholder="Nhập lại mật khẩu của bạn"
+                          value={regConfirmPassword}
+                          aria-invalid={regTried && Boolean(liveRegErrors.confirmPassword)}
+                          aria-describedby={`${regUid}-msg-confirmPassword`}
+                          onChange={(e) => setRegConfirmPassword(e.target.value)}
+                          className="u244-in u244-in-pw"
+                        />
+                        <button
+                          type="button"
+                          disabled={loading || regSubmitDone}
+                          aria-label={showRegConfirmPassword ? 'Ẩn mật khẩu xác nhận' : 'Hiện mật khẩu xác nhận'}
+                          aria-pressed={showRegConfirmPassword}
+                          onClick={() => setShowRegConfirmPassword((prev) => !prev)}
+                          className="u244-eye"
+                        >
+                          {showRegConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                        <span className="u244-ok" aria-hidden="true" />
+                      </div>
+                      <div className="u244-ms">
+                        <div>
+                          <span id={`${regUid}-msg-confirmPassword`}>
+                            {liveRegErrors.confirmPassword || 'Mật khẩu xác nhận không khớp.'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      ref={(el) => { regBoxRefs.current.terms = el; }}
+                      className={`u244-ag${regTried && liveRegErrors.terms ? ` is-bad${shakeClass}` : ''}`}
+                    >
+                      <button
+                        ref={(el) => { regInputRefs.current.terms = el; }}
+                        type="button"
+                        role="checkbox"
+                        aria-checked={regAgreeTerms}
+                        aria-label="Đồng ý điều khoản dịch vụ và chính sách bảo mật"
+                        disabled={loading || regSubmitDone}
+                        onClick={() => setRegAgreeTerms((prev) => !prev)}
+                        className="u244-ag-ck"
+                      />
+                      <span
+                        className="cursor-pointer select-none leading-relaxed"
+                        onClick={() => {
+                          if (!loading && !regSubmitDone) setRegAgreeTerms((prev) => !prev);
+                        }}
+                      >
+                        Tôi đồng ý với{' '}
+                        <Link
+                          to="/faq"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-primary underline font-medium"
+                        >
+                          Điều khoản dịch vụ
+                        </Link>{' '}
+                        và{' '}
+                        <Link
+                          to="/faq"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-primary underline font-medium"
+                        >
+                          Chính sách bảo mật
+                        </Link>{' '}
+                        của NextGen.
+                      </span>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={loading || regSubmitDone}
+                      className={`u244-go${regSubmitDone ? ' is-done' : ''}`}
+                    >
+                      {regSubmitDone ? (
+                        <>
+                          <CheckCircle2 size={16} />
+                          <span>Đã gửi mã OTP kích hoạt!</span>
+                        </>
+                      ) : loading ? (
+                        <>
+                          <Loader2 size={16} className="animate-spin" />
+                          <span>Đang gửi yêu cầu...</span>
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus size={15} />
+                          <span>Tiếp tục: Nhận mã kích hoạt qua Email</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
                 </div>
-
-                <div>
-                  <label className="block font-medium text-charcoal mb-1.5">
-                    Số điện thoại di động <span className="text-critical">*</span>:
-                  </label>
-                  <input
-                    type="tel"
-                    required
-                    disabled={loading}
-                    placeholder="Nhập số điện thoại"
-                    value={regPhone}
-                    onChange={(e) => setRegPhone(e.target.value)}
-                    className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink font-mono focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-medium text-charcoal mb-1.5">
-                    Địa chỉ Email <span className="text-critical">*</span>:
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    disabled={loading}
-                    placeholder="Nhập email"
-                    value={regEmail}
-                    onChange={(e) => setRegEmail(e.target.value)}
-                    className="w-full h-11 bg-canvas border border-hairline rounded-lg px-3.5 text-xs text-ink focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
-                  />
-                  <p className="text-[11px] text-steel mt-1">
-                    Hệ thống sẽ gửi mã OTP kích hoạt tài khoản trực tiếp về Email này.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-medium text-charcoal mb-1.5">
-                      Mật khẩu <span className="text-critical">*</span>:
-                    </label>
-                    <PasswordInput
-                      required
-                      disabled={loading}
-                      placeholder="Tối thiểu 8 ký tự (hoa, thường, số, ký tự đặc biệt)"
-                      value={regPassword}
-                      onChange={(e) => setRegPassword(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-medium text-charcoal mb-1.5">
-                      Nhập lại mật khẩu <span className="text-critical">*</span>:
-                    </label>
-                    <PasswordInput
-                      required
-                      disabled={loading}
-                      placeholder="Nhập lại mật khẩu của bạn"
-                      value={regConfirmPassword}
-                      onChange={(e) => setRegConfirmPassword(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <label className="flex items-start gap-2.5 pt-1 cursor-pointer text-[11px] text-charcoal">
-                  <input
-                    type="checkbox"
-                    checked={regAgreeTerms}
-                    onChange={(e) => setRegAgreeTerms(e.target.checked)}
-                    className="mt-0.5 rounded text-primary accent-primary"
-                  />
-                  <span>
-                    Tôi đồng ý với <Link to="/faq" className="text-primary underline">Điều khoản dịch vụ</Link> và <Link to="/faq" className="text-primary underline">Chính sách bảo mật</Link> của NextGen.
-                  </span>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-70"
-                >
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={14} />}
-                  <span>Tiếp tục: Nhận mã kích hoạt qua Email</span>
-                </button>
-              </form>
-            ) : (
+              );
+            })() : (
               /* Bước 2: API 5 & 6 - register-verify-otp & register-resend-otp */
               <form onSubmit={handleConfirmRegister} className="space-y-5 text-xs text-center">
                 <div className="space-y-2 pt-1">
