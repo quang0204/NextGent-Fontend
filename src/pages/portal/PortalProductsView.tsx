@@ -57,6 +57,20 @@ interface DraftVariant {
   imageUrl?: string;
 }
 
+const createEmptyDraftVariant = (): DraftVariant => ({
+  sku: '',
+  color: '',
+  colorHex: '#000000',
+  ramGb: undefined,
+  romGb: undefined,
+  connectionType: undefined,
+  attributes: {},
+  listPrice: 0,
+  salePrice: 0,
+  initialStock: 0,
+  isActive: true,
+});
+
 export const PortalProductsView: React.FC = () => {
   const [products, setProducts] = useState<Product[]>(sharedStore.getProducts());
   const [brands, setBrands] = useState<Brand[]>(sharedStore.getBrands());
@@ -64,78 +78,28 @@ export const PortalProductsView: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Modal Thêm sản phẩm mới
+  // Modal Thêm sản phẩm mới (không setup dữ liệu mẫu)
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProdName, setNewProdName] = useState('');
-  const [newBrand, setNewBrand] = useState('Apple');
-  const [newCategory, setNewCategory] = useState('Điện thoại');
-  const [newWarranty, setNewWarranty] = useState('Bảo hành 12 tháng chính hãng. 1 đổi 1 trong 30 ngày nếu lỗi NSX.');
-  const [newThumbnail, setNewThumbnail] = useState('https://cdn.tgdd.vn/Products/Images/42/305658/iphone-15-pro-max-blue-thumbnew-600x600.jpg');
+  const [newBrand, setNewBrand] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [newWarranty, setNewWarranty] = useState('');
+  const [newThumbnail, setNewThumbnail] = useState('');
 
   // Thư viện ảnh (Product_Images)
-  const [newGallery, setNewGallery] = useState<string[]>([
-    'https://cdn.tgdd.vn/Products/Images/42/305658/iphone-15-pro-max-blue-thumbnew-600x600.jpg'
-  ]);
+  const [newGallery, setNewGallery] = useState<string[]>([]);
 
   // Thông số kỹ thuật (Product_Specs)
-  const [newSpecGroups, setNewSpecGroups] = useState<ProductSpecGroup[]>([
-    {
-      groupName: 'Màn hình',
-      items: [
-        { name: 'Công nghệ màn hình', value: 'OLED Super Retina XDR' },
-        { name: 'Kích thước màn hình', value: '6.7 inch' }
-      ]
-    },
-    {
-      groupName: 'Cấu hình & Bộ nhớ',
-      items: [
-        { name: 'Hệ điều hành', value: 'iOS' },
-        { name: 'Chip xử lý (CPU)', value: 'Apple A17 Pro 6 nhân' }
-      ]
-    }
-  ]);
+  const [newSpecGroups, setNewSpecGroups] = useState<ProductSpecGroup[]>([]);
 
   // Variant Schema động theo ngành hàng được chọn
-  const [variantSchema, setVariantSchema] = useState<VariantSchemaField[]>(() =>
-    variantSchemaService.getStandardSchemaByCategoryName('Điện thoại')
-  );
+  const [variantSchema, setVariantSchema] = useState<VariantSchemaField[]>([]);
 
   // Danh sách biến thể SKU (Product_Variants)
-  const [draftVariants, setDraftVariants] = useState<DraftVariant[]>([
-    {
-      sku: '',
-      color: 'Titan Tự Nhiên',
-      colorHex: '#C5BDB5',
-      ramGb: 8,
-      romGb: 256,
-      connectionType: '5G',
-      attributes: {},
-      listPrice: 28000000,
-      salePrice: 25990000,
-      initialStock: 15,
-      isActive: true
-    }
-  ]);
+  const [draftVariants, setDraftVariants] = useState<DraftVariant[]>(() => [createEmptyDraftVariant()]);
 
   const handleAddDraftVariant = () => {
-    const hasRam = variantSchema.some(f => f.key === 'ramGb');
-    const hasRom = variantSchema.some(f => f.key === 'romGb');
-    const hasConn = variantSchema.some(f => f.key === 'connectionType');
-    setDraftVariants([...draftVariants,
-      {
-        sku: '',
-        color: 'Đen',
-        colorHex: '#000000',
-        ramGb: hasRam ? 8 : undefined,
-        romGb: hasRom ? 256 : undefined,
-        connectionType: hasConn ? '5G' : undefined,
-        attributes: {},
-        listPrice: 28000000,
-        salePrice: 25990000,
-        initialStock: 10,
-        isActive: true
-      }
-    ]);
+    setDraftVariants([...draftVariants, createEmptyDraftVariant()]);
   };
 
   const handleUpdateDraftVariant = (idx: number, field: keyof DraftVariant, val: any) => {
@@ -169,19 +133,7 @@ export const PortalProductsView: React.FC = () => {
 
   // Thêm biến thể mới trong Modal sửa sản phẩm
   const [showAddVariantInEdit, setShowAddVariantInEdit] = useState(false);
-  const [newVarDraftInEdit, setNewVarDraftInEdit] = useState<DraftVariant>({
-    sku: '',
-    color: 'Mặc định',
-    colorHex: '#000000',
-    ramGb: 8,
-    romGb: 256,
-    connectionType: '5G',
-    attributes: {},
-    listPrice: 10000000,
-    salePrice: 10000000,
-    initialStock: 10,
-    isActive: true
-  });
+  const [newVarDraftInEdit, setNewVarDraftInEdit] = useState<DraftVariant>(() => createEmptyDraftVariant());
   const [isAddingVariantInEdit, setIsAddingVariantInEdit] = useState(false);
 
   // Modal Điều chỉnh tồn kho (Stock Adjustment)
@@ -226,7 +178,12 @@ export const PortalProductsView: React.FC = () => {
           traverse(rawCats);
           if (list.length > 0) {
             setCategories(list);
-            setNewCategory(prev => (list.some(c => c.name === prev) ? prev : list[0].name));
+            const fallbackCat = list[0];
+            setNewCategory(prev => (list.some(c => c.name === prev) ? prev : fallbackCat.name));
+            variantSchemaService
+              .fetchCategoryVariantSchema(fallbackCat.id, fallbackCat.name)
+              .then(setVariantSchema)
+              .catch(() => {});
           }
         }
       } catch {
@@ -301,11 +258,30 @@ export const PortalProductsView: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  const handleOpenAddModal = async () => {
+    const defaultCat = categories[0];
+    setNewProdName('');
+    setNewBrand(brands[0]?.name || '');
+    setNewCategory(defaultCat?.name || '');
+    setNewWarranty('');
+    setNewThumbnail('');
+    setNewGallery([]);
+    setNewSpecGroups([]);
+    setDraftVariants([createEmptyDraftVariant()]);
+    setShowAddModal(true);
+    if (defaultCat) {
+      const schema = await variantSchemaService.fetchCategoryVariantSchema(defaultCat.id, defaultCat.name);
+      setVariantSchema(schema);
+    } else {
+      setVariantSchema([]);
+    }
+  };
+
   // Tạo sản phẩm mới kèm danh sách biến thể SKU
   const handleCreateProduct = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProdName.trim()) {
-      alert('Vui lòng nhập tên sản phẩm!');
+    if (!newProdName.trim() || newProdName.trim().length < 3) {
+      alert('Vui lòng nhập tên sản phẩm (tối thiểu 3 ký tự)!');
       return;
     }
 
@@ -318,10 +294,15 @@ export const PortalProductsView: React.FC = () => {
       alert('Các mã SKU biến thể trong cùng một sản phẩm không được trùng nhau!');
       return;
     }
+    if (draftVariants.some(v => !v.listPrice || v.listPrice <= 0)) {
+      alert('Vui lòng nhập giá niêm yết hợp lệ (> 0) cho tất cả biến thể!');
+      return;
+    }
 
     const newProdId = Date.now();
 
     const createdVariants: ProductVariant[] = draftVariants.map((dv, idx) => {
+      const effectiveSalePrice = dv.salePrice > 0 ? dv.salePrice : dv.listPrice;
       const varName = variantSchemaService.buildVariantName(newProdName.trim(), dv, variantSchema);
       return {
         variantId: newProdId + idx + 1,
@@ -335,7 +316,7 @@ export const PortalProductsView: React.FC = () => {
         connectionType: dv.connectionType,
         attributes: dv.attributes,
         listPrice: dv.listPrice,
-        salePrice: dv.salePrice,
+        salePrice: effectiveSalePrice,
         onHandQty: dv.initialStock,
         reservedQty: 0,
         availableQty: dv.initialStock,
@@ -350,15 +331,15 @@ export const PortalProductsView: React.FC = () => {
       brandName: newBrand,
       categoryName: newCategory,
       isInstallment0: true,
-      warrantyPolicy: newWarranty,
-      thumbnail: newThumbnail,
-      gallery: newGallery.length > 0? newGallery: [newThumbnail],
+      warrantyPolicy: newWarranty.trim(),
+      thumbnail: newThumbnail.trim(),
+      gallery: newGallery.length > 0 ? newGallery : (newThumbnail.trim() ? [newThumbnail.trim()] : []),
       variants: createdVariants,
       rating: 5.0,
       reviewCount: 0,
       soldCount: 0,
       specGroups: newSpecGroups,
-      highlights: ['Thiết kế sang trọng, hiệu năng vượt trội', 'Bảo hành chính hãng 12 tháng']
+      highlights: []
     };
 
     // Thêm bản ghi tồn kho cho từng biến thể
@@ -391,26 +372,32 @@ export const PortalProductsView: React.FC = () => {
     } else if (finalNewGallery.length > 0) {
       trimmedThumb = finalNewGallery[0];
     }
+    const allCleanImages = finalNewGallery.length > 0 ? finalNewGallery : (trimmedThumb ? [trimmedThumb] : []);
+    const cleanSpecs = newSpecGroups.flatMap(g =>
+      g.items
+        .filter(it => it.name.trim() && it.value.trim())
+        .map((it, idx) => ({
+          groupName: g.groupName,
+          specName: it.name.trim(),
+          specValue: it.value.trim(),
+          sortOrder: idx + 1,
+        }))
+    );
 
     // API 4.5: Khai báo sản phẩm mới (Master-Detail)
     productService.createAdminProduct({
       categoryId: matchedCategory ? matchedCategory.id : 1,
       brandId: matchedBrand ? matchedBrand.brandId : 1,
       name: newProdName.trim(),
-      description: newWarranty,
-      warrantyPolicy: newWarranty,
+      description: newWarranty.trim(),
+      warrantyPolicy: newWarranty.trim(),
       status: 'ACTIVE',
-      images: (finalNewGallery.length > 0 ? finalNewGallery : [trimmedThumb]).map((img, idx) => ({
+      images: allCleanImages.map((img, idx) => ({
         imageUrl: img,
         isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
         sortOrder: idx + 1,
       })),
-      specs: newSpecGroups.flatMap(g => g.items.map((it, idx) => ({
-        groupName: g.groupName,
-        specName: it.name,
-        specValue: it.value,
-        sortOrder: idx + 1,
-      }))),
+      specs: cleanSpecs,
       variants: draftVariants.map(v => ({
         sku: v.sku.trim().toUpperCase(),
         color: v.color,
@@ -419,7 +406,7 @@ export const PortalProductsView: React.FC = () => {
         connectionType: v.connectionType,
         attributes: v.attributes,
         listPrice: v.listPrice,
-        salePrice: v.salePrice || v.listPrice,
+        salePrice: v.salePrice > 0 ? v.salePrice : v.listPrice,
         initialOnHandQty: v.initialStock,
         minThreshold: 5,
       })),
@@ -441,6 +428,11 @@ export const PortalProductsView: React.FC = () => {
     setProducts([...sharedStore.getProducts()]);
     setShowAddModal(false);
     setNewProdName('');
+    setNewWarranty('');
+    setNewThumbnail('');
+    setNewGallery([]);
+    setNewSpecGroups([]);
+    setDraftVariants([createEmptyDraftVariant()]);
     alert(`Đã thêm sản phẩm "${newProd.name}" với ${createdVariants.length} biến thể SKU thành công!`);
   };
 
@@ -702,21 +694,8 @@ export const PortalProductsView: React.FC = () => {
   const [isUploadingNewVarImg, setIsUploadingNewVarImg] = useState(false);
 
   const handleOpenAddVariantInEdit = () => {
-    const hasRam = editVariantSchema.some(f => f.key === 'ramGb');
-    const hasRom = editVariantSchema.some(f => f.key === 'romGb');
-    const hasConn = editVariantSchema.some(f => f.key === 'connectionType');
     setNewVarDraftInEdit({
-      sku: '',
-      color: 'Mặc định',
-      colorHex: '#000000',
-      ramGb: hasRam ? 8 : undefined,
-      romGb: hasRom ? 256 : undefined,
-      connectionType: hasConn ? '5G' : undefined,
-      attributes: {},
-      listPrice: 10000000,
-      salePrice: 10000000,
-      initialStock: 10,
-      isActive: true,
+      ...createEmptyDraftVariant(),
       imageUrl: editProdThumbnail || editProdGallery[0] || ''
     });
     setShowAddVariantInEdit(true);
@@ -1115,7 +1094,7 @@ export const PortalProductsView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAddModal}
             className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs whitespace-nowrap"
           >
             <Plus size={14} />
@@ -1385,9 +1364,9 @@ export const PortalProductsView: React.FC = () => {
                         const hasConn = schema.some(f => f.key === 'connectionType');
                         setDraftVariants(prev => prev.map(dv => ({
                           ...dv,
-                          ramGb: hasRam ? (dv.ramGb || 8) : undefined,
-                          romGb: hasRom ? (dv.romGb || 256) : undefined,
-                          connectionType: hasConn ? (dv.connectionType || '5G') : undefined,
+                          ramGb: hasRam ? dv.ramGb : undefined,
+                          romGb: hasRom ? dv.romGb : undefined,
+                          connectionType: hasConn ? dv.connectionType : undefined,
                           attributes: {}
                         })));
                       }}
@@ -1401,6 +1380,7 @@ export const PortalProductsView: React.FC = () => {
                     <label className="block font-medium text-charcoal mb-1">Chính sách bảo hành:</label>
                     <input
                       type="text"
+                      placeholder="VD: Bảo hành 12 tháng chính hãng, 1 đổi 1 trong 30 ngày..."
                       value={newWarranty}
                       onChange={(e) => setNewWarranty(e.target.value)}
                       className="w-full h-10 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs"
@@ -1488,12 +1468,15 @@ export const PortalProductsView: React.FC = () => {
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá niêm yết (VNĐ):</label>
+                          <label className="text-[10px] font-bold text-steel block mb-0.5">Giá niêm yết (VNĐ) (*):</label>
                           <input
                             type="number"
+                            required
+                            min={1}
                             step={100000}
-                            value={v.listPrice}
-                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'listPrice', Number(e.target.value))}
+                            placeholder="VD: 25000000"
+                            value={v.listPrice > 0 ? v.listPrice : ''}
+                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'listPrice', e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                             className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono"
                           />
                         </div>
@@ -1502,9 +1485,11 @@ export const PortalProductsView: React.FC = () => {
                           <label className="text-[10px] font-bold text-steel block mb-0.5">Giá bán (sale_price):</label>
                           <input
                             type="number"
+                            min={0}
                             step={100000}
-                            value={v.salePrice}
-                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'salePrice', Number(e.target.value))}
+                            placeholder="Trống = giá niêm yết"
+                            value={v.salePrice > 0 ? v.salePrice : ''}
+                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'salePrice', e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                             className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono font-bold text-primary"
                           />
                         </div>
@@ -1514,8 +1499,9 @@ export const PortalProductsView: React.FC = () => {
                           <input
                             type="number"
                             min={0}
-                            value={v.initialStock}
-                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'initialStock', Number(e.target.value))}
+                            placeholder="0"
+                            value={v.initialStock > 0 ? v.initialStock : ''}
+                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'initialStock', e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
                             className="w-full h-8 px-2 bg-canvas border border-hairline-soft rounded text-xs font-mono font-bold text-success"
                           />
                         </div>
@@ -2181,10 +2167,11 @@ export const PortalProductsView: React.FC = () => {
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
                   <input
                     type="number"
-                    min={0}
+                    min={1}
                     step={10000}
-                    value={newVarDraftInEdit.listPrice}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: Number(e.target.value) })}
+                    placeholder="VD: 25000000"
+                    value={newVarDraftInEdit.listPrice > 0 ? newVarDraftInEdit.listPrice : ''}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                     className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
                   />
                 </div>
@@ -2194,8 +2181,9 @@ export const PortalProductsView: React.FC = () => {
                     type="number"
                     min={0}
                     step={10000}
-                    value={newVarDraftInEdit.salePrice ?? newVarDraftInEdit.listPrice}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: Number(e.target.value) })}
+                    placeholder="Trống = giá niêm yết"
+                    value={newVarDraftInEdit.salePrice > 0 ? newVarDraftInEdit.salePrice : ''}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                     className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
                   />
                 </div>
@@ -2204,8 +2192,9 @@ export const PortalProductsView: React.FC = () => {
                   <input
                     type="number"
                     min={0}
-                    value={newVarDraftInEdit.initialStock}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: Number(e.target.value) })}
+                    placeholder="0"
+                    value={newVarDraftInEdit.initialStock > 0 ? newVarDraftInEdit.initialStock : ''}
+                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
                     className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
                   />
                 </div>

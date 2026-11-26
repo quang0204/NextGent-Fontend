@@ -213,9 +213,14 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
     try {
       const data = await initiateLogin(cleanIdentity, loginPassword);
-      setLoginSessionToken(data.sessionToken);
-      setLoginChannel(data.channel);
-      setLoginTargetMasked(data.targetMasked);
+      if (data.otpRequired === false || data.accessToken) {
+        showToast('Đăng nhập thành công!', 'success');
+        navigate(redirect);
+        return;
+      }
+      setLoginSessionToken(data.sessionToken || '');
+      setLoginChannel(data.channel || 'EMAIL');
+      setLoginTargetMasked(data.targetMasked || '');
       setLoginCountdown(data.cooldownSeconds || 60);
       setLoginExpiresIn(data.expiresInSeconds || 120);
       setIsOtpSent(true);
@@ -634,7 +639,7 @@ export const AuthPage: React.FC = () => {
                   className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-70"
                 >
                   {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={14} />}
-                  <span>Tiếp tục: Xác thực OTP</span>
+                  <span>Đăng nhập</span>
                 </button>
               </form>
             ) : (

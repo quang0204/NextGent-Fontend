@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { UserProfile, UserAddress, parseAddressComponents } from '../types/user';
 import {
+  AuthUserDTO,
   LoginInitiateData,
   LoginVerifyOtpData,
   LoginResendOtpData,
@@ -97,6 +98,39 @@ export const useAuthStore = create<AuthStore>((set, get) => {
   const initialToken = localStorage.getItem(STORAGE_ACCESS_TOKEN_KEY);
   const initialRefreshToken = localStorage.getItem(STORAGE_REFRESH_TOKEN_KEY);
 
+  const commitAuthenticatedSession = (
+    userDto: AuthUserDTO,
+    accessToken: string,
+    newRefreshToken?: string
+  ) => {
+    const profile: UserProfile = {
+      userId: userDto.userId,
+      fullName: userDto.fullName,
+      email: userDto.email,
+      phone: userDto.phone,
+      role: userDto.role,
+      status: userDto.status,
+      addresses: [],
+    };
+
+    localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(profile));
+    localStorage.setItem(STORAGE_ACCESS_TOKEN_KEY, accessToken);
+    if (newRefreshToken) {
+      localStorage.setItem(STORAGE_REFRESH_TOKEN_KEY, newRefreshToken);
+    }
+
+    set({
+      user: profile,
+      token: accessToken,
+      refreshToken: newRefreshToken || null,
+      isAuthenticated: true,
+    });
+
+    // Bảng 14 Carts: Đồng bộ giỏ hàng và danh sách yêu thích khi đăng nhập
+    useCartStore.getState().syncOnLogin(profile.userId);
+    useWishlistStore.getState().switchUser(profile.userId);
+  };
+
   return {
     user: initialUser,
     token: initialToken,
@@ -105,13 +139,16 @@ export const useAuthStore = create<AuthStore>((set, get) => {
     isLoading: false,
     error: null,
 
-    // API 1: Khởi tạo Đăng nhập
+    // API 1: Khởi tạo Đăng nhập (gửi OTP hoặc đăng nhập trực tiếp tùy cấu hình backend)
     initiateLogin: async (identity: string, password: string) => {
       set({ isLoading: true, error: null });
       try {
         const res = await authService.loginInitiate({ identity, password });
         set({ isLoading: false });
         if (!res.data) throw new Error(res.message || 'Lỗi gửi yêu cầu đăng nhập');
+        if (res.data.accessToken && res.data.user) {
+          commitAuthenticatedSession(res.data.user, res.data.accessToken, res.data.refreshToken);
+        }
         return res.data;
       } catch (err: any) {
         set({ isLoading: false, error: err.message || 'Lỗi đăng nhập' });
@@ -128,32 +165,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
         if (!res.data) throw new Error(res.message || 'Xác thực OTP thất bại');
 
         const { user: userDto, accessToken, refreshToken: newRefreshToken } = res.data;
-        const profile: UserProfile = {
-          userId: userDto.userId,
-          fullName: userDto.fullName,
-          email: userDto.email,
-          phone: userDto.phone,
-          role: userDto.role,
-          status: userDto.status,
-          addresses: [],
-        };
-
-        localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(profile));
-        localStorage.setItem(STORAGE_ACCESS_TOKEN_KEY, accessToken);
-        if (newRefreshToken) {
-          localStorage.setItem(STORAGE_REFRESH_TOKEN_KEY, newRefreshToken);
-        }
-
-        set({
-          user: profile,
-          token: accessToken,
-          refreshToken: newRefreshToken || null,
-          isAuthenticated: true,
-        });
-
-        // Bảng 14 Carts: Đồng bộ giỏ hàng vãng lai khi đăng nhập
-        useCartStore.getState().syncOnLogin(profile.userId);
-        useWishlistStore.getState().switchUser(profile.userId);
+        commitAuthenticatedSession(userDto, accessToken, newRefreshToken);
 
         return res.data;
       } catch (err: any) {
@@ -196,32 +208,7 @@ export const useAuthStore = create<AuthStore>((set, get) => {
         if (!res.data) throw new Error(res.message || 'Xác thực kích hoạt thất bại');
 
         const { user: userDto, accessToken, refreshToken: newRefreshToken } = res.data;
-        const profile: UserProfile = {
-          userId: userDto.userId,
-          fullName: userDto.fullName,
-          phone: userDto.phone,
-          email: userDto.email,
-          role: userDto.role,
-          status: userDto.status,
-          addresses: [],
-        };
-
-        localStorage.setItem(STORAGE_USER_KEY, JSON.stringify(profile));
-        localStorage.setItem(STORAGE_ACCESS_TOKEN_KEY, accessToken);
-        if (newRefreshToken) {
-          localStorage.setItem(STORAGE_REFRESH_TOKEN_KEY, newRefreshToken);
-        }
-
-        set({
-          user: profile,
-          token: accessToken,
-          refreshToken: newRefreshToken || null,
-          isAuthenticated: true,
-        });
-
-        // Bảng 14 Carts: Tự động khởi tạo và đồng bộ giỏ hàng
-        useCartStore.getState().syncOnLogin(profile.userId);
-        useWishlistStore.getState().switchUser(profile.userId);
+        commitAuthenticatedSession(userDto, accessToken, newRefreshToken);
 
         return res.data;
       } catch (err: any) {
