@@ -368,7 +368,12 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setLoginOtpStatus('error');
       setLoginOtpShake((c) => c + 1);
-      setErrorMsg(err.message || 'Mã OTP không chính xác hoặc đã quá thời hạn 120 giây.');
+      if (err.statusCode === 403) {
+        setErrorMsg('Tài khoản của bạn đã bị khóa.');
+        setLockReason(err.reason || 'Vui lòng liên hệ bộ phận hỗ trợ chăm sóc khách hàng để được mở khóa.');
+      } else {
+        setErrorMsg(err.message || 'Mã OTP không chính xác hoặc đã quá thời hạn 120 giây.');
+      }
     } finally {
       setLoading(false);
     }
@@ -575,7 +580,10 @@ export const AuthPage: React.FC = () => {
       setForgotOtp('');
       showToast(`Mã OTP khôi phục mật khẩu đã gửi tới ${data.targetMasked}`, 'info');
     } catch (err: any) {
-      if (err.statusCode === 404) {
+      if (err.statusCode === 403) {
+        setErrorMsg('Tài khoản của bạn đã bị khóa.');
+        setLockReason(err.reason || 'Vui lòng liên hệ bộ phận hỗ trợ chăm sóc khách hàng để được mở khóa.');
+      } else if (err.statusCode === 404) {
         setErrorMsg('Không tìm thấy tài khoản nào khớp với thông tin bạn cung cấp.');
       } else {
         setErrorMsg(err.message || 'Lỗi gửi yêu cầu khôi phục mật khẩu.');
@@ -631,7 +639,12 @@ export const AuthPage: React.FC = () => {
     } catch (err: any) {
       setForgotOtpStatus('error');
       setForgotOtpShake((c) => c + 1);
-      setErrorMsg(err.message || 'Đặt lại mật khẩu thất bại. Vui lòng kiểm tra mã OTP.');
+      if (err.statusCode === 403) {
+        setErrorMsg('Tài khoản của bạn đã bị khóa.');
+        setLockReason(err.reason || 'Vui lòng liên hệ bộ phận hỗ trợ chăm sóc khách hàng để được mở khóa.');
+      } else {
+        setErrorMsg(err.message || 'Đặt lại mật khẩu thất bại. Vui lòng kiểm tra mã OTP.');
+      }
     } finally {
       setLoading(false);
     }

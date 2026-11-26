@@ -56,6 +56,7 @@ export const PortalUsersView: React.FC = () => {
     totalStaffs: 0,
     totalLocked: 0,
   });
+  const [statsLoaded, setStatsLoaded] = useState(false);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleMetrics, setRoleMetrics] = useState({
     totalUsers: 0,
@@ -157,20 +158,40 @@ export const PortalUsersView: React.FC = () => {
           totalStaffs: res.data.totalStaffs ?? 0,
           totalLocked: res.data.totalLocked ?? 0,
         });
+        setStatsLoaded(true);
         return;
       }
     } catch {
-      // Fallback nếu API stats chưa sẵn sàng: lấy toàn bộ người dùng để tính chính xác không phụ thuộc trang hiện tại
+      // Fallback nếu API stats lỗi: phân trang đúng chuẩn PaginationUtil (limit tối đa 100)
       try {
-        const allRes = await userService.getAdminUsers({ limit: 1000 });
-        const allItems = allRes.data?.content || allRes.data?.items || (Array.isArray(allRes.data) ? allRes.data : null);
-        if (allItems && Array.isArray(allItems)) {
+        const firstRes = await userService.getAdminUsers({ page: 1, limit: 100 });
+        if (firstRes.data?.summary) {
           setStats({
-            totalUsers: allRes.data?.totalElements ?? allItems.length,
+            totalUsers: firstRes.data.summary.totalUsers ?? 0,
+            totalAdmins: firstRes.data.summary.adminCount ?? 0,
+            totalStaffs: firstRes.data.summary.staffCount ?? 0,
+            totalLocked: firstRes.data.summary.lockedCount ?? 0,
+          });
+          setStatsLoaded(true);
+          return;
+        }
+        const firstItems =
+          firstRes.data?.content || firstRes.data?.items || (Array.isArray(firstRes.data) ? firstRes.data : null);
+        if (firstItems && Array.isArray(firstItems)) {
+          const allItems = [...firstItems];
+          const totalPages = Math.max(1, Number(firstRes.data?.totalPages || 1));
+          for (let p = 2; p <= totalPages; p++) {
+            const pageRes = await userService.getAdminUsers({ page: p, limit: 100 });
+            const pageItems = pageRes.data?.content || pageRes.data?.items || [];
+            allItems.push(...pageItems);
+          }
+          setStats({
+            totalUsers: firstRes.data?.totalElements ?? allItems.length,
             totalAdmins: allItems.filter((u: any) => u.role === 'ADMIN').length,
             totalStaffs: allItems.filter((u: any) => u.role === 'STAFF').length,
             totalLocked: allItems.filter((u: any) => u.status === 'LOCKED').length,
           });
+          setStatsLoaded(true);
           return;
         }
       } catch (fallbackErr) {
@@ -347,6 +368,7 @@ export const PortalUsersView: React.FC = () => {
         reason: `Điều chuyển phân quyền tài khoản sang vai trò ${role}`,
       });
       loadUsers();
+      loadStats();
       setUsers(prev => prev.map(u => u.userId === userId ? { ...u, role } : u));
     } catch (err: any) {
       alert(err.message || 'Không thể thay đổi quyền hạn của tài khoản này.');
@@ -428,28 +450,28 @@ export const PortalUsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tổng tài khoản</div>
           <div className="text-xl font-bold text-slate-900 mt-1">
-            {stats.totalUsers || roleMetrics.totalUsers || totalElements || users.length}
+            {statsLoaded ? stats.totalUsers : roleMetrics.totalUsers || totalElements || users.length}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">Tất cả người dùng trên hệ thống</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Quản trị viên</div>
           <div className="text-xl font-bold text-purple-700 mt-1">
-            {stats.totalAdmins || roleMetrics.adminCount || 0}
+            {statsLoaded ? stats.totalAdmins : roleMetrics.adminCount}
           </div>
           <div className="text-[10px] text-purple-500 mt-0.5">Toàn quyền cấu hình & kho</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Nhân viên kho/đơn</div>
           <div className="text-xl font-bold text-blue-700 mt-1">
-            {stats.totalStaffs || roleMetrics.staffCount || 0}
+            {statsLoaded ? stats.totalStaffs : roleMetrics.staffCount}
           </div>
           <div className="text-[10px] text-blue-500 mt-0.5">Xử lý đơn hàng, xuất nhập kho</div>
         </div>
         <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
           <div className="text-xs text-slate-500 font-medium">Tài khoản bị khóa</div>
           <div className="text-xl font-bold text-rose-700 mt-1">
-            {stats.totalLocked || roleMetrics.lockedCount || 0}
+            {statsLoaded ? stats.totalLocked : roleMetrics.lockedCount}
           </div>
           <div className="text-[10px] text-rose-500 mt-0.5">Chặn giữ chỗ kho ảo</div>
         </div>
@@ -476,7 +498,10 @@ export const PortalUsersView: React.FC = () => {
             {/* Role Filter */}
             <select
               value={roleFilter}
-              onChange={e => setRoleFilter(e.target.value as any)}
+              onChange={e => {
+                setRoleFilter(e.target.value as any);
+                setCurrentPage(1);
+              }}
               className="text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium transition"
             >
               <option value="ALL">Tất cả vai trò</option>
@@ -488,7 +513,10 @@ export const PortalUsersView: React.FC = () => {
             {/* Status Filter */}
             <select
               value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value as any)}
+              onChange={e => {
+                setStatusFilter(e.target.value as any);
+                setCurrentPage(1);
+              }}
               className="text-xs border border-slate-200 rounded-xl px-3.5 py-2.5 bg-slate-50 text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer font-medium transition"
             >
               <option value="ALL">Tất cả trạng thái</option>
