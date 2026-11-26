@@ -24,12 +24,14 @@ import {
   Tag,
   Layers,
   LayoutGrid,
-  Smartphone,
-  Laptop,
-  Tablet,
-  Headphones,
   Flame
 } from 'lucide-react';
+import {
+  DEFAULT_ROOT_CATEGORIES,
+  resolveLegacyCategoryKey,
+  getRootCategoryPath,
+  getCategoryIcon,
+} from '../utils/categoryUtils';
 
 const getPriceRangesForCategory = (cat: string) => {
   if (cat === 'laptop') {
@@ -120,6 +122,15 @@ export const ProductListPage: React.FC = () => {
   const parsedSearch = parseSmartSearchQuery(currentSearch);
   const currentCategoryId = searchParams.get('categoryId') ? Number(searchParams.get('categoryId')) : undefined;
 
+  const activeRootCategory = useMemo(() => {
+    if (!currentCategoryId) return undefined;
+    return categoriesTree.find(
+      (root) =>
+        root.categoryId === currentCategoryId ||
+        root.children?.some((ch) => ch.categoryId === currentCategoryId)
+    );
+  }, [currentCategoryId, categoriesTree]);
+
   const currentCategory = useMemo(() => {
     if (rawCategory) return rawCategory;
     if (!currentCategoryId) return 'all';
@@ -127,22 +138,23 @@ export const ProductListPage: React.FC = () => {
     if (currentCategoryId === 2) return 'tablet';
     if (currentCategoryId === 3) return 'laptop';
     if (currentCategoryId === 4) return 'accessory';
-    for (const root of categoriesTree) {
-      if (root.categoryId === currentCategoryId || root.children?.some(ch => ch.categoryId === currentCategoryId)) {
-        if (root.categoryId === 1 || root.name.toLowerCase().includes('điện thoại')) return 'phone';
-        if (root.categoryId === 2 || root.name.toLowerCase().includes('máy tính bảng') || root.name.toLowerCase().includes('tablet')) return 'tablet';
-        if (root.categoryId === 3 || root.name.toLowerCase().includes('laptop')) return 'laptop';
-        if (root.categoryId === 4 || root.name.toLowerCase().includes('phụ kiện')) return 'accessory';
-      }
+    if (activeRootCategory) {
+      return resolveLegacyCategoryKey(activeRootCategory) || 'all';
     }
     return 'all';
-  }, [rawCategory, currentCategoryId, categoriesTree]);
+  }, [rawCategory, currentCategoryId, activeRootCategory]);
 
-  // Danh mục con thuộc ngành hàng hiện tại (hoặc tất cả ngành hàng khi currentCategory === 'all')
+  const isViewingDynamicRootChildren =
+    currentCategory === 'all' && Boolean(activeRootCategory?.children && activeRootCategory.children.length > 0);
+
+  // Danh mục con thuộc ngành hàng hiện tại (hỗ trợ cả ngành động như Đồng hồ thông minh hoặc tất cả ngành khi chưa chọn)
   const subcategories = useMemo(() => {
     if (isSale) return [];
     if (currentCategory === 'all') {
-      return categoriesTree.map(cat => ({
+      if (isViewingDynamicRootChildren && activeRootCategory?.children) {
+        return activeRootCategory.children;
+      }
+      return categoriesTree.map((cat) => ({
         categoryId: cat.categoryId,
         parentId: null,
         name: cat.name,
@@ -150,20 +162,12 @@ export const ProductListPage: React.FC = () => {
         description: cat.description,
         isVisible: cat.isVisible,
         productCount: cat.productCount,
-        children: cat.children
+        children: cat.children,
       }));
     }
-    const rootMatches: Record<string, (c: CategoryItem) => boolean> = {
-      phone: (c) => c.categoryId === 1 || c.slug === 'dien-thoai-di-dong' || c.name.toLowerCase().includes('điện thoại'),
-      tablet: (c) => c.categoryId === 2 || c.slug === 'may-tinh-bang' || c.name.toLowerCase().includes('máy tính bảng') || c.name.toLowerCase().includes('tablet'),
-      laptop: (c) => c.categoryId === 3 || c.slug === 'laptop-pc' || c.name.toLowerCase().includes('laptop'),
-      accessory: (c) => c.categoryId === 4 || c.slug === 'phu-kien-am-thanh' || c.name.toLowerCase().includes('phụ kiện'),
-    };
-    const matcher = rootMatches[currentCategory];
-    if (!matcher) return [];
-    const root = categoriesTree.find(matcher);
+    const root = categoriesTree.find((c) => resolveLegacyCategoryKey(c) === currentCategory);
     return root?.children || [];
-  }, [categoriesTree, currentCategory, isSale]);
+  }, [categoriesTree, currentCategory, isSale, isViewingDynamicRootChildren, activeRootCategory]);
 
   const selectedCategoryName = useMemo(() => {
     if (!currentCategoryId) return undefined;
@@ -404,13 +408,29 @@ export const ProductListPage: React.FC = () => {
     }
   };
 
+  const isAllSubcategorySelected =
+    !currentCategoryId || (isViewingDynamicRootChildren && activeRootCategory?.categoryId === currentCategoryId);
+
+  const resetSubcategoryTarget = isViewingDynamicRootChildren && activeRootCategory
+    ? String(activeRootCategory.categoryId)
+    : undefined;
+
+  const handleSelectAllSubcategory = () => {
+    if (isViewingDynamicRootChildren && activeRootCategory && currentCategoryId !== activeRootCategory.categoryId) {
+      updateParam('categoryId', String(activeRootCategory.categoryId));
+    } else if (!isViewingDynamicRootChildren) {
+      updateParam('categoryId', undefined);
+    }
+  };
+
   const categoryTitle = 
     isSearchMode ? `Kết quả tìm kiếm: "${currentSearch}"` :
     isSale ? 'Sản phẩm Khuyến mãi Flash Sale ⚡' :
     currentCategory === 'phone' ? 'Điện thoại thông minh (Smartphone)' :
     currentCategory === 'laptop' ? 'Laptop, Máy tính xách tay' :
     currentCategory === 'tablet' ? 'Máy tính bảng (Tablet)' :
-    currentCategory === 'accessory' ? 'Phụ kiện di động chính hãng' : 'Tất cả sản phẩm công nghệ';
+    currentCategory === 'accessory' ? 'Phụ kiện di động chính hãng' :
+    (selectedCategoryName || 'Tất cả sản phẩm công nghệ');
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-5 space-y-6">
@@ -477,19 +497,43 @@ export const ProductListPage: React.FC = () => {
         )}
       </div>
 
-      {/* 3. Category Navigation Pill Tabs: Chuyển đổi nhanh và toàn diện các ngành hàng kinh doanh */}
+      {/* 3. Category Navigation Pill Tabs: Render động toàn bộ danh mục gốc từ GET /api/v1/categories */}
       {!isSearchMode && (
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1 pt-1 -mt-2">
           {[
-            { id: 'all', label: 'Tất cả sản phẩm', icon: LayoutGrid, path: '/products' },
-            { id: 'phone', label: 'Điện thoại', icon: Smartphone, path: '/products?category=phone' },
-            { id: 'laptop', label: 'Laptop', icon: Laptop, path: '/products?category=laptop' },
-            { id: 'tablet', label: 'Máy tính bảng', icon: Tablet, path: '/products?category=tablet' },
-            { id: 'accessory', label: 'Phụ kiện di động', icon: Headphones, path: '/products?category=accessory' },
-            { id: 'sale', label: 'Flash Sale ⚡', icon: Flame, path: '/products?sale=true' },
+            {
+              id: 'all',
+              label: 'Tất cả sản phẩm',
+              icon: LayoutGrid,
+              path: '/products',
+              isTabActive: !isSale && currentCategory === 'all' && !currentCategoryId,
+            },
+            ...(categoriesTree.length > 0 ? categoriesTree : DEFAULT_ROOT_CATEGORIES)
+              .filter((c) => c.isVisible !== false)
+              .map((cat) => {
+                const legacyKey = resolveLegacyCategoryKey(cat);
+                return {
+                  id: `cat-${cat.categoryId}`,
+                  label: cat.name,
+                  icon: getCategoryIcon(cat),
+                  path: getRootCategoryPath(cat),
+                  isTabActive: !isSale && (
+                    legacyKey
+                      ? currentCategory === legacyKey
+                      : activeRootCategory?.categoryId === cat.categoryId
+                  ),
+                };
+              }),
+            {
+              id: 'sale',
+              label: 'Flash Sale ⚡',
+              icon: Flame,
+              path: '/products?sale=true',
+              isTabActive: isSale,
+            },
           ].map((tab) => {
             const Icon = tab.icon;
-            const isTabActive = tab.id === 'sale' ? isSale : (!isSale && currentCategory === tab.id);
+            const isTabActive = tab.isTabActive;
 
             return (
               <button
@@ -677,10 +721,10 @@ export const ProductListPage: React.FC = () => {
                     <Layers size={13} className="text-primary" />
                     <span>Danh mục sản phẩm</span>
                   </h4>
-                  {currentCategoryId && (
+                  {currentCategoryId && !isAllSubcategorySelected && (
                     <button
                       type="button"
-                      onClick={() => updateParam('categoryId', undefined)}
+                      onClick={handleSelectAllSubcategory}
                       className="text-[11px] text-critical hover:underline font-bold"
                     >
                       Tất cả
@@ -690,9 +734,9 @@ export const ProductListPage: React.FC = () => {
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    onClick={() => updateParam('categoryId', undefined)}
+                    onClick={handleSelectAllSubcategory}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
-                      !currentCategoryId
+                      isAllSubcategorySelected
                         ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
                         : 'border-hairline-soft bg-canvas text-ink hover:border-charcoal'
                     }`}
@@ -705,7 +749,7 @@ export const ProductListPage: React.FC = () => {
                       <button
                         key={sub.categoryId}
                         type="button"
-                        onClick={() => updateParam('categoryId', isSelected ? undefined : String(sub.categoryId))}
+                        onClick={() => updateParam('categoryId', isSelected ? resetSubcategoryTarget : String(sub.categoryId))}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-1.5 ${
                           isSelected
                             ? 'border-ink-deep bg-ink-deep text-canvas shadow-xs'
@@ -817,7 +861,7 @@ export const ProductListPage: React.FC = () => {
             {/* ========================================================= */}
             {/* 3A. BỘ LỌC ĐIỆN THOẠI (Smartphone)                        */}
             {/* ========================================================= */}
-            {(currentCategory === 'phone' || (currentCategory === 'all' && !isSale)) && (
+            {(currentCategory === 'phone' || (currentCategory === 'all' && !currentCategoryId && !isSale)) && (
               <div className="pt-4 border-t border-hairline-soft space-y-4">
                 {/* ROM */}
                 <div>
@@ -1318,10 +1362,10 @@ export const ProductListPage: React.FC = () => {
                     <Layers size={13} className="text-primary" />
                     <span>Danh mục</span>
                   </h4>
-                  {currentCategoryId && (
+                  {currentCategoryId && !isAllSubcategorySelected && (
                     <button
                       type="button"
-                      onClick={() => updateParam('categoryId', undefined)}
+                      onClick={handleSelectAllSubcategory}
                       className="text-[11px] text-critical hover:underline font-bold"
                     >
                       Tất cả
@@ -1331,9 +1375,9 @@ export const ProductListPage: React.FC = () => {
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    onClick={() => updateParam('categoryId', undefined)}
+                    onClick={handleSelectAllSubcategory}
                     className={`px-3 py-1.5 rounded-xl text-xs font-bold border ${
-                      !currentCategoryId ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
+                      isAllSubcategorySelected ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
                     }`}
                   >
                     Tất cả
@@ -1344,7 +1388,7 @@ export const ProductListPage: React.FC = () => {
                       <button
                         key={sub.categoryId}
                         type="button"
-                        onClick={() => updateParam('categoryId', isSelected ? undefined : String(sub.categoryId))}
+                        onClick={() => updateParam('categoryId', isSelected ? resetSubcategoryTarget : String(sub.categoryId))}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold border flex items-center gap-1.5 ${
                           isSelected ? 'border-ink-deep bg-ink-deep text-canvas' : 'border-hairline-soft bg-canvas text-ink'
                         }`}

@@ -15,11 +15,18 @@ export interface LoginInitiateRequest {
 }
 
 export interface LoginInitiateData {
-  channel: 'PHONE' | 'EMAIL';
-  targetMasked: string;
-  sessionToken: string;
+  otpRequired?: boolean;
+  channel?: 'PHONE' | 'EMAIL';
+  targetMasked?: string;
+  sessionToken?: string;
   expiresInSeconds?: number;
   cooldownSeconds?: number;
+  // Khi Backend bật đăng nhập trực tiếp không cần OTP (login-otp-required: no)
+  user?: AuthUserDTO;
+  tokenType?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresIn?: number;
 }
 
 // 2. POST /api/v1/auth/login-verify-otp

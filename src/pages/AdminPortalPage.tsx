@@ -118,17 +118,7 @@ export const AdminPortalPage: React.FC = () => {
   const { user, isAuthenticated, token } = useAuthStore();
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  // 1. Nếu chưa đăng nhập hoặc phiên làm việc đã hết hạn -> chuyển hướng đến trang đăng nhập (kèm redirect param)
-  if (!user || !isAuthenticated || !token) {
-    return <Navigate to="/auth?redirect=/admin" replace />;
-  }
-
-  // 2. Chỉ tài khoản ADMIN hoặc STAFF mới được vào Portal, tài khoản CUSTOMER bị chặn -> về trang chủ
-  if (user.role !== 'ADMIN' && user.role !== 'STAFF') {
-    return <Navigate to="/" replace />;
-  }
-
-  const userRole = user.role;
+  const userRole = user?.role;
   const isAdmin = userRole === 'ADMIN';
   const isStaffOnly = userRole === 'STAFF';
 
@@ -146,6 +136,16 @@ export const AdminPortalPage: React.FC = () => {
       }
     }
   }, [isStaffOnly, activeTab]);
+
+  // 1. Nếu chưa đăng nhập hoặc phiên làm việc đã hết hạn -> chuyển hướng đến trang đăng nhập (kèm redirect param)
+  if (!user || !isAuthenticated || !token) {
+    return <Navigate to="/auth?redirect=/admin" replace />;
+  }
+
+  // 2. Chỉ tài khoản ADMIN hoặc STAFF mới được vào Portal, tài khoản CUSTOMER bị chặn -> về trang chủ
+  if (user.role !== 'ADMIN' && user.role !== 'STAFF') {
+    return <Navigate to="/" replace />;
+  }
 
   interface NavSection {
     sectionTitle: string;

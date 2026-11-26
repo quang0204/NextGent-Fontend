@@ -83,10 +83,11 @@ apiClient.interceptors.response.use(
     const status = error.response.status;
     const requestUrl = originalRequest.url || '';
 
-    // Bỏ qua nếu lỗi 401 xảy ra ở chính endpoint refresh-token hoặc các bước login
+    // Bỏ qua nếu lỗi 401 xảy ra ở chính endpoint refresh-token, logout hoặc các bước login
     const isAuthEndpoint = 
       requestUrl.includes('/auth/refresh-token') ||
-      requestUrl.includes('/auth/login');
+      requestUrl.includes('/auth/login') ||
+      requestUrl.includes('/auth/logout');
 
     if (status === 401 && !originalRequest._retry && !isAuthEndpoint) {
       if (isRefreshing) {
@@ -109,6 +110,7 @@ apiClient.interceptors.response.use(
 
       if (!refreshToken) {
         isRefreshing = false;
+        localStorage.removeItem('access_token');
         window.dispatchEvent(new CustomEvent('auth:session-expired'));
         return Promise.reject(error);
       }

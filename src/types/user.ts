@@ -179,16 +179,16 @@ export function parseAddressComponents(
     const detail = parts.slice(0, parts.length - 3).join(', ');
     return {
       detail: detail || parts[0],
-      ward: ward || 'Phường Dịch Vọng Hậu',
-      district: district || 'Quận Cầu Giấy',
-      province: province || 'Hà Nội',
+      ward,
+      district,
+      province,
     };
   }
 
   // 2. Nếu đã có sẵn 3 trường hành chính hợp lệ và chuỗi ngắn (VD: "số nhà 6")
   if (p && d && w) {
     return {
-      detail: str || 'Số 88 đường Nguyễn Văn Linh',
+      detail: str,
       ward: w,
       district: d,
       province: p,
@@ -198,27 +198,26 @@ export function parseAddressComponents(
   if (parts.length === 3) {
     return {
       detail: parts[0],
-      ward: w || 'Phường Dịch Vọng Hậu',
+      ward: w,
       district: d || parts[1],
-      province: p || parts[2] || 'Hà Nội',
+      province: p || parts[2],
     };
   }
 
   if (parts.length === 2) {
     return {
       detail: parts[0],
-      ward: w || 'Phường Dịch Vọng Hậu',
+      ward: w,
       district: d || parts[1],
-      province: p || 'Hà Nội',
+      province: p,
     };
   }
 
-  // Nếu chỉ có 1 chuỗi đơn (VD: "số nhà 6") và chưa có đủ 3 trường hành chính
   return {
-    detail: str || 'Số 88 đường Nguyễn Văn Linh',
-    ward: w || 'Phường Dịch Vọng Hậu',
-    district: d || 'Quận Cầu Giấy',
-    province: p || 'Hà Nội',
+    detail: str,
+    ward: w,
+    district: d,
+    province: p,
   };
 }
 

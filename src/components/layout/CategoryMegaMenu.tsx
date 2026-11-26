@@ -1,19 +1,15 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Smartphone, 
-  Laptop, 
-  Tablet, 
-  Headphones, 
-  Flame, 
-  ChevronRight, 
-  ChevronDown, 
-  LayoutGrid, 
+import {
+  Flame,
+  ChevronRight,
+  ChevronDown,
+  LayoutGrid,
   Sparkles,
   Tag,
   Gift,
   HelpCircle,
-  Layers
+  Layers,
 } from 'lucide-react';
 import { productService } from '../../services/productService';
 import { categoryService, CategoryItem } from '../../services/categoryService';
@@ -21,81 +17,62 @@ import { promotionService, ActivePromotion, ValidVoucherItem } from '../../servi
 import { formatVND } from '../common/PriceDisplay';
 import { Product, Brand } from '../../types/product';
 import { resolveBrandLogo } from '../../utils/brandUtils';
+import {
+  DEFAULT_ROOT_CATEGORIES,
+  resolveLegacyCategoryKey,
+  getRootCategoryPath,
+  collectCategoryTreeIds,
+  getCategoryIcon,
+  productMatchesCategoryBranch,
+  rankHotProducts,
+} from '../../utils/categoryUtils';
 
-export interface MegaMenuItem {
-  id: 'phone' | 'laptop' | 'tablet' | 'accessory' | 'sale';
-  label: string;
-  icon: React.ElementType;
-  isHot?: boolean;
-}
+const PRICE_RANGES_BY_LEGACY_KEY: Record<string, { label: string; min: number; max: number }[]> = {
+  phone: [
+    { label: 'Dưới 5 triệu', min: 0, max: 5000000 },
+    { label: '5 - 10 triệu', min: 5000000, max: 10000000 },
+    { label: '10 - 15 triệu', min: 10000000, max: 15000000 },
+    { label: '15 - 20 triệu', min: 15000000, max: 20000000 },
+    { label: 'Trên 20 triệu', min: 20000000, max: 100000000 },
+  ],
+  laptop: [
+    { label: 'Dưới 15 triệu', min: 0, max: 15000000 },
+    { label: '15 - 20 triệu', min: 15000000, max: 20000000 },
+    { label: '20 - 30 triệu', min: 20000000, max: 30000000 },
+    { label: 'Trên 30 triệu', min: 30000000, max: 100000000 },
+  ],
+  tablet: [
+    { label: 'Dưới 6 triệu', min: 0, max: 6000000 },
+    { label: '6 - 12 triệu', min: 6000000, max: 12000000 },
+    { label: '12 - 20 triệu', min: 12000000, max: 20000000 },
+    { label: 'Trên 20 triệu', min: 20000000, max: 100000000 },
+  ],
+  accessory: [
+    { label: 'Dưới 300.000₫', min: 0, max: 300000 },
+    { label: '300k - 1 triệu', min: 300000, max: 1000000 },
+    { label: '1 - 3 triệu', min: 1000000, max: 3000000 },
+    { label: 'Trên 3 triệu', min: 3000000, max: 50000000 },
+  ],
+};
 
-const FALLBACK_CATEGORIES: CategoryItem[] = [
-  {
-    categoryId: 1,
-    parentId: null,
-    name: 'Điện thoại di động',
-    slug: 'dien-thoai-di-dong',
-    description: 'Các dòng smartphone chính hãng bảo hành điện tử',
-    isVisible: true,
-    productCount: 0,
-    children: [
-      { categoryId: 5, parentId: 1, name: 'iPhone (Apple)', slug: 'iphone-apple', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 6, parentId: 1, name: 'Samsung Galaxy', slug: 'samsung-galaxy', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 7, parentId: 1, name: 'Xiaomi', slug: 'xiaomi', description: '', isVisible: true, productCount: 0 },
-    ]
-  },
-  {
-    categoryId: 2,
-    parentId: null,
-    name: 'Máy tính bảng',
-    slug: 'may-tinh-bang',
-    description: 'Tablet học tập, làm việc sáng tạo chuyên nghiệp',
-    isVisible: true,
-    productCount: 0,
-    children: [
-      { categoryId: 8, parentId: 2, name: 'iPad', slug: 'ipad', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 9, parentId: 2, name: 'Samsung Tab', slug: 'samsung-tab', description: '', isVisible: true, productCount: 0 },
-    ]
-  },
-  {
-    categoryId: 3,
-    parentId: null,
-    name: 'Laptop & PC',
-    slug: 'laptop-pc',
-    description: 'Laptop văn phòng mỏng nhẹ, laptop gaming đồ họa cao',
-    isVisible: true,
-    productCount: 0,
-    children: [
-      { categoryId: 10, parentId: 3, name: 'MacBook', slug: 'macbook', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 11, parentId: 3, name: 'Laptop Gaming Asus ROG', slug: 'laptop-gaming-asus-rog', description: '', isVisible: true, productCount: 0 },
-    ]
-  },
-  {
-    categoryId: 4,
-    parentId: null,
-    name: 'Phụ kiện & Âm thanh',
-    slug: 'phu-kien-am-thanh',
-    description: 'Tai nghe, loa bluetooth, củ cáp sạc nhanh',
-    isVisible: true,
-    productCount: 0,
-    children: [
-      { categoryId: 12, parentId: 4, name: 'Tai nghe Chống ồn', slug: 'tai-nghe-chong-on', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 13, parentId: 4, name: 'Loa Bluetooth Di động', slug: 'loa-bluetooth-di-dong', description: '', isVisible: true, productCount: 0 },
-      { categoryId: 14, parentId: 4, name: 'Củ sạc & Cáp GaN', slug: 'cu-sac-cap-gan', description: '', isVisible: true, productCount: 0 },
-    ]
-  }
+const DEFAULT_PRICE_RANGES = [
+  { label: 'Dưới 5 triệu', min: 0, max: 5000000 },
+  { label: '5 - 10 triệu', min: 5000000, max: 10000000 },
+  { label: '10 - 20 triệu', min: 10000000, max: 20000000 },
+  { label: 'Trên 20 triệu', min: 20000000, max: 100000000 },
 ];
 
 export const CategoryMegaMenu: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<'phone' | 'laptop' | 'tablet' | 'accessory' | 'sale'>('phone');
+  const [activeTab, setActiveTab] = useState<number | 'sale'>(DEFAULT_ROOT_CATEGORIES[0].categoryId);
   const menuRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
   // State nạp động từ DB
   const [products, setProducts] = useState<Product[]>([]);
+  const [bestSellerIds, setBestSellerIds] = useState<Set<number>>(new Set());
   const [brands, setBrands] = useState<Brand[]>([]);
-  const [categoriesTree, setCategoriesTree] = useState<CategoryItem[]>(FALLBACK_CATEGORIES);
+  const [categoriesTree, setCategoriesTree] = useState<CategoryItem[]>(DEFAULT_ROOT_CATEGORIES);
   const [activePromotions, setActivePromotions] = useState<ActivePromotion[]>([]);
   const [validVouchers, setValidVouchers] = useState<ValidVoucherItem[]>([]);
 
@@ -115,12 +92,13 @@ export const CategoryMegaMenu: React.FC = () => {
     let isMounted = true;
     const fetchMegaMenuData = async () => {
       try {
-        const [allProds, allBrands, catsRes, promos, vouchers] = await Promise.all([
+        const [allProds, allBrands, catsRes, promos, vouchers, topSellers] = await Promise.all([
           productService.getProducts().catch(() => []),
           productService.getBrands().catch(() => []),
           categoryService.getCategories(false).catch(() => ({ data: [] })),
           promotionService.getActivePromotions().catch(() => []),
           promotionService.getValidVouchers().catch(() => []),
+          productService.getFeaturedProducts('BEST_SELLER', 24).catch(() => []),
         ]);
 
         if (!isMounted) return;
@@ -128,11 +106,22 @@ export const CategoryMegaMenu: React.FC = () => {
         if (Array.isArray(allProds) && allProds.length > 0) {
           setProducts(allProds);
         }
+        if (Array.isArray(topSellers) && topSellers.length > 0) {
+          setBestSellerIds(new Set(topSellers.map((p) => p.productId)));
+        }
         if (Array.isArray(allBrands) && allBrands.length > 0) {
           setBrands(allBrands);
         }
         if (catsRes && Array.isArray(catsRes.data) && catsRes.data.length > 0) {
-          setCategoriesTree(catsRes.data);
+          const visibleRoots = catsRes.data.filter((c) => c.isVisible !== false);
+          if (visibleRoots.length > 0) {
+            setCategoriesTree(visibleRoots);
+            setActiveTab((prev) =>
+              prev === 'sale' || visibleRoots.some((c) => c.categoryId === prev)
+                ? prev
+                : visibleRoots[0].categoryId
+            );
+          }
         }
         if (Array.isArray(promos) && promos.length > 0) {
           setActivePromotions(promos);
@@ -151,147 +140,44 @@ export const CategoryMegaMenu: React.FC = () => {
     };
   }, []);
 
-  const categories: MegaMenuItem[] = [
-    { id: 'phone', label: 'Điện thoại, Smartphone', icon: Smartphone },
-    { id: 'laptop', label: 'Laptop, Máy tính xách tay', icon: Laptop },
-    { id: 'tablet', label: 'Máy tính bảng (Tablet)', icon: Tablet },
-    { id: 'accessory', label: 'Phụ kiện di động', icon: Headphones },
-    { id: 'sale', label: 'Khuyến mãi Flash Sale', icon: Flame, isHot: true },
-  ];
-
   const handleNavigate = (path: string) => {
     setIsOpen(false);
     navigate(path);
   };
 
-  // Phân loại sản phẩm theo ngành hàng từ dữ liệu DB
-  const productsByCategory = useMemo(() => {
-    const map: Record<'phone' | 'laptop' | 'tablet' | 'accessory', Product[]> = {
-      phone: [],
-      laptop: [],
-      tablet: [],
-      accessory: [],
-    };
+  const activeRootCat = useMemo(() => {
+    if (activeTab === 'sale') return null;
+    return categoriesTree.find((c) => c.categoryId === activeTab) || categoriesTree[0] || null;
+  }, [activeTab, categoriesTree]);
 
-    const classify = (p: Product): 'phone' | 'laptop' | 'tablet' | 'accessory' => {
-      const pName = (p.name || '').toLowerCase();
-      const cName = (p.categoryName || '').toLowerCase();
-      const catId = Number(p.categoryId || 0);
+  const hasBrandCategoryMapping = useMemo(
+    () => brands.some((b) => Array.isArray(b.categoryIds) && b.categoryIds.length > 0),
+    [brands]
+  );
 
-      if (
-        catId === 4 ||
-        pName.includes('tai nghe') || pName.includes('airpods') || pName.includes('earbuds') ||
-        pName.includes('củ sạc') || pName.includes('sạc dự phòng') || pName.includes('pin dự phòng') ||
-        pName.includes('cáp') || pName.includes('dây sạc') || pName.includes('loa') ||
-        pName.includes('ốp lưng') || pName.includes('bao da') || pName.includes('kính cường lực') ||
-        pName.includes('magsafe') || pName.includes('anker') || pName.includes('marshall') ||
-        cName.includes('phụ kiện') || cName.includes('âm thanh')
-      ) {
-        return 'accessory';
-      }
+  const activeCategoryBrands = useMemo(() => {
+    if (!activeRootCat) return [];
+    const list = brands.filter(
+      (b) => Array.isArray(b.categoryIds) && b.categoryIds.includes(activeRootCat.categoryId)
+    );
+    if (list.length > 0) return list;
+    return hasBrandCategoryMapping ? [] : brands;
+  }, [activeRootCat, brands, hasBrandCategoryMapping]);
 
-      if (
-        catId === 3 ||
-        pName.includes('laptop') || pName.includes('lap top') || pName.includes('macbook') ||
-        pName.includes('mac book') || pName.includes('thinkpad') || pName.includes('zenbook') ||
-        pName.includes('vivobook') || pName.includes('legion') || pName.includes('asus rog') ||
-        cName.includes('laptop') || cName.includes('máy tính xách tay')
-      ) {
-        return 'laptop';
-      }
+  const activeBranchProducts = useMemo(() => {
+    if (!activeRootCat) return [];
+    const branchIds = collectCategoryTreeIds(activeRootCat);
+    const matched = products.filter((p) =>
+      productMatchesCategoryBranch(p, activeRootCat.categoryId, branchIds)
+    );
+    return rankHotProducts(matched, bestSellerIds);
+  }, [activeRootCat, products, bestSellerIds]);
 
-      if (
-        catId === 2 ||
-        pName.includes('ipad') || pName.includes('galaxy tab') || pName.includes('samsung tab') ||
-        pName.includes('xiaomi pad') || pName.includes('redmi pad') || pName.includes('matepad') ||
-        cName.includes('máy tính bảng') || cName.includes('tablet')
-      ) {
-        return 'tablet';
-      }
-
-      if (
-        catId === 1 ||
-        pName.includes('iphone') || pName.includes('điện thoại') || pName.includes('smartphone') ||
-        pName.includes('galaxy s') || pName.includes('galaxy z') || pName.includes('galaxy a') ||
-        pName.includes('xiaomi') || pName.includes('oppo') || pName.includes('vivo') ||
-        cName.includes('điện thoại')
-      ) {
-        return 'phone';
-      }
-
-      return 'phone';
-    };
-
-    products.forEach((p) => {
-      const cat = classify(p);
-      map[cat].push(p);
-    });
-
-    return map;
-  }, [products]);
-
-  // Lấy danh mục con từ cây phân cấp DB
-  const getSubcategories = (catKey: 'phone' | 'laptop' | 'tablet' | 'accessory'): CategoryItem[] => {
-    const rootMatches: Record<string, (c: CategoryItem) => boolean> = {
-      phone: (c) => c.categoryId === 1 || c.slug === 'dien-thoai-di-dong' || c.name.toLowerCase().includes('điện thoại'),
-      tablet: (c) => c.categoryId === 2 || c.slug === 'may-tinh-bang' || c.name.toLowerCase().includes('máy tính bảng') || c.name.toLowerCase().includes('tablet'),
-      laptop: (c) => c.categoryId === 3 || c.slug === 'laptop-pc' || c.name.toLowerCase().includes('laptop'),
-      accessory: (c) => c.categoryId === 4 || c.slug === 'phu-kien-am-thanh' || c.name.toLowerCase().includes('phụ kiện'),
-    };
-
-    const matcher = rootMatches[catKey];
-    const rootCat = categoriesTree.find(matcher);
-    return rootCat?.children || [];
-  };
-
-  const phoneSubcategories = useMemo(() => getSubcategories('phone'), [categoriesTree]);
-  const laptopSubcategories = useMemo(() => getSubcategories('laptop'), [categoriesTree]);
-  const tabletSubcategories = useMemo(() => getSubcategories('tablet'), [categoriesTree]);
-  const accessorySubcategories = useMemo(() => getSubcategories('accessory'), [categoriesTree]);
-
-  // Lọc thương hiệu theo danh mục chuẩn RDBMS từ DB (qua categoryIds của bảng category_brands)
-  const phoneBrands = useMemo(() => {
-    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(1));
-    return list.length > 0 ? list : brands;
-  }, [brands]);
-
-  const tabletBrands = useMemo(() => {
-    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(2));
-    return list.length > 0 ? list : brands;
-  }, [brands]);
-
-  const laptopBrands = useMemo(() => {
-    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(3));
-    return list.length > 0 ? list : brands;
-  }, [brands]);
-
-  const accessoryBrands = useMemo(() => {
-    const list = brands.filter(b => b.categoryIds && b.categoryIds.includes(4));
-    return list.length > 0 ? list : brands;
-  }, [brands]);
-
-  // Danh sách khoảng giá cố định (theo yêu cầu giữ nguyên trừ khoảng giá)
-  const phonePriceRanges = [
-    { label: 'Dưới 5 triệu', min: 0, max: 5000000 },
-    { label: '5 - 10 triệu', min: 5000000, max: 10000000 },
-    { label: '10 - 15 triệu', min: 10000000, max: 15000000 },
-    { label: '15 - 20 triệu', min: 15000000, max: 20000000 },
-    { label: 'Trên 20 triệu', min: 20000000, max: 100000000 },
-  ];
-
-  const laptopPriceRanges = [
-    { label: 'Dưới 15 triệu', min: 0, max: 15000000 },
-    { label: '15 - 20 triệu', min: 15000000, max: 20000000 },
-    { label: '20 - 30 triệu', min: 20000000, max: 30000000 },
-    { label: 'Trên 30 triệu', min: 30000000, max: 100000000 },
-  ];
-
-  const tabletPriceRanges = [
-    { label: 'Dưới 6 triệu', min: 0, max: 6000000 },
-    { label: '6 - 12 triệu', min: 6000000, max: 12000000 },
-    { label: '12 - 20 triệu', min: 12000000, max: 20000000 },
-    { label: 'Trên 20 triệu', min: 20000000, max: 100000000 },
-  ];
+  const activePriceRanges = useMemo(() => {
+    if (!activeRootCat) return DEFAULT_PRICE_RANGES;
+    const legacyKey = resolveLegacyCategoryKey(activeRootCat);
+    return (legacyKey && PRICE_RANGES_BY_LEGACY_KEY[legacyKey]) || DEFAULT_PRICE_RANGES;
+  }, [activeRootCat]);
 
   const formatVoucherDiscount = (vc: ValidVoucherItem): string => {
     if (vc.discountType === 'PERCENT' || vc.discountType === 'PERCENTAGE') {
@@ -300,9 +186,13 @@ export const CategoryMegaMenu: React.FC = () => {
     return `Giảm ${formatVND(vc.discountValue)}`;
   };
 
+  const activeRootIcon = activeRootCat ? getCategoryIcon(activeRootCat) : LayoutGrid;
+  const ActiveRootIcon = activeRootIcon;
+  const activeRootPath = activeRootCat ? getRootCategoryPath(activeRootCat) : '/products';
+  const activeLegacyKey = activeRootCat ? resolveLegacyCategoryKey(activeRootCat) : null;
+
   return (
     <div className="relative" ref={menuRef}>
-      
       {/* Nút trigger Danh mục */}
       <button
         type="button"
@@ -319,54 +209,64 @@ export const CategoryMegaMenu: React.FC = () => {
 
       {/* Flyout Mega Menu Container */}
       {isOpen && (
-        <div 
+        <div
           onMouseLeave={() => setIsOpen(false)}
           className="absolute left-0 top-full pt-2 z-50 animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="bg-canvas border border-hairline-soft rounded-2xl shadow-summary flex overflow-hidden w-[820px] lg:w-[940px] text-xs max-h-[520px]">
-            
-            {/* CỘT TRÁI: Danh sách các ngành hàng cốt lõi */}
-            <div className="w-60 bg-surface-soft/60 border-r border-hairline-soft p-2.5 space-y-1 flex-shrink-0">
+            {/* CỘT TRÁI: Danh mục gốc render động từ GET /api/v1/categories */}
+            <div className="w-60 bg-surface-soft/60 border-r border-hairline-soft p-2.5 space-y-1 flex-shrink-0 overflow-y-auto">
               <div className="px-3 py-1.5 text-[10px] font-bold text-steel uppercase tracking-wider">
                 Ngành hàng kinh doanh
               </div>
 
-              {categories.map((cat) => {
-                const Icon = cat.icon;
-                const isActive = activeCategory === cat.id;
+              {categoriesTree.map((cat) => {
+                const Icon = getCategoryIcon(cat);
+                const isActive = activeTab !== 'sale' && activeRootCat?.categoryId === cat.categoryId;
 
                 return (
                   <button
-                    key={cat.id}
+                    key={cat.categoryId}
                     type="button"
-                    onMouseEnter={() => setActiveCategory(cat.id)}
-                    onClick={() => {
-                      if (cat.id === 'sale') {
-                        handleNavigate('/products?sale=true');
-                      } else {
-                        handleNavigate(`/products?category=${cat.id}`);
-                      }
-                    }}
+                    onMouseEnter={() => setActiveTab(cat.categoryId)}
+                    onClick={() => handleNavigate(getRootCategoryPath(cat))}
                     className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
                       isActive ? 'bg-canvas text-primary shadow-xs font-black border border-hairline-soft' : 'text-charcoal hover:bg-canvas/70 hover:text-ink'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`p-1.5 rounded-lg ${isActive ? 'bg-primary/10 text-primary' : 'bg-surface-soft text-steel'}`}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-1.5 rounded-lg shrink-0 ${isActive ? 'bg-primary/10 text-primary' : 'bg-surface-soft text-steel'}`}>
                         <Icon size={15} />
                       </div>
-                      <span className="line-clamp-1">{cat.label}</span>
+                      <span className="truncate">{cat.name}</span>
                     </div>
 
-                    <div className="flex items-center gap-1">
-                      {cat.isHot && (
-                        <span className="w-2 h-2 rounded-full bg-critical animate-pulse" />
-                      )}
-                      <ChevronRight size={13} className={isActive ? 'text-primary' : 'text-hairline'} />
-                    </div>
+                    <ChevronRight size={13} className={`shrink-0 ${isActive ? 'text-primary' : 'text-hairline'}`} />
                   </button>
                 );
               })}
+
+              {/* Khuyến mãi Flash Sale */}
+              <button
+                type="button"
+                onMouseEnter={() => setActiveTab('sale')}
+                onClick={() => handleNavigate('/products?sale=true')}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-bold transition-all text-left ${
+                  activeTab === 'sale' ? 'bg-canvas text-primary shadow-xs font-black border border-hairline-soft' : 'text-charcoal hover:bg-canvas/70 hover:text-ink'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`p-1.5 rounded-lg shrink-0 ${activeTab === 'sale' ? 'bg-primary/10 text-primary' : 'bg-surface-soft text-steel'}`}>
+                    <Flame size={15} />
+                  </div>
+                  <span className="truncate">Khuyến mãi Flash Sale</span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="w-2 h-2 rounded-full bg-critical animate-pulse" />
+                  <ChevronRight size={13} className={activeTab === 'sale' ? 'text-primary' : 'text-hairline'} />
+                </div>
+              </button>
 
               {/* Hỗ trợ & Hỏi đáp FAQ */}
               <div className="pt-2 mt-2 border-t border-hairline-soft">
@@ -384,63 +284,67 @@ export const CategoryMegaMenu: React.FC = () => {
               </div>
             </div>
 
-            {/* CỘT PHẢI: Nội dung Mega Menu chi tiết theo ngành hàng đang active */}
+            {/* CỘT PHẢI: Nội dung Mega Menu chi tiết theo danh mục gốc đang chọn */}
             <div className="flex-1 p-6 overflow-y-auto bg-canvas">
-              
-              {/* TAB 1: ĐIỆN THOẠI (Bỏ chọn theo nhu cầu, hiện tất cả thương hiệu từ bảng brands, chi tiết SP qua /product/{id}) */}
-              {activeCategory === 'phone' && (
+              {activeTab !== 'sale' && activeRootCat && (
                 <div className="grid grid-cols-2 gap-8">
-                  {/* Cột 1: Hãng điện thoại (tất cả thương hiệu trong DB) & Mức giá */}
+                  {/* Cột 1: Thương hiệu, Danh mục con & Khoảng giá */}
                   <div className="space-y-4">
-                    {/* Tất cả thương hiệu có trong bảng thương hiệu */}
-                    <div className="space-y-2">
-                      <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                        <Smartphone size={14} className="text-primary" />
-                        <span>Hãng điện thoại</span>
-                      </h4>
-                      <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {phoneBrands.map((brand) => {
-                          const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
-                          return (
-                            <button
-                              key={brand.brandId}
-                              type="button"
-                              onClick={() => handleNavigate(`/products?category=phone&brand=${encodeURIComponent(brand.name)}`)}
-                              className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition flex items-center gap-1.5"
-                            >
-                              {logoSrc && (
-                                <span className="w-5 h-5 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
-                                  <img
-                                    src={logoSrc}
-                                    alt={brand.name}
-                                    className="max-w-full max-h-full object-contain"
-                                    onError={(e) => {
-                                      (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                                    }}
-                                  />
-                                </span>
-                              )}
-                              <span className="truncate">{brand.name}</span>
-                            </button>
-                          );
-                        })}
+                    {activeCategoryBrands.length > 0 && (
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
+                          <ActiveRootIcon size={14} className="text-primary" />
+                          <span>Thương hiệu {activeRootCat.name}</span>
+                        </h4>
+                        <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
+                          {activeCategoryBrands.map((brand) => {
+                            const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
+                            return (
+                              <button
+                                key={brand.brandId}
+                                type="button"
+                                onClick={() => handleNavigate(`${activeRootPath}&brand=${encodeURIComponent(brand.name)}`)}
+                                className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition flex items-center gap-1.5"
+                              >
+                                {logoSrc && (
+                                  <span className="w-5 h-5 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
+                                    <img
+                                      src={logoSrc}
+                                      alt={brand.name}
+                                      className="max-w-full max-h-full object-contain"
+                                      onError={(e) => {
+                                        (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
+                                      }}
+                                    />
+                                  </span>
+                                )}
+                                <span className="truncate">{brand.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    {/* Dòng máy phổ biến từ DB (nếu có subcategories) */}
-                    {phoneSubcategories.length > 0 && (
+                    {activeRootCat.children && activeRootCat.children.length > 0 && (
                       <div className="space-y-2">
                         <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider flex items-center gap-1">
                           <Layers size={12} className="text-steel" />
-                          <span>Dòng máy phổ biến</span>
+                          <span>Danh mục con</span>
                         </h5>
                         <div className="flex flex-wrap gap-1.5">
-                          {phoneSubcategories.map((sub) => (
+                          {activeRootCat.children.map((sub) => (
                             <button
                               key={sub.categoryId}
                               type="button"
-                              onClick={() => handleNavigate(`/products?category=phone&categoryId=${sub.categoryId}`)}
-                              className="px-2 py-1 rounded-md bg-surface-soft text-charcoal hover:text-primary text-[11px] font-medium transition"
+                              onClick={() =>
+                                handleNavigate(
+                                  activeLegacyKey
+                                    ? `/products?category=${activeLegacyKey}&categoryId=${sub.categoryId}`
+                                    : `/products?categoryId=${sub.categoryId}`
+                                )
+                              }
+                              className="px-2.5 py-1 rounded-md bg-surface-soft text-charcoal hover:text-primary text-[11px] font-medium transition"
                             >
                               {sub.name}
                             </button>
@@ -449,15 +353,16 @@ export const CategoryMegaMenu: React.FC = () => {
                       </div>
                     )}
 
-                    {/* Mức giá điện thoại (giữ nguyên khoảng giá) */}
                     <div className="pt-3 border-t border-hairline-soft space-y-2">
-                      <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider">Mức giá điện thoại</h5>
+                      <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider">
+                        Mức giá {activeRootCat.name}
+                      </h5>
                       <div className="grid grid-cols-2 gap-1 text-[11px]">
-                        {phonePriceRanges.map((price) => (
+                        {activePriceRanges.map((price) => (
                           <button
                             key={price.label}
                             type="button"
-                            onClick={() => handleNavigate(`/products?category=phone&minPrice=${price.min}&maxPrice=${price.max}`)}
+                            onClick={() => handleNavigate(`${activeRootPath}&minPrice=${price.min}&maxPrice=${price.max}`)}
                             className="text-left text-steel hover:text-primary hover:underline py-0.5 truncate"
                           >
                             • {price.label}
@@ -467,382 +372,55 @@ export const CategoryMegaMenu: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Cột 2: Điện thoại HOT theo DB & Xem tất cả */}
+                  {/* Cột 2: Sản phẩm nổi bật theo nhánh danh mục & Xem tất cả */}
                   <div className="space-y-3">
                     <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
                       <Sparkles size={14} className="text-attention" />
-                      <span>Điện thoại HOT ⚡</span>
+                      <span>{activeRootCat.name} nổi bật ⚡</span>
                     </h4>
                     <div className="space-y-1.5 max-h-[310px] overflow-y-auto pr-1">
-                      {productsByCategory.phone.slice(0, 8).map((item) => (
-                        <button
-                          key={item.productId}
-                          type="button"
-                          onClick={() => handleNavigate(`/product/${item.productId}`)}
-                          className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-surface-soft text-left group transition"
-                        >
-                          <span className="group-hover:text-primary font-medium truncate pr-2">{item.name}</span>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {item.isFlashSale ? (
-                              <span className="text-[9px] font-bold bg-critical/10 text-critical border border-critical/30 px-1.5 py-0.5 rounded">
-                                Flash Sale
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold font-mono text-primary">
-                                {formatVND(item.variants?.[0]?.salePrice || item.variants?.[0]?.listPrice || 0)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleNavigate('/products?category=phone')}
-                      className="w-full py-2 bg-ink-deep hover:bg-charcoal text-canvas text-[11px] font-bold rounded-lg text-center transition"
-                    >
-                      Xem tất cả điện thoại &rarr;
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: LAPTOP (Bỏ phân khúc sử dụng, hiện tất cả thương hiệu từ bảng brands, chi tiết SP qua /product/{id}) */}
-              {activeCategory === 'laptop' && (
-                <div className="grid grid-cols-2 gap-8">
-                  {/* Cột 1: Hãng Laptop (tất cả thương hiệu trong DB) & Mức giá */}
-                  <div className="space-y-4">
-                    {/* Tất cả thương hiệu có trong bảng thương hiệu */}
-                    <div className="space-y-2">
-                      <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                        <Laptop size={14} className="text-primary" />
-                        <span>Thương hiệu Laptop</span>
-                      </h4>
-                      <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {laptopBrands.map((brand) => {
-                          const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
-                          return (
-                            <button
-                              key={brand.brandId}
-                              type="button"
-                              onClick={() => handleNavigate(`/products?category=laptop&brand=${encodeURIComponent(brand.name)}`)}
-                              className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition flex items-center gap-1.5"
-                            >
-                              {logoSrc && (
-                                <span className="w-5 h-5 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
-                                  <img
-                                    src={logoSrc}
-                                    alt={brand.name}
-                                    className="max-w-full max-h-full object-contain"
-                                    onError={(e) => {
-                                      (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                                    }}
-                                  />
+                      {activeBranchProducts.length > 0 ? (
+                        activeBranchProducts.slice(0, 8).map((item) => (
+                          <button
+                            key={item.productId}
+                            type="button"
+                            onClick={() => handleNavigate(`/product/${item.productId}`)}
+                            className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-surface-soft text-left group transition"
+                          >
+                            <span className="group-hover:text-primary font-medium truncate pr-2">{item.name}</span>
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {item.isFlashSale ? (
+                                <span className="text-[9px] font-bold bg-critical/10 text-critical border border-critical/30 px-1.5 py-0.5 rounded">
+                                  Flash Sale
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold font-mono text-primary">
+                                  {formatVND(item.variants?.[0]?.salePrice || item.variants?.[0]?.listPrice || 0)}
                                 </span>
                               )}
-                              <span className="truncate">{brand.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Dòng Laptop từ DB (nếu có subcategories) */}
-                    {laptopSubcategories.length > 0 && (
-                      <div className="space-y-2">
-                        <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider flex items-center gap-1">
-                          <Layers size={12} className="text-steel" />
-                          <span>Dòng Laptop nổi bật</span>
-                        </h5>
-                        <div className="flex flex-wrap gap-1.5">
-                          {laptopSubcategories.map((sub) => (
-                            <button
-                              key={sub.categoryId}
-                              type="button"
-                              onClick={() => handleNavigate(`/products?category=laptop&categoryId=${sub.categoryId}`)}
-                              className="px-2 py-1 rounded-md bg-surface-soft text-charcoal hover:text-primary text-[11px] font-medium transition"
-                            >
-                              {sub.name}
-                            </button>
-                          ))}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="p-3 rounded-xl bg-surface-soft text-steel text-center text-[11px]">
+                          Chưa có sản phẩm nổi bật trong danh mục này
                         </div>
-                      </div>
-                    )}
-
-                    {/* Khoảng giá Laptop (giữ nguyên khoảng giá) */}
-                    <div className="pt-3 border-t border-hairline-soft space-y-2">
-                      <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider">Khoảng giá Laptop</h5>
-                      <div className="grid grid-cols-2 gap-1 text-[11px]">
-                        {laptopPriceRanges.map((price) => (
-                          <button
-                            key={price.label}
-                            type="button"
-                            onClick={() => handleNavigate(`/products?category=laptop&minPrice=${price.min}&maxPrice=${price.max}`)}
-                            className="text-left text-steel hover:text-primary hover:underline py-0.5 truncate"
-                          >
-                            • {price.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cột 2: Laptop Nổi Bật theo DB & Xem tất cả */}
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                      <Sparkles size={14} className="text-attention" />
-                      <span>Laptop Nổi Bật ⚡</span>
-                    </h4>
-                    <div className="space-y-1.5 max-h-[310px] overflow-y-auto pr-1">
-                      {productsByCategory.laptop.slice(0, 8).map((item) => (
-                        <button
-                          key={item.productId}
-                          type="button"
-                          onClick={() => handleNavigate(`/product/${item.productId}`)}
-                          className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-surface-soft text-left group transition"
-                        >
-                          <span className="group-hover:text-primary font-medium truncate pr-2">{item.name}</span>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {item.isFlashSale ? (
-                              <span className="text-[9px] font-bold bg-critical/10 text-critical border border-critical/30 px-1.5 py-0.5 rounded">
-                                Flash Sale
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold font-mono text-primary">
-                                {formatVND(item.variants?.[0]?.salePrice || item.variants?.[0]?.listPrice || 0)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
+                      )}
                     </div>
 
                     <button
                       type="button"
-                      onClick={() => handleNavigate('/products?category=laptop')}
+                      onClick={() => handleNavigate(activeRootPath)}
                       className="w-full py-2 bg-ink-deep hover:bg-charcoal text-canvas text-[11px] font-bold rounded-lg text-center transition"
                     >
-                      Xem tất cả Laptop &rarr;
+                      Xem tất cả {activeRootCat.name} &rarr;
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* TAB 3: MÁY TÍNH BẢNG (Bỏ phụ kiện đính kèm, hiện tất cả thương hiệu từ bảng brands, chi tiết SP qua /product/{id}) */}
-              {activeCategory === 'tablet' && (
-                <div className="grid grid-cols-2 gap-8">
-                  {/* Cột 1: Hãng máy tính bảng (tất cả thương hiệu trong DB) & Mức giá */}
-                  <div className="space-y-4">
-                    {/* Tất cả thương hiệu có trong bảng thương hiệu */}
-                    <div className="space-y-2">
-                      <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                        <Tablet size={14} className="text-primary" />
-                        <span>Hãng máy tính bảng</span>
-                      </h4>
-                      <div className="grid grid-cols-2 gap-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {tabletBrands.map((brand) => {
-                          const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
-                          return (
-                            <button
-                              key={brand.brandId}
-                              type="button"
-                              onClick={() => handleNavigate(`/products?category=tablet&brand=${encodeURIComponent(brand.name)}`)}
-                              className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition flex items-center gap-1.5"
-                            >
-                              {logoSrc && (
-                                <span className="w-5 h-5 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
-                                  <img
-                                    src={logoSrc}
-                                    alt={brand.name}
-                                    className="max-w-full max-h-full object-contain"
-                                    onError={(e) => {
-                                      (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                                    }}
-                                  />
-                                </span>
-                              )}
-                              <span className="truncate">{brand.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Dòng Tablet từ DB (nếu có subcategories) */}
-                    {tabletSubcategories.length > 0 && (
-                      <div className="space-y-2">
-                        <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider flex items-center gap-1">
-                          <Layers size={12} className="text-steel" />
-                          <span>Dòng Tablet nổi bật</span>
-                        </h5>
-                        <div className="flex flex-wrap gap-1.5">
-                          {tabletSubcategories.map((sub) => (
-                            <button
-                              key={sub.categoryId}
-                              type="button"
-                              onClick={() => handleNavigate(`/products?category=tablet&categoryId=${sub.categoryId}`)}
-                              className="px-2 py-1 rounded-md bg-surface-soft text-charcoal hover:text-primary text-[11px] font-medium transition"
-                            >
-                              {sub.name}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Khoảng giá Tablet (giữ nguyên khoảng giá) */}
-                    <div className="pt-3 border-t border-hairline-soft space-y-2">
-                      <h5 className="font-bold text-ink-deep text-[11px] uppercase tracking-wider">Khoảng giá Tablet</h5>
-                      <div className="grid grid-cols-2 gap-1 text-[11px]">
-                        {tabletPriceRanges.map((price) => (
-                          <button
-                            key={price.label}
-                            type="button"
-                            onClick={() => handleNavigate(`/products?category=tablet&minPrice=${price.min}&maxPrice=${price.max}`)}
-                            className="text-left text-steel hover:text-primary hover:underline py-0.5 truncate"
-                          >
-                            • {price.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Cột 2: Máy tính bảng HOT theo DB & Xem tất cả */}
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                      <Sparkles size={14} className="text-attention" />
-                      <span>Máy tính bảng HOT ⚡</span>
-                    </h4>
-                    <div className="space-y-1.5 max-h-[310px] overflow-y-auto pr-1">
-                      {productsByCategory.tablet.slice(0, 8).map((item) => (
-                        <button
-                          key={item.productId}
-                          type="button"
-                          onClick={() => handleNavigate(`/product/${item.productId}`)}
-                          className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-surface-soft text-left group transition"
-                        >
-                          <span className="group-hover:text-primary font-medium truncate pr-2">{item.name}</span>
-                          <div className="flex items-center gap-1 flex-shrink-0">
-                            {item.isFlashSale ? (
-                              <span className="text-[9px] font-bold bg-critical/10 text-critical border border-critical/30 px-1.5 py-0.5 rounded">
-                                Flash Sale
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold font-mono text-primary">
-                                {formatVND(item.variants?.[0]?.salePrice || item.variants?.[0]?.listPrice || 0)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleNavigate('/products?category=tablet')}
-                      className="w-full py-2 bg-ink-deep hover:bg-charcoal text-canvas text-[11px] font-bold rounded-lg text-center transition"
-                    >
-                      Xem tất cả Tablet &rarr;
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: PHỤ KIỆN (Hiện tất cả thương hiệu từ bảng brands, chi tiết SP qua /product/{id}) */}
-              {activeCategory === 'accessory' && (
-                <div className="grid grid-cols-3 gap-6">
-                  {/* Nhóm phụ kiện từ DB */}
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                      <Headphones size={14} className="text-primary" />
-                      <span>Nhóm Phụ kiện di động</span>
-                    </h4>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {accessorySubcategories.map((item) => (
-                        <button
-                          key={item.categoryId}
-                          type="button"
-                          onClick={() => handleNavigate(`/products?category=accessory&categoryId=${item.categoryId}`)}
-                          className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition"
-                        >
-                          • {item.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Thương hiệu phụ kiện: Hiện tất cả thương hiệu trong bảng brands */}
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                      <Tag size={14} className="text-primary" />
-                      <span>Thương hiệu phụ kiện nổi tiếng</span>
-                    </h4>
-                    <div className="grid grid-cols-2 gap-1.5 max-h-[300px] overflow-y-auto pr-1">
-                      {accessoryBrands.map((brand) => {
-                        const logoSrc = resolveBrandLogo(brand.logoUrl, brand.name);
-                        return (
-                          <button
-                            key={brand.brandId}
-                            type="button"
-                            onClick={() => handleNavigate(`/products?category=accessory&brand=${encodeURIComponent(brand.name)}`)}
-                            className="px-2.5 py-1.5 rounded-lg bg-surface-soft/60 hover:bg-surface-soft hover:text-primary font-medium text-left truncate transition text-[11px] flex items-center gap-1.5"
-                          >
-                            {logoSrc && (
-                              <span className="w-5 h-5 rounded brand-logo-plate border border-hairline-soft/80 flex items-center justify-center p-0.5 shrink-0 shadow-2xs">
-                                <img
-                                  src={logoSrc}
-                                  alt={brand.name}
-                                  className="max-w-full max-h-full object-contain"
-                                  onError={(e) => {
-                                    (e.currentTarget.parentElement as HTMLElement).style.display = 'none';
-                                  }}
-                                />
-                              </span>
-                            )}
-                            <span className="truncate">{brand.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Phụ kiện HOT / Bán chạy từ DB */}
-                  <div className="space-y-3">
-                    <h4 className="font-bold text-ink-deep text-xs uppercase tracking-wider flex items-center gap-1.5 border-b border-hairline-soft pb-2">
-                      <Sparkles size={14} className="text-attention" />
-                      <span>Sản phẩm bán chạy ⚡</span>
-                    </h4>
-                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto pr-1">
-                      {productsByCategory.accessory.slice(0, 7).map((item) => (
-                        <button
-                          key={item.productId}
-                          type="button"
-                          onClick={() => handleNavigate(`/product/${item.productId}`)}
-                          className="w-full flex items-center justify-between p-1.5 rounded-lg hover:bg-surface-soft text-left group transition"
-                        >
-                          <span className="group-hover:text-primary font-medium line-clamp-1">{item.name}</span>
-                          <span className="text-[10px] font-bold font-mono text-primary flex-shrink-0 ml-2">
-                            {formatVND(item.variants?.[0]?.salePrice || item.variants?.[0]?.listPrice || 0)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleNavigate('/products?category=accessory')}
-                      className="w-full py-2 bg-ink-deep hover:bg-charcoal text-canvas text-[11px] font-bold rounded-lg text-center transition"
-                    >
-                      Xem tất cả phụ kiện &rarr;
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 5: KHUYẾN MÃI FLASH SALE (Chỉ cho xem, không cho ấn vào chuyển hướng) */}
-              {activeCategory === 'sale' && (
+              {/* TAB KHUYẾN MÃI FLASH SALE */}
+              {activeTab === 'sale' && (
                 <div className="grid grid-cols-3 gap-6">
                   {/* Chiến dịch Flash Sale từ DB (Chỉ xem, không click) */}
                   <div className="space-y-3">
@@ -942,13 +520,10 @@ export const CategoryMegaMenu: React.FC = () => {
                   </div>
                 </div>
               )}
-
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 };

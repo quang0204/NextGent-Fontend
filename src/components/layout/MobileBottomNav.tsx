@@ -1,26 +1,45 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  Home, 
-  LayoutGrid, 
-  ShoppingBag, 
-  Package, 
-  User, 
-  Smartphone, 
-  Laptop, 
-  Tablet, 
-  Headphones, 
-  Flame, 
+import {
+  Home,
+  LayoutGrid,
+  ShoppingBag,
+  Package,
+  User,
+  Flame,
   X,
-  ChevronRight
+  ChevronRight,
 } from 'lucide-react';
 import { useCartStore } from '../../stores/cartStore';
+import { categoryService, CategoryItem } from '../../services/categoryService';
+import {
+  DEFAULT_ROOT_CATEGORIES,
+  getRootCategoryPath,
+  getCategoryIcon,
+  getCategoryAccentClass,
+} from '../../utils/categoryUtils';
 
 export const MobileBottomNav: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const cartCount = useCartStore((state) => state.getTotalCount());
   const [isCategorySheetOpen, setIsCategorySheetOpen] = useState(false);
+  const [rootCategories, setRootCategories] = useState<CategoryItem[]>(DEFAULT_ROOT_CATEGORIES);
+
+  useEffect(() => {
+    let mounted = true;
+    categoryService
+      .getCategories(false)
+      .then((res) => {
+        if (!mounted || !Array.isArray(res?.data) || res.data.length === 0) return;
+        const visible = res.data.filter((c) => c.isVisible !== false);
+        if (visible.length > 0) setRootCategories(visible);
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const navItems = [
     { to: '/', label: 'Trang chủ', icon: Home, exact: true },
@@ -30,14 +49,19 @@ export const MobileBottomNav: React.FC = () => {
     { to: '/account', label: 'Tài khoản', icon: User, exact: false },
   ];
 
-  const categories = [
-    { label: 'Tất cả sản phẩm', path: '/products', icon: LayoutGrid, color: 'text-primary' },
-    { label: 'Điện thoại thông minh', path: '/products?category=phone', icon: Smartphone, color: 'text-blue-500' },
-    { label: 'Laptop, Máy tính xách tay', path: '/products?category=laptop', icon: Laptop, color: 'text-indigo-500' },
-    { label: 'Máy tính bảng (Tablet)', path: '/products?category=tablet', icon: Tablet, color: 'text-emerald-500' },
-    { label: 'Phụ kiện di động chính hãng', path: '/products?category=accessory', icon: Headphones, color: 'text-amber-500' },
-    { label: 'Khuyến mãi Flash Sale ⚡', path: '/products?sale=true', icon: Flame, color: 'text-critical' },
-  ];
+  const categories = useMemo(
+    () => [
+      { label: 'Tất cả sản phẩm', path: '/products', icon: LayoutGrid, color: 'text-primary' },
+      ...rootCategories.map((cat) => ({
+        label: cat.name,
+        path: getRootCategoryPath(cat),
+        icon: getCategoryIcon(cat),
+        color: getCategoryAccentClass(cat),
+      })),
+      { label: 'Khuyến mãi Flash Sale ⚡', path: '/products?sale=true', icon: Flame, color: 'text-critical' },
+    ],
+    [rootCategories]
+  );
 
   const isActive = (item: typeof navItems[0]) => {
     if (item.exact) return location.pathname === item.to;
