@@ -1,14 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
-import { OtpInput } from '../components/common/OtpInput';
+import { OtpInput, OtpInputStatus } from '../components/common/OtpInput';
 import { PasswordInput } from '../components/common/PasswordInput';
 import { isValidVietnamesePhone, isValidEmail } from '../utils/validators';
 import { 
-  Phone, 
   Mail, 
-  Lock, 
   KeyRound, 
   ArrowLeft, 
   CheckCircle2, 
@@ -66,6 +64,31 @@ export const AuthPage: React.FC = () => {
   const [loginChannel, setLoginChannel] = useState<'PHONE' | 'EMAIL'>('EMAIL');
   const [loginCountdown, setLoginCountdown] = useState(0); // cooldown 60s
   const [loginExpiresIn, setLoginExpiresIn] = useState(0); // TTL 120s
+  const [loginFocus, setLoginFocus] = useState<'identity' | 'password' | null>(null);
+  const [loginFieldError, setLoginFieldError] = useState<'identity' | 'password' | null>(null);
+  const [loginInlineError, setLoginInlineError] = useState('');
+  const [loginShakeCount, setLoginShakeCount] = useState(0);
+  const [loginPhase, setLoginPhase] = useState<'idle' | 'busy' | 'ok'>('idle');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [loginOtpStatus, setLoginOtpStatus] = useState<OtpInputStatus>('idle');
+  const [loginOtpShake, setLoginOtpShake] = useState(0);
+  const [regOtpStatus, setRegOtpStatus] = useState<OtpInputStatus>('idle');
+  const [regOtpShake, setRegOtpShake] = useState(0);
+  const [forgotOtpStatus, setForgotOtpStatus] = useState<OtpInputStatus>('idle');
+  const [forgotOtpShake, setForgotOtpShake] = useState(0);
+
+  const loginUid = useId();
+  const identityInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const loginSuccessTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (loginSuccessTimerRef.current !== null) {
+        window.clearTimeout(loginSuccessTimerRef.current);
+      }
+    };
+  }, []);
 
   // -------------------------------------------------------------
   // API 4, 5, 6: Register State
@@ -146,7 +169,14 @@ export const AuthPage: React.FC = () => {
     }
   }, [searchParams]);
 
+  const getOtpSuccessBeatMs = () =>
+    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 320 : 1050;
+
   const switchTab = (tab: 'login' | 'register' | 'forgot') => {
+    if (loginSuccessTimerRef.current !== null) {
+      window.clearTimeout(loginSuccessTimerRef.current);
+      loginSuccessTimerRef.current = null;
+    }
     setActiveTab(tab);
     setErrorMsg('');
     setLockReason(null);
@@ -156,6 +186,14 @@ export const AuthPage: React.FC = () => {
     setLoginCountdown(0);
     setRegCountdown(0);
     setForgotCountdown(0);
+    setLoginFocus(null);
+    setLoginFieldError(null);
+    setLoginInlineError('');
+    setLoginPhase('idle');
+    setShowLoginPassword(false);
+    setLoginOtpStatus('idle');
+    setRegOtpStatus('idle');
+    setForgotOtpStatus('idle');
     const params: Record<string, string> = {};
     if (tab === 'register') params.mode = 'register';
     if (tab === 'forgot') params.mode = 'forgot';
@@ -163,8 +201,8 @@ export const AuthPage: React.FC = () => {
     setSearchParams(params);
   };
 
-  // Nếu người dùng đã đăng nhập
-  if (isAuthenticated && user) {
+  // Nếu người dùng đã đăng nhập (chờ nhịp tick xanh #403 / merge #406 hoàn tất trước khi chuyển trang)
+  if (isAuthenticated && user && loginPhase !== 'ok' && loginOtpStatus !== 'success' && regOtpStatus !== 'success') {
     return (
       <div className="max-w-md mx-auto px-4 py-16 text-center space-y-4">
         <div className="w-16 h-16 bg-surface-soft text-success rounded-full flex items-center justify-center mx-auto border border-success/30">
@@ -192,30 +230,51 @@ export const AuthPage: React.FC = () => {
     );
   }
 
+  const triggerLoginFieldError = (field: 'identity' | 'password', msg: string) => {
+    setLoginFieldError(field);
+    setLoginInlineError(msg);
+    setLoginShakeCount((c) => c + 1);
+    const target = field === 'identity' ? identityInputRef.current : passwordInputRef.current;
+    window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+  };
+
   // --------------------------------------------------------------------------
   // API 1: POST /api/v1/auth/login-initiate
   // --------------------------------------------------------------------------
   const handleInitiateLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || loginPhase !== 'idle') return;
     setErrorMsg('');
     setLockReason(null);
+    setLoginFieldError(null);
+    setLoginInlineError('');
     const cleanIdentity = loginIdentity.trim();
 
     if (!cleanIdentity) {
-      setErrorMsg('Vui lòng nhập Số điện thoại hoặc Email của bạn.');
+      triggerLoginFieldError('identity', 'Vui lòng nhập Số điện thoại hoặc Email của bạn.');
       return;
     }
     if (!loginPassword || loginPassword.length < 6) {
-      setErrorMsg('Vui lòng nhập mật khẩu tối thiểu 6 ký tự.');
+      triggerLoginFieldError('password', 'Vui lòng nhập mật khẩu tối thiểu 6 ký tự.');
       return;
     }
 
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const okBeatMs = prefersReducedMotion ? 260 : 700;
+
     setLoading(true);
+    setLoginPhase('busy');
     try {
       const data = await initiateLogin(cleanIdentity, loginPassword);
       if (data.otpRequired === false || data.accessToken) {
-        showToast('Đăng nhập thành công!', 'success');
-        navigate(redirect);
+        setLoginPhase('ok');
+        loginSuccessTimerRef.current = window.setTimeout(() => {
+          loginSuccessTimerRef.current = null;
+          setLoginPhase('idle');
+          showToast('Đăng nhập thành công!', 'success');
+          navigate(redirect);
+        }, okBeatMs);
         return;
       }
       setLoginSessionToken(data.sessionToken || '');
@@ -223,20 +282,28 @@ export const AuthPage: React.FC = () => {
       setLoginTargetMasked(data.targetMasked || '');
       setLoginCountdown(data.cooldownSeconds || 60);
       setLoginExpiresIn(data.expiresInSeconds || 120);
-      setIsOtpSent(true);
-      setLoginOtp('');
-      showToast(
-        `Mã OTP đã được gửi qua ${data.channel === 'PHONE' ? 'tin nhắn SMS' : 'Email'}!`,
-        'info'
-      );
+      setLoginPhase('ok');
+      loginSuccessTimerRef.current = window.setTimeout(() => {
+        loginSuccessTimerRef.current = null;
+        setLoginPhase('idle');
+        setIsOtpSent(true);
+        setLoginOtp('');
+        showToast(
+          `Mã OTP đã được gửi qua ${data.channel === 'PHONE' ? 'tin nhắn SMS' : 'Email'}!`,
+          'info'
+        );
+      }, okBeatMs);
     } catch (err: any) {
+      setLoginPhase('idle');
       if (err.statusCode === 403) {
         setErrorMsg('Tài khoản của bạn đã bị khóa.');
         setLockReason(err.reason || 'Vui lòng liên hệ bộ phận hỗ trợ chăm sóc khách hàng để được mở khóa.');
       } else if (err.statusCode === 429) {
         setErrorMsg('Bạn đã nhập sai quá 5 lần. Vui lòng thử lại sau ít phút để bảo vệ tài khoản.');
       } else {
-        setErrorMsg(err.message || 'Tài khoản hoặc mật khẩu không chính xác.');
+        const msg = err.message || 'Tài khoản hoặc mật khẩu không chính xác.';
+        const errField = /email|số điện thoại|sdt|tài khoản không tồn tại/i.test(msg) ? 'identity' : 'password';
+        triggerLoginFieldError(errField, msg);
       }
     } finally {
       setLoading(false);
@@ -248,20 +315,31 @@ export const AuthPage: React.FC = () => {
   // --------------------------------------------------------------------------
   const handleVerifyLoginOtp = async (e?: React.FormEvent, directOtp?: string) => {
     if (e) e.preventDefault();
+    if (loading || loginOtpStatus === 'busy' || loginOtpStatus === 'success') return;
     setErrorMsg('');
     const code = directOtp || loginOtp;
 
     if (!code || code.length !== 6) {
       setErrorMsg('Vui lòng nhập đầy đủ 6 số OTP.');
+      setLoginOtpStatus('error');
+      setLoginOtpShake((c) => c + 1);
       return;
     }
 
     setLoading(true);
+    setLoginOtpStatus('busy');
     try {
       await verifyLoginOtp(loginSessionToken, code);
-      showToast('Đăng nhập thành công!', 'success');
-      navigate(redirect);
+      setLoginOtpStatus('success');
+      loginSuccessTimerRef.current = window.setTimeout(() => {
+        loginSuccessTimerRef.current = null;
+        setLoginOtpStatus('idle');
+        showToast('Đăng nhập thành công!', 'success');
+        navigate(redirect);
+      }, getOtpSuccessBeatMs());
     } catch (err: any) {
+      setLoginOtpStatus('error');
+      setLoginOtpShake((c) => c + 1);
       setErrorMsg(err.message || 'Mã OTP không chính xác hoặc đã quá thời hạn 120 giây.');
     } finally {
       setLoading(false);
@@ -272,8 +350,9 @@ export const AuthPage: React.FC = () => {
   // API 3: POST /api/v1/auth/login-resend-otp
   // --------------------------------------------------------------------------
   const handleResendLoginOtp = async () => {
-    if (loginCountdown > 0) return;
+    if (loginCountdown > 0 || loginOtpStatus === 'success') return;
     setErrorMsg('');
+    setLoginOtpStatus('idle');
     setLoading(true);
     try {
       const data = await resendLoginOtp(loginSessionToken);
@@ -354,20 +433,31 @@ export const AuthPage: React.FC = () => {
   // --------------------------------------------------------------------------
   const handleConfirmRegister = async (e?: React.FormEvent, directOtp?: string) => {
     if (e) e.preventDefault();
+    if (loading || regOtpStatus === 'busy' || regOtpStatus === 'success') return;
     setErrorMsg('');
     const code = directOtp || regOtpCode;
 
     if (!code || code.length !== 6) {
       setErrorMsg('Vui lòng nhập đầy đủ mã OTP gồm 6 chữ số.');
+      setRegOtpStatus('error');
+      setRegOtpShake((c) => c + 1);
       return;
     }
 
     setLoading(true);
+    setRegOtpStatus('busy');
     try {
       await verifyRegisterOtp(regToken, code);
-      showToast('Đăng ký và kích hoạt tài khoản thành công! Chào mừng thành viên mới.', 'success');
-      navigate(redirect);
+      setRegOtpStatus('success');
+      loginSuccessTimerRef.current = window.setTimeout(() => {
+        loginSuccessTimerRef.current = null;
+        setRegOtpStatus('idle');
+        showToast('Đăng ký và kích hoạt tài khoản thành công! Chào mừng thành viên mới.', 'success');
+        navigate(redirect);
+      }, getOtpSuccessBeatMs());
     } catch (err: any) {
+      setRegOtpStatus('error');
+      setRegOtpShake((c) => c + 1);
       setErrorMsg(err.message || 'Mã OTP xác thực kích hoạt không chính xác hoặc đã hết hạn.');
     } finally {
       setLoading(false);
@@ -378,8 +468,9 @@ export const AuthPage: React.FC = () => {
   // API 6: POST /api/v1/auth/register-resend-otp
   // --------------------------------------------------------------------------
   const handleResendRegOtp = async () => {
-    if (regCountdown > 0) return;
+    if (regCountdown > 0 || regOtpStatus === 'success') return;
     setErrorMsg('');
+    setRegOtpStatus('idle');
     setLoading(true);
     try {
       const data = await resendRegisterOtp(regToken);
@@ -433,10 +524,13 @@ export const AuthPage: React.FC = () => {
   // --------------------------------------------------------------------------
   const handleResetPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading || forgotOtpStatus === 'busy' || forgotOtpStatus === 'success') return;
     setErrorMsg('');
 
     if (!forgotOtp.trim() || forgotOtp.trim().length !== 6) {
       setErrorMsg('Vui lòng nhập đúng mã OTP gồm 6 chữ số.');
+      setForgotOtpStatus('error');
+      setForgotOtpShake((c) => c + 1);
       return;
     }
     if (!forgotNewPassword || !PASSWORD_REGEX.test(forgotNewPassword)) {
@@ -449,6 +543,7 @@ export const AuthPage: React.FC = () => {
     }
 
     setLoading(true);
+    setForgotOtpStatus('busy');
     try {
       const res = await resetPassword({
         resetToken: forgotResetToken,
@@ -457,12 +552,19 @@ export const AuthPage: React.FC = () => {
         confirmNewPassword: forgotConfirmPassword,
       });
 
-      setForgotSuccessMsg(res.message || 'Đặt lại mật khẩu thành công!');
-      setForgotStep('SUCCESS');
-      showToast('Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.', 'success');
-      setLoginPassword(forgotNewPassword);
-      setLoginIdentity(forgotIdentity);
+      setForgotOtpStatus('success');
+      loginSuccessTimerRef.current = window.setTimeout(() => {
+        loginSuccessTimerRef.current = null;
+        setForgotOtpStatus('idle');
+        setForgotSuccessMsg(res.message || 'Đặt lại mật khẩu thành công!');
+        setForgotStep('SUCCESS');
+        showToast('Đặt lại mật khẩu thành công! Vui lòng đăng nhập lại.', 'success');
+        setLoginPassword(forgotNewPassword);
+        setLoginIdentity(forgotIdentity);
+      }, getOtpSuccessBeatMs());
     } catch (err: any) {
+      setForgotOtpStatus('error');
+      setForgotOtpShake((c) => c + 1);
       setErrorMsg(err.message || 'Đặt lại mật khẩu thất bại. Vui lòng kiểm tra mã OTP.');
     } finally {
       setLoading(false);
@@ -473,8 +575,9 @@ export const AuthPage: React.FC = () => {
   // API 9: POST /api/v1/auth/forgot-resend-otp
   // --------------------------------------------------------------------------
   const handleResendForgotOtp = async () => {
-    if (forgotCountdown > 0) return;
+    if (forgotCountdown > 0 || forgotOtpStatus === 'success') return;
     setErrorMsg('');
+    setForgotOtpStatus('idle');
     setLoading(true);
     try {
       const data = await resendForgotOtp(forgotResetToken);
@@ -527,7 +630,7 @@ export const AuthPage: React.FC = () => {
           <div className="grid grid-cols-2 bg-surface-soft p-1 rounded-full text-xs font-bold text-steel">
             <button
               onClick={() => switchTab('login')}
-              disabled={loading}
+              disabled={loading || loginPhase !== 'idle'}
               className={`py-2 rounded-full transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'login' ? 'bg-ink-deep text-canvas shadow-xs' : 'hover:text-ink'
               }`}
@@ -537,7 +640,7 @@ export const AuthPage: React.FC = () => {
             </button>
             <button
               onClick={() => switchTab('register')}
-              disabled={loading}
+              disabled={loading || loginPhase !== 'idle'}
               className={`py-2 rounded-full transition-all flex items-center justify-center gap-1.5 ${
                 activeTab === 'register' ? 'bg-ink-deep text-canvas shadow-xs' : 'hover:text-ink'
               }`}
@@ -584,64 +687,134 @@ export const AuthPage: React.FC = () => {
         {activeTab === 'login' && (
           <div className="space-y-5">
             {!isOtpSent ? (
-              /* Bước 1: API 1 - login-initiate */
-              <form onSubmit={handleInitiateLogin} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-medium text-charcoal mb-1.5">
-                    Số điện thoại hoặc Email <span className="text-critical">*</span>:
-                  </label>
-                  <div className="relative">
+              /* Bước 1: API 1 - login-initiate (Lucian UX/UI #403 floating-field & morph button) */
+              <div className="u403">
+                <form onSubmit={handleInitiateLogin} className="u403-form" noValidate>
+                  <div
+                    className={`u403-f${loginFocus === 'identity' ? ' is-f' : ''}${
+                      loginFocus === 'identity' || loginIdentity.length > 0 ? ' is-up' : ''
+                    }${
+                      loginFieldError === 'identity'
+                        ? ` is-err ${loginShakeCount % 2 === 1 ? 'is-shake-a' : 'is-shake-b'}`
+                        : ''
+                    }`}
+                  >
                     <input
+                      ref={identityInputRef}
+                      id={`${loginUid}-identity`}
                       type="text"
-                      required
-                      disabled={loading}
-                      placeholder="Nhập email hoặc số điện thoại"
+                      autoComplete="username"
+                      spellCheck={false}
+                      disabled={loginPhase !== 'idle'}
                       value={loginIdentity}
-                      onChange={(e) => setLoginIdentity(e.target.value)}
-                      className="w-full h-11 bg-canvas border border-hairline rounded-lg pl-9 pr-3.5 text-xs text-ink font-medium focus:border-2 focus:border-fb-blue focus:outline-none disabled:opacity-60"
+                      aria-invalid={loginFieldError === 'identity' ? 'true' : undefined}
+                      aria-describedby={loginFieldError === 'identity' ? `${loginUid}-msg` : undefined}
+                      onFocus={() => setLoginFocus('identity')}
+                      onBlur={() => setLoginFocus((prev) => (prev === 'identity' ? null : prev))}
+                      onChange={(e) => {
+                        setLoginIdentity(e.target.value);
+                        if (loginFieldError === 'identity') {
+                          setLoginFieldError(null);
+                          setLoginInlineError('');
+                        }
+                      }}
+                      className="u403-in"
                     />
-                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-steel">
-                      {loginIdentity.includes('@') ? <Mail size={15} /> : <Phone size={15} />}
-                    </div>
+                    <label htmlFor={`${loginUid}-identity`}>Số điện thoại hoặc Email *</label>
                   </div>
-                </div>
 
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="font-medium text-charcoal">
-                      Mật khẩu <span className="text-critical">*</span>:
-                    </label>
+                  <div
+                    className={`u403-f u403-pw${loginFocus === 'password' ? ' is-f' : ''}${
+                      loginFocus === 'password' || loginPassword.length > 0 ? ' is-up' : ''
+                    }${
+                      loginFieldError === 'password'
+                        ? ` is-err ${loginShakeCount % 2 === 1 ? 'is-shake-a' : 'is-shake-b'}`
+                        : ''
+                    }`}
+                  >
+                    <input
+                      ref={passwordInputRef}
+                      id={`${loginUid}-password`}
+                      type={showLoginPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      disabled={loginPhase !== 'idle'}
+                      value={loginPassword}
+                      aria-invalid={loginFieldError === 'password' ? 'true' : undefined}
+                      aria-describedby={loginFieldError === 'password' ? `${loginUid}-msg` : undefined}
+                      onFocus={() => setLoginFocus('password')}
+                      onBlur={() => setLoginFocus((prev) => (prev === 'password' ? null : prev))}
+                      onChange={(e) => {
+                        setLoginPassword(e.target.value);
+                        if (loginFieldError === 'password') {
+                          setLoginFieldError(null);
+                          setLoginInlineError('');
+                        }
+                      }}
+                      className="u403-in"
+                    />
+                    <label htmlFor={`${loginUid}-password`}>Mật khẩu *</label>
                     <button
                       type="button"
-                      disabled={loading}
+                      disabled={loginPhase !== 'idle'}
+                      aria-label={showLoginPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                      aria-pressed={showLoginPassword}
+                      onClick={() => setShowLoginPassword((prev) => !prev)}
+                      className="u403-eye"
+                    >
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <g className="lid">
+                          <path d="M2 10s3-5.2 8-5.2S18 10 18 10s-3 5.2-8 5.2S2 10 2 10z" />
+                          <circle cx="10" cy="10" r="2.4" />
+                        </g>
+                        <g className="lash">
+                          <path d="M3 10.4c2 2.4 4.4 3.4 7 3.4s5-1 7-3.4M6 13l-1 1.6M10 14v1.8M14 13l1 1.6" />
+                        </g>
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-2 pt-1.5 min-h-[26px]">
+                    <p
+                      id={`${loginUid}-msg`}
+                      className={`u403-msg flex-1${loginInlineError ? ' is-on' : ''}`}
+                      aria-live="polite"
+                    >
+                      {loginInlineError || '\u00A0'}
+                    </p>
+                    <button
+                      type="button"
+                      disabled={loading || loginPhase !== 'idle'}
                       onClick={() => {
                         setForgotIdentity(loginIdentity);
                         switchTab('forgot');
                       }}
-                      className="text-[11px] font-bold text-primary hover:underline"
+                      className="text-[11px] font-bold text-primary hover:underline shrink-0 pt-1"
                     >
                       Quên mật khẩu?
                     </button>
                   </div>
-                  <PasswordInput
-                    required
-                    disabled={loading}
-                    placeholder="Nhập mật khẩu"
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    showLeftLockIcon={true}
-                  />
-                </div>
 
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-70"
-                >
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={14} />}
-                  <span>Đăng nhập</span>
-                </button>
-              </form>
+                  <button
+                    type="submit"
+                    aria-busy={loginPhase === 'busy' || undefined}
+                    aria-disabled={loginPhase !== 'idle' || undefined}
+                    className={`u403-go${loginPhase === 'busy' ? ' is-busy' : ''}${loginPhase === 'ok' ? ' is-ok' : ''}`}
+                  >
+                    <span>Đăng nhập</span>
+                    <i aria-hidden="true" />
+                    <svg viewBox="0 0 22 22" aria-hidden="true">
+                      <path d="M5.5 11.5l4 4L17 7.5" />
+                    </svg>
+                  </button>
+                </form>
+                <p className="u403-live" role="status">
+                  {loginPhase === 'busy'
+                    ? 'Đang kiểm tra thông tin đăng nhập'
+                    : loginPhase === 'ok'
+                    ? 'Đăng nhập thành công'
+                    : ''}
+                </p>
+              </div>
             ) : (
               /* Bước 2: API 2 & 3 - login-verify-otp & login-resend-otp */
               <form onSubmit={handleVerifyLoginOtp} className="space-y-5 text-xs text-center">
@@ -666,8 +839,14 @@ export const AuthPage: React.FC = () => {
                 {/* 6 Ô nhập OTP rời rạc */}
                 <OtpInput
                   value={loginOtp}
-                  onChange={setLoginOtp}
+                  onChange={(val) => {
+                    setLoginOtp(val);
+                    if (loginOtpStatus === 'error') setLoginOtpStatus('idle');
+                  }}
                   disabled={loading}
+                  status={loginOtpStatus}
+                  shakeKey={loginOtpShake}
+                  statusText={errorMsg && loginOtpStatus === 'error' ? errorMsg : undefined}
                   onComplete={(val) => handleVerifyLoginOtp(undefined, val)}
                 />
 
@@ -689,7 +868,7 @@ export const AuthPage: React.FC = () => {
                     ) : (
                       <button
                         type="button"
-                        disabled={loading}
+                        disabled={loading || loginOtpStatus === 'success'}
                         onClick={handleResendLoginOtp}
                         className="text-primary font-bold hover:underline inline-flex items-center gap-1 transition"
                       >
@@ -703,7 +882,7 @@ export const AuthPage: React.FC = () => {
                 <div className="space-y-2 pt-2">
                   <button
                     type="submit"
-                    disabled={loading || loginOtp.length !== 6}
+                    disabled={loading || loginOtpStatus === 'success' || loginOtp.length !== 6}
                     className="btn-marketing w-full py-3 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
@@ -712,10 +891,11 @@ export const AuthPage: React.FC = () => {
 
                   <button
                     type="button"
-                    disabled={loading}
+                    disabled={loading || loginOtpStatus === 'success'}
                     onClick={() => {
                       setIsOtpSent(false);
                       setLoginCountdown(0);
+                      setLoginOtpStatus('idle');
                     }}
                     className="text-steel hover:text-ink-deep text-xs font-medium py-1.5 flex items-center justify-center gap-1.5 mx-auto transition"
                   >
@@ -867,8 +1047,14 @@ export const AuthPage: React.FC = () => {
                 {/* 6 Ô nhập OTP rời rạc */}
                 <OtpInput
                   value={regOtpCode}
-                  onChange={setRegOtpCode}
+                  onChange={(val) => {
+                    setRegOtpCode(val);
+                    if (regOtpStatus === 'error') setRegOtpStatus('idle');
+                  }}
                   disabled={loading}
+                  status={regOtpStatus}
+                  shakeKey={regOtpShake}
+                  statusText={errorMsg && regOtpStatus === 'error' ? errorMsg : undefined}
                   onComplete={(val) => handleConfirmRegister(undefined, val)}
                 />
 
@@ -889,7 +1075,7 @@ export const AuthPage: React.FC = () => {
                     ) : (
                       <button
                         type="button"
-                        disabled={loading}
+                        disabled={loading || regOtpStatus === 'success'}
                         onClick={handleResendRegOtp}
                         className="text-primary font-bold hover:underline inline-flex items-center gap-1 transition"
                       >
@@ -903,7 +1089,7 @@ export const AuthPage: React.FC = () => {
                 <div className="space-y-2.5 pt-2">
                   <button
                     type="submit"
-                    disabled={loading || regOtpCode.length !== 6}
+                    disabled={loading || regOtpStatus === 'success' || regOtpCode.length !== 6}
                     className="btn-marketing w-full py-3.5 rounded-full text-xs font-bold shadow-xs flex items-center justify-center gap-2 disabled:opacity-60"
                   >
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
@@ -912,10 +1098,11 @@ export const AuthPage: React.FC = () => {
 
                   <button
                     type="button"
-                    disabled={loading}
+                    disabled={loading || regOtpStatus === 'success'}
                     onClick={() => {
                       setIsRegOtpStep(false);
                       setRegCountdown(0);
+                      setRegOtpStatus('idle');
                     }}
                     className="text-steel hover:text-ink-deep text-xs font-medium py-1.5 flex items-center justify-center gap-1.5 mx-auto transition"
                   >
@@ -1017,8 +1204,14 @@ export const AuthPage: React.FC = () => {
                 {/* 6 Ô nhập OTP rời rạc */}
                 <OtpInput
                   value={forgotOtp}
-                  onChange={setForgotOtp}
+                  onChange={(val) => {
+                    setForgotOtp(val);
+                    if (forgotOtpStatus === 'error') setForgotOtpStatus('idle');
+                  }}
                   disabled={loading}
+                  status={forgotOtpStatus}
+                  shakeKey={forgotOtpShake}
+                  statusText={errorMsg && forgotOtpStatus === 'error' ? errorMsg : undefined}
                 />
 
                 <div className="flex items-center justify-between text-xs py-1 px-1 bg-surface-soft/60 rounded-xl border border-hairline-soft/80 p-2.5">

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
-import { OtpInput } from '../components/common/OtpInput';
+import { OtpInput, OtpInputStatus } from '../components/common/OtpInput';
 import { PasswordInput } from '../components/common/PasswordInput';
 import { sharedStore } from '../services/sharedStore';
 import { userService } from '../services/userService';
@@ -125,6 +125,26 @@ export const AccountPage: React.FC = () => {
   const [isVerifyingProfileOtp, setIsVerifyingProfileOtp] = useState(false);
   const [otpSessionToken, setOtpSessionToken] = useState('');
   const [isSubmittingProfile, setIsSubmittingProfile] = useState(false);
+  const [profileOtpStatus, setProfileOtpStatus] = useState<OtpInputStatus>('idle');
+  const [profileOtpShake, setProfileOtpShake] = useState(0);
+  const profileOtpTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (profileOtpTimerRef.current !== null) {
+        window.clearTimeout(profileOtpTimerRef.current);
+      }
+    };
+  }, []);
+
+  const closeProfileOtpModal = () => {
+    if (profileOtpTimerRef.current !== null) {
+      window.clearTimeout(profileOtpTimerRef.current);
+      profileOtpTimerRef.current = null;
+    }
+    setProfileOtpStatus('idle');
+    setShowProfileOtpModal(false);
+  };
 
   // Bộ đếm ngược thời gian gửi lại mã OTP (60s)
   useEffect(() => {
@@ -236,6 +256,7 @@ export const AccountPage: React.FC = () => {
         setPendingProfileData({ fullName: trimmedFullName, email: cleanEmail, phone: cleanPhone });
         setProfileOtp('');
         setProfileOtpError('');
+        setProfileOtpStatus('idle');
         setProfileOtpCountdown(res.data.resendCooldownSeconds || 60);
         setShowProfileOtpModal(true);
         showToast(res.message || `Mã xác thực OTP đã được gửi đến email ${res.data.targetEmailMasked || maskedEmail}`, 'info');
@@ -253,6 +274,7 @@ export const AccountPage: React.FC = () => {
       setPendingProfileData({ fullName: trimmedFullName, email: cleanEmail, phone: cleanPhone });
       setProfileOtp('');
       setProfileOtpError('');
+      setProfileOtpStatus('idle');
       setProfileOtpCountdown(60);
       setShowProfileOtpModal(true);
       showToast(`Mã xác thực OTP đã gửi về hòm thư Email ${maskedEmail}: ${mockCode}`, 'info');
@@ -263,8 +285,9 @@ export const AccountPage: React.FC = () => {
 
   // Luồng Bước 3: API 2.2 POST /api/v1/users/profile/resend-otp
   const handleResendProfileOtp = async () => {
-    if (profileOtpCountdown > 0) return;
+    if (profileOtpCountdown > 0 || profileOtpStatus === 'success') return;
     setProfileOtpError('');
+    setProfileOtpStatus('idle');
 
     if (otpSessionToken && !otpSessionToken.startsWith('mock_session_')) {
       try {
@@ -293,15 +316,23 @@ export const AccountPage: React.FC = () => {
 
   // Luồng Bước 2: API 2.2 POST /api/v1/users/profile/update-confirm
   const handleConfirmProfileOtp = async (directCode?: string) => {
+    if (isVerifyingProfileOtp || profileOtpStatus === 'success') return;
     const code = directCode || profileOtp;
     setProfileOtpError('');
 
     if (!code || code.length !== 6) {
       setProfileOtpError('Vui lòng nhập đầy đủ mã OTP gồm 6 chữ số.');
+      setProfileOtpStatus('error');
+      setProfileOtpShake((c) => c + 1);
       return;
     }
 
+    const prefersReducedMotion =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const okBeatMs = prefersReducedMotion ? 320 : 1050;
+
     setIsVerifyingProfileOtp(true);
+    setProfileOtpStatus('busy');
 
     if (otpSessionToken && !otpSessionToken.startsWith('mock_session_')) {
       try {
@@ -313,14 +344,21 @@ export const AccountPage: React.FC = () => {
         if (res.data) {
           updateProfile(res.data.fullName, res.data.email, res.data.phone);
           setIsVerifyingProfileOtp(false);
-          setShowProfileOtpModal(false);
-          setProfileSaved(true);
-          showToast(res.message || 'Xác thực OTP thành công. Thông tin cá nhân đã được cập nhật!', 'success');
-          setTimeout(() => setProfileSaved(false), 3000);
+          setProfileOtpStatus('success');
+          profileOtpTimerRef.current = window.setTimeout(() => {
+            profileOtpTimerRef.current = null;
+            setProfileOtpStatus('idle');
+            setShowProfileOtpModal(false);
+            setProfileSaved(true);
+            showToast(res.message || 'Xác thực OTP thành công. Thông tin cá nhân đã được cập nhật!', 'success');
+            setTimeout(() => setProfileSaved(false), 3000);
+          }, okBeatMs);
           return;
         }
       } catch (err: any) {
         setIsVerifyingProfileOtp(false);
+        setProfileOtpStatus('error');
+        setProfileOtpShake((c) => c + 1);
         setProfileOtpError(err.message || 'Mã xác thực OTP không chính xác hoặc đã hết hạn.');
         return;
       }
@@ -329,6 +367,8 @@ export const AccountPage: React.FC = () => {
     // Demo fallback
     if (code !== generatedProfileOtp && code !== '123456') {
       setIsVerifyingProfileOtp(false);
+      setProfileOtpStatus('error');
+      setProfileOtpShake((c) => c + 1);
       setProfileOtpError('Mã xác thực OTP không chính xác hoặc đã hết hạn.');
       return;
     }
@@ -336,12 +376,18 @@ export const AccountPage: React.FC = () => {
     if (pendingProfileData) {
       updateProfile(pendingProfileData.fullName, pendingProfileData.email, pendingProfileData.phone);
       setIsVerifyingProfileOtp(false);
-      setShowProfileOtpModal(false);
-      setProfileSaved(true);
-      showToast('Xác thực OTP thành công! Đã cập nhật thông tin cá nhân.', 'success');
-      setTimeout(() => setProfileSaved(false), 3000);
+      setProfileOtpStatus('success');
+      profileOtpTimerRef.current = window.setTimeout(() => {
+        profileOtpTimerRef.current = null;
+        setProfileOtpStatus('idle');
+        setShowProfileOtpModal(false);
+        setProfileSaved(true);
+        showToast('Xác thực OTP thành công! Đã cập nhật thông tin cá nhân.', 'success');
+        setTimeout(() => setProfileSaved(false), 3000);
+      }, okBeatMs);
     } else {
       setIsVerifyingProfileOtp(false);
+      setProfileOtpStatus('idle');
     }
   };
 
@@ -1159,8 +1205,9 @@ export const AccountPage: React.FC = () => {
               </h4>
               <button
                 type="button"
-                onClick={() => setShowProfileOtpModal(false)}
-                className="p-1 text-steel hover:text-ink rounded-lg hover:bg-surface-soft transition-colors cursor-pointer"
+                disabled={profileOtpStatus === 'success'}
+                onClick={closeProfileOtpModal}
+                className="p-1 text-steel hover:text-ink rounded-lg hover:bg-surface-soft transition-colors cursor-pointer disabled:opacity-50"
               >
                 <X size={16} />
               </button>
@@ -1183,10 +1230,16 @@ export const AccountPage: React.FC = () => {
               </label>
               <OtpInput
                 value={profileOtp}
-                onChange={setProfileOtp}
+                onChange={(val) => {
+                  setProfileOtp(val);
+                  if (profileOtpStatus === 'error') setProfileOtpStatus('idle');
+                }}
                 length={6}
                 autoFocus={true}
                 disabled={isVerifyingProfileOtp}
+                status={profileOtpStatus}
+                shakeKey={profileOtpShake}
+                statusText={profileOtpError || undefined}
                 onComplete={(val) => handleConfirmProfileOtp(val)}
               />
             </div>
@@ -1201,8 +1254,9 @@ export const AccountPage: React.FC = () => {
               ) : (
                 <button
                   type="button"
+                  disabled={profileOtpStatus === 'success'}
                   onClick={handleResendProfileOtp}
-                  className="text-primary font-bold hover:underline inline-flex items-center gap-1 transition cursor-pointer"
+                  className="text-primary font-bold hover:underline inline-flex items-center gap-1 transition cursor-pointer disabled:opacity-50"
                 >
                   <RotateCcw size={13} />
                   <span>Gửi lại mã ngay</span>
@@ -1213,14 +1267,15 @@ export const AccountPage: React.FC = () => {
             <div className="flex gap-2.5 justify-end pt-2 border-t border-hairline-soft">
               <button
                 type="button"
-                onClick={() => setShowProfileOtpModal(false)}
-                className="btn-ghost px-4 py-2 text-xs font-bold rounded-full cursor-pointer"
+                disabled={profileOtpStatus === 'success'}
+                onClick={closeProfileOtpModal}
+                className="btn-ghost px-4 py-2 text-xs font-bold rounded-full cursor-pointer disabled:opacity-50"
               >
                 Hủy bỏ
               </button>
               <button
                 type="button"
-                disabled={isVerifyingProfileOtp || profileOtp.length !== 6}
+                disabled={isVerifyingProfileOtp || profileOtpStatus === 'success' || profileOtp.length !== 6}
                 onClick={() => handleConfirmProfileOtp()}
                 className="btn-marketing px-5 py-2 text-xs font-bold rounded-full shadow-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
               >
