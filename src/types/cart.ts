@@ -114,3 +114,13 @@ export const mapBackendCartItemToCartItem = (b: BackendCartItem): CartItem => ({
   addedAt: b.addedAt,
 });
 
+export const isCartItemPurchasable = (
+  item: Pick<CartItem, 'isAvailable' | 'inStock' | 'availableQty' | 'quantity'>
+): boolean => {
+  if (item.isAvailable === false) return false;
+  if (item.availableQty <= 0) return false;
+  if (item.quantity > item.availableQty) return false;
+  if (item.inStock === false) return false;
+  return true;
+};
+

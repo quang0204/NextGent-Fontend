@@ -9,6 +9,7 @@ import { promotionService } from '../services/promotionService';
 import { paymentService } from '../services/paymentService';
 import { userService } from '../services/userService';
 import { formatVND } from '../components/common/PriceDisplay';
+import { isCartItemPurchasable } from '../types/cart';
 import { UserAddress, formatFullAddress } from '../types/user';
 import { isValidVietnamesePhone } from '../utils/validators';
 import { 
@@ -46,10 +47,12 @@ export const CheckoutPage: React.FC = () => {
   const { showToast } = useToastStore();
   const [isSavingAddress, setIsSavingAddress] = useState(false);
 
-  // Xác định danh sách sản phẩm cần thanh toán
-  const checkoutItems = isBuyNow 
-    ? (buyNowItem ? [buyNowItem] : [])
-    : (getSelectedItems().length > 0 ? getSelectedItems() : items);
+  // Xác định danh sách sản phẩm cần thanh toán (loại bỏ item hết hàng hoặc tạm ẩn)
+  const purchasableItems = items.filter(isCartItemPurchasable);
+  const selectedPurchasable = getSelectedItems().filter(isCartItemPurchasable);
+  const checkoutItems = isBuyNow
+    ? (buyNowItem && isCartItemPurchasable(buyNowItem) ? [buyNowItem] : [])
+    : (selectedPurchasable.length > 0 ? selectedPurchasable : purchasableItems);
 
   const addresses = user?.addresses || [];
   const hasAddresses = addresses.length > 0;
