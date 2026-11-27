@@ -4,6 +4,7 @@ import { useCartStore, isCartItemOutOfStock } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { formatVND } from '../components/common/PriceDisplay';
+import { isCartItemPurchasable } from '../types/cart';
 import { sharedStore } from '../services/sharedStore';
 import { promotionService } from '../services/promotionService';
 import { 
@@ -132,7 +133,7 @@ export const CartPage: React.FC = () => {
     }
     if (selectedItems.some(i => i.isAvailable === false)) {
       showToast(
-        'Vui lòng xóa sản phẩm thuộc danh mục đang tạm ẩn hoặc ngừng kinh doanh trước khi thanh toán!',
+        'Vui lòng bỏ hoặc xóa sản phẩm đã hết hàng hoặc tạm ẩn trước khi thanh toán!',
         'warning'
       );
       return;
@@ -215,6 +216,7 @@ export const CartPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={isAllSelected}
+                disabled={selectableItems.length === 0}
                 onChange={() => {
                   if (isAllSelected) {
                     deselectAllItems();
@@ -222,13 +224,13 @@ export const CartPage: React.FC = () => {
                     selectAllItems();
                   }
                 }}
-                className="w-4 h-4 rounded border-hairline text-primary focus:ring-primary accent-[#0064e0] cursor-pointer"
+                className="w-4 h-4 rounded border-hairline text-primary focus:ring-primary accent-[#0064e0] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               />
               <span>Chọn tất cả ({items.length} mặt hàng)</span>
             </label>
 
             <span className="text-steel font-medium">
-              Đã chọn: <strong className="text-primary font-bold">{selectedItemIds.length}</strong>/{items.length} mặt hàng
+              Đã chọn: <strong className="text-primary font-bold">{items.filter(i => selectedItemIds.includes(i.id) && isCartItemPurchasable(i)).length}</strong>/{items.length} mặt hàng
             </span>
           </div>
 
@@ -529,7 +531,7 @@ export const CartPage: React.FC = () => {
           {/* Checkout Navigation Button: Cobalt Buy CTA */}
           <button
             onClick={handleProceedToCheckout}
-            disabled={selectedItemIds.length === 0}
+            disabled={selectedCount === 0}
             className="btn-buy w-full py-3.5 rounded-full font-bold text-xs tracking-wider uppercase shadow-sticky transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <span>Tiến hành Thanh toán {selectedCount > 0 ? `(${selectedCount})` : ''}</span>

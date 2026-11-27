@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CartItem, mapBackendCartItemToCartItem } from '../types/cart';
+import { CartItem, isCartItemPurchasable, mapBackendCartItemToCartItem } from '../types/cart';
 import { cartService } from '../services/cartService';
 import { useToastStore } from './toastStore';
 
@@ -260,20 +260,27 @@ export const useCartStore = create<CartStore>((set, get) => ({
     }
 
     const oldQty = itemToUpdate.quantity;
-    const newQty = oldQty + delta;
+    // Khi giảm số lượng mà giỏ đang vượt quá tồn kho còn lại (> 0), hạ thẳng về mức tồn kho hợp lệ
+    const newQty =
+      delta < 0 && itemToUpdate.availableQty > 0 && oldQty > itemToUpdate.availableQty
+        ? Math.min(oldQty + delta, itemToUpdate.availableQty)
+        : oldQty + delta;
     if (newQty < 1) return { success: false };
 
-    if (newQty > itemToUpdate.availableQty) {
+    if (delta > 0 && newQty > itemToUpdate.availableQty) {
       return {
         success: false,
-        message: `Kho hiện chỉ còn tối đa ${itemToUpdate.availableQty} sản phẩm cho phiên bản này!`
+        message:
+          itemToUpdate.availableQty <= 0
+            ? 'Sản phẩm này hiện tạm thời hết hàng!'
+            : `Kho hiện chỉ còn tối đa ${itemToUpdate.availableQty} sản phẩm cho phiên bản này!`
       };
     }
 
     // 1. Phản hồi tức thì 0ms trên giao diện (Optimistic UI)
     const updated = get().items.map((item) => {
       if (item.id === id) {
-        return { ...item, quantity: newQty };
+        return { ...item, quantity: newQty, inStock: item.availableQty > 0 && newQty <= item.availableQty };
       }
       return item;
     });
@@ -367,12 +374,16 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   getSelectedCount: () => {
     const { items, selectedItemIds } = get();
-    return items.filter((i) => selectedItemIds.includes(i.id)).reduce((sum, item) => sum + item.quantity, 0);
+    return items
+      .filter((i) => selectedItemIds.includes(i.id) && isCartItemPurchasable(i))
+      .reduce((sum, item) => sum + item.quantity, 0);
   },
 
   getSelectedTotalAmount: () => {
     const { items, selectedItemIds } = get();
-    return items.filter((i) => selectedItemIds.includes(i.id)).reduce((sum, item) => sum + item.price * item.quantity, 0);
+    return items
+      .filter((i) => selectedItemIds.includes(i.id) && isCartItemPurchasable(i))
+      .reduce((sum, item) => sum + item.price * item.quantity, 0);
   },
 
   // Buy Now direct checkout logic
