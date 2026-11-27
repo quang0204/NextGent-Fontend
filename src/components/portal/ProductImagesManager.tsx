@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Image, Plus, Trash2, ArrowUp, ArrowDown, Star, Upload, Loader2, AlertCircle, UploadCloud } from 'lucide-react';
+import { Image, Trash2, ArrowUp, ArrowDown, Star, Loader2, AlertCircle, UploadCloud } from 'lucide-react';
 import { productService } from '../../services/productService';
 
 interface ProductImagesManagerProps {
@@ -17,11 +17,10 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
   onChangeThumbnail,
   productId,
 }) => {
-  const [newImageUrl, setNewImageUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Upload file (File hoặc Blob) trực tiếp lên MinIO thông qua Presigned URL
+  // Upload file trực tiếp lên MinIO thông qua Presigned URL
   const uploadToMinio = async (file: File | Blob, rawFileName: string): Promise<string> => {
     const ext = rawFileName.split('.').pop() || 'png';
     const contentType = file.type || 'image/png';
@@ -92,56 +91,6 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
     }
   };
 
-  const handleAddImage = async () => {
-    const rawUrl = newImageUrl.trim();
-    if (!rawUrl) return;
-
-    if (rawUrl.toLowerCase().startsWith('data:')) {
-      alert('Hệ thống không chấp nhận chuỗi base64 (data URI). Vui lòng dùng nút "Tải từ máy" để tải file ảnh lên MinIO!');
-      return;
-    }
-
-    if (gallery.includes(rawUrl)) {
-      alert('Ảnh này đã có trong danh mục ảnh sản phẩm!');
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError(null);
-
-    // Thử fetch ảnh từ URL để đẩy trực tiếp vào MinIO
-    try {
-      const response = await fetch(rawUrl, { mode: 'cors' });
-      if (response.ok) {
-        const blob = await response.blob();
-        if (blob.type.startsWith('image/')) {
-          const fileName = rawUrl.split('/').pop()?.split('?')[0] || `url-image-${Date.now()}.png`;
-          const minioUrl = await uploadToMinio(blob, fileName);
-          const updated = [...gallery, minioUrl];
-          onChangeGallery(updated);
-          if (!thumbnail) {
-            onChangeThumbnail(minioUrl);
-          }
-          setNewImageUrl('');
-          return;
-        }
-      }
-    } catch {
-      // Nếu bị giới hạn bởi CORS của domain nguồn, fallback giữ nguyên URL nhưng lưu ý
-      console.warn('Không thể fetch blob qua CORS từ domain nguồn, sử dụng URL gốc.');
-    } finally {
-      setIsUploading(false);
-    }
-
-    // Fallback: thêm trực tiếp URL nếu là liên kết ngoại lệ hợp lệ
-    const updated = [...gallery, rawUrl];
-    onChangeGallery(updated);
-    if (!thumbnail) {
-      onChangeThumbnail(rawUrl);
-    }
-    setNewImageUrl('');
-  };
-
   const handleRemoveImage = (index: number) => {
     const removedUrl = gallery[index];
     const updated = gallery.filter((_, idx) => idx !== index);
@@ -183,49 +132,28 @@ export const ProductImagesManager: React.FC<ProductImagesManagerProps> = ({
         <span className="text-[11px] text-steel">Tổng: {gallery.length} ảnh</span>
       </div>
 
-      {/* Add New Image Input */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input
-          type="url"
-          placeholder="Dán đường dẫn ảnh (URL) mới (VD: https://cdn...jpg)..."
-          value={newImageUrl}
-          onChange={(e) => setNewImageUrl(e.target.value)}
-          disabled={isUploading}
-          className="flex-1 h-9 px-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
-        />
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleAddImage}
-            disabled={isUploading || !newImageUrl.trim()}
-            className="btn-marketing px-3.5 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1 disabled:opacity-50"
-          >
-            {isUploading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Plus size={14} />
-            )}
-            <span>Thêm URL</span>
-          </button>
-
-          <label className={`px-3.5 py-1.5 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs ${
-            isUploading ? 'opacity-50 pointer-events-none' : ''
-          }`}>
-            {isUploading ? (
-              <Loader2 size={14} className="animate-spin text-primary" />
-            ) : (
-              <UploadCloud size={14} className="text-primary" />
-            )}
-            <span>{isUploading ? 'Đang tải MinIO...' : 'Tải từ máy lên MinIO'}</span>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-              onChange={handleFileUpload}
-              disabled={isUploading}
-              className="hidden"
-            />
-          </label>
-        </div>
+      {/* Upload Image from Local Machine */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] text-steel">
+          Chọn tệp hình ảnh từ máy tính để tải trực tiếp lên MinIO (PNG, JPG, WEBP, GIF, SVG - tối đa 10MB).
+        </span>
+        <label className={`px-3.5 py-2 bg-canvas hover:bg-surface-soft border border-hairline rounded-lg text-ink font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition shadow-xs ${
+          isUploading ? 'opacity-50 pointer-events-none' : ''
+        }`}>
+          {isUploading ? (
+            <Loader2 size={14} className="animate-spin text-primary" />
+          ) : (
+            <UploadCloud size={14} className="text-primary" />
+          )}
+          <span>{isUploading ? 'Đang tải MinIO...' : 'Tải từ máy lên MinIO'}</span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+            onChange={handleFileUpload}
+            disabled={isUploading}
+            className="hidden"
+          />
+        </label>
       </div>
 
       {uploadError && (

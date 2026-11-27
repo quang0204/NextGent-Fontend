@@ -796,18 +796,6 @@ export const PortalBrandsView: React.FC = () => {
                     </button>
                   </div>
                 )}
-
-                {/* Nhập URL thủ công (fallback) */}
-                <details className="mt-2 text-[11px] text-slate-500">
-                  <summary className="cursor-pointer hover:text-slate-700">Tùy chọn: Nhập liên kết URL bên ngoài</summary>
-                  <input
-                    type="url"
-                    placeholder="https://..."
-                    value={logoUrl}
-                    onChange={(e) => setLogoUrl(e.target.value)}
-                    className="w-full mt-1.5 h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-[11px] focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  />
-                </details>
               </div>
 
               <div>

@@ -776,7 +776,7 @@ export const productService = {
       categoryName: local.categoryName,
       brandId: local.brandId || 1,
       brandName: local.brandName,
-      description: local.warrantyPolicy || '',
+      description: local.description || '',
       warrantyPolicy: local.warrantyPolicy || '',
       status: local.status || 'ACTIVE',
       effectiveVariantSchema: local.variantSchema,
@@ -915,8 +915,17 @@ export const productService = {
    * API 4.9: PATCH /api/v1/admin/products/{id}/status
    * Bật/Tắt trạng thái kinh doanh của sản phẩm
    */
-  async updateProductStatus(id: number, status: 'ACTIVE' | 'INACTIVE', reason?: string): Promise<any> {
-    const res = await apiClient.patch<any>(`/admin/products/${id}/status`, { status, reason });
+  async updateProductStatus(
+    id: number,
+    status: 'ACTIVE' | 'INACTIVE',
+    reason?: string,
+    reactivateAllVariants?: boolean
+  ): Promise<any> {
+    const res = await apiClient.patch<any>(`/admin/products/${id}/status`, {
+      status,
+      reason,
+      ...(reactivateAllVariants !== undefined ? { reactivateAllVariants } : {}),
+    });
     sharedStore.updateProductStatus(id, status);
     return res.data?.data ?? res.data ?? null;
   },

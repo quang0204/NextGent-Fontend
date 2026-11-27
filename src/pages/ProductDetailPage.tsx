@@ -533,7 +533,10 @@ export const ProductDetailPage: React.FC = () => {
           <div className="mt-6 p-4 bg-surface-soft rounded-xl border border-hairline-soft text-xs space-y-2.5 text-charcoal">
             <div className="flex items-start gap-2.5">
               <ShieldCheck size={16} className="text-primary flex-shrink-0 mt-0.5" />
-              <span>{product.warrantyPolicy}</span>
+              <div>
+                <span className="font-bold text-ink-deep block">Chính sách bảo hành:</span>
+                <span>{product.warrantyPolicy || 'Bảo hành 12 tháng chính hãng'}</span>
+              </div>
             </div>
             <div className="flex items-start gap-2.5">
               <RotateCcw size={16} className="text-primary flex-shrink-0 mt-0.5" />
@@ -680,6 +683,20 @@ export const ProductDetailPage: React.FC = () => {
                 ? 'TẠM HẾT HÀNG'
                 : 'MUA NGAY'}
             </button>
+          </div>
+
+          {/* Mô tả sản phẩm */}
+          <div className="bg-canvas border border-hairline-soft rounded-xl p-5">
+            <h4 className="font-bold text-xs text-ink-deep uppercase tracking-wider mb-2.5">Mô tả sản phẩm:</h4>
+            {product.description && product.description.trim() ? (
+              <p className="text-xs text-charcoal leading-relaxed whitespace-pre-line">
+                {product.description}
+              </p>
+            ) : (
+              <p className="text-xs text-steel italic">
+                Chưa có mô tả chi tiết cho sản phẩm này.
+              </p>
+            )}
           </div>
 
           {/* Highlights */}

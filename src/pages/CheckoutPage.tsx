@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link, Navigate } from 'react-router-dom';
-import { useCartStore } from '../stores/cartStore';
+import { useCartStore, isCartItemOutOfStock } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { orderService } from '../services/orderService';
@@ -279,6 +279,16 @@ export const CheckoutPage: React.FC = () => {
     }
     if (checkoutItems.length === 0) {
       setErrorMsg('Không có sản phẩm nào để thanh toán.');
+      return;
+    }
+    const unavailableItem = checkoutItems.find(i => i.isAvailable === false);
+    if (unavailableItem) {
+      setErrorMsg(`Sản phẩm "${unavailableItem.productName}" hiện đã ngừng kinh doanh hoặc tạm ẩn, không thể đặt hàng.`);
+      return;
+    }
+    const outOfStockItem = checkoutItems.find(i => isCartItemOutOfStock(i));
+    if (outOfStockItem) {
+      setErrorMsg(`Sản phẩm "${outOfStockItem.productName}" hiện đã hết hàng, không thể đặt hàng.`);
       return;
     }
 

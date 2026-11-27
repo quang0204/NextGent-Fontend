@@ -71,6 +71,45 @@ const createEmptyDraftVariant = (): DraftVariant => ({
   isActive: true,
 });
 
+const PAUSED_VARIANTS_STORAGE_KEY = 'ng_individually_paused_variants_v1';
+
+const readPausedVariantsMap = (): Record<string, number[]> => {
+  try {
+    const raw = localStorage.getItem(PAUSED_VARIANTS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const getSavedPausedVariantIds = (productId: number): number[] => {
+  const map = readPausedVariantsMap();
+  const list = map[String(productId)];
+  return Array.isArray(list) ? list.map(Number) : [];
+};
+
+const savePausedVariantIds = (productId: number, variantIds: number[]): void => {
+  try {
+    const map = readPausedVariantsMap();
+    if (variantIds.length > 0) {
+      map[String(productId)] = Array.from(new Set(variantIds.map(Number)));
+    } else {
+      delete map[String(productId)];
+    }
+    localStorage.setItem(PAUSED_VARIANTS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const markVariantIndividuallyPaused = (productId: number, variantId: number, isPaused: boolean): void => {
+  const current = getSavedPausedVariantIds(productId);
+  const next = isPaused
+    ? Array.from(new Set([...current, Number(variantId)]))
+    : current.filter(id => id !== Number(variantId));
+  savePausedVariantIds(productId, next);
+};
+
 export const PortalProductsView: React.FC = () => {
   const { showToast } = useToastStore();
   const [products, setProducts] = useState<Product[]>(sharedStore.getProducts());
@@ -84,6 +123,7 @@ export const PortalProductsView: React.FC = () => {
   const [newProdName, setNewProdName] = useState('');
   const [newBrand, setNewBrand] = useState('');
   const [newCategory, setNewCategory] = useState('');
+  const [newDescription, setNewDescription] = useState('');
   const [newWarranty, setNewWarranty] = useState('');
   const [newThumbnail, setNewThumbnail] = useState('');
 
@@ -121,10 +161,14 @@ export const PortalProductsView: React.FC = () => {
     updated[idx] = {...updated[idx], [field]: val };
     setDraftVariants(updated);
     const errKey = `${String(field)}-${idx}`;
-    if (addFormErrors[errKey]) {
+    if (addFormErrors[errKey] || ((field === 'listPrice' || field === 'salePrice') && (addFormErrors[`listPrice-${idx}`] || addFormErrors[`salePrice-${idx}`]))) {
       setAddFormErrors(prev => {
         const next = { ...prev };
         delete next[errKey];
+        if (field === 'listPrice' || field === 'salePrice') {
+          delete next[`listPrice-${idx}`];
+          delete next[`salePrice-${idx}`];
+        }
         return next;
       });
     }
@@ -146,6 +190,7 @@ export const PortalProductsView: React.FC = () => {
   const [editProdThumbnail, setEditProdThumbnail] = useState('');
   const [editProdGallery, setEditProdGallery] = useState<string[]>([]);
   const [editProdDescription, setEditProdDescription] = useState('');
+  const [editProdWarrantyPolicy, setEditProdWarrantyPolicy] = useState('');
   const [editProdStatus, setEditProdStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [editProdSpecGroups, setEditProdSpecGroups] = useState<ProductSpecGroup[]>([]);
   const [editProdVariants, setEditProdVariants] = useState<any[]>([]);
@@ -153,9 +198,18 @@ export const PortalProductsView: React.FC = () => {
   const [savingVariantId, setSavingVariantId] = useState<number | null>(null);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
+  // Modal xác nhận mở bán lại sản phẩm (giữ nguyên trạng thái biến thể đã tắt riêng)
+  const [reactivatingModal, setReactivatingModal] = useState<{
+    product: Product;
+    variantStates: Record<number, boolean>;
+    prePausedIds: number[];
+  } | null>(null);
+  const [isReactivatingProduct, setIsReactivatingProduct] = useState(false);
+
   // Thêm biến thể mới trong Modal sửa sản phẩm
   const [showAddVariantInEdit, setShowAddVariantInEdit] = useState(false);
   const [newVarDraftInEdit, setNewVarDraftInEdit] = useState<DraftVariant>(() => createEmptyDraftVariant());
+  const [addVarInEditError, setAddVarInEditError] = useState('');
   const [isAddingVariantInEdit, setIsAddingVariantInEdit] = useState(false);
 
   // Modal Điều chỉnh tồn kho (Stock Adjustment)
@@ -285,6 +339,7 @@ export const PortalProductsView: React.FC = () => {
     setNewProdName('');
     setNewBrand(brands[0]?.name || '');
     setNewCategory(defaultCat?.name || '');
+    setNewDescription('');
     setNewWarranty('');
     setNewThumbnail('');
     setNewGallery([]);
@@ -354,6 +409,15 @@ export const PortalProductsView: React.FC = () => {
         return;
       }
 
+      if (Number(v.salePrice) > Number(v.listPrice)) {
+        const msg = `Biến thể #${idx + 1}: Giá bán không được lớn hơn giá niêm yết!`;
+        errors[`salePrice-${idx}`] = 'Giá bán không được > giá niêm yết';
+        setAddFormErrors(errors);
+        showToast(msg, 'error');
+        focusAddField(addVariantFieldRefs.current[`salePrice-${idx}`]);
+        return;
+      }
+
       if (!Number.isFinite(v.initialStock) || Number(v.initialStock) <= 0) {
         const msg = `Biến thể #${idx + 1}: Số lượng tồn ban đầu phải lớn hơn 0!`;
         errors[`initialStock-${idx}`] = 'Tồn ban đầu phải > 0';
@@ -397,6 +461,7 @@ export const PortalProductsView: React.FC = () => {
       name: newProdName.trim(),
       brandName: newBrand,
       categoryName: newCategory,
+      description: newDescription.trim(),
       isInstallment0: true,
       warrantyPolicy: newWarranty.trim(),
       thumbnail: newThumbnail.trim(),
@@ -437,7 +502,7 @@ export const PortalProductsView: React.FC = () => {
         categoryId: matchedCategory ? matchedCategory.id : 1,
         brandId: matchedBrand ? matchedBrand.brandId : 1,
         name: newProdName.trim(),
-        description: newWarranty.trim(),
+        description: newDescription.trim(),
         warrantyPolicy: newWarranty.trim(),
         status: 'ACTIVE',
         images: allCleanImages.map((img, idx) => ({
@@ -481,6 +546,7 @@ export const PortalProductsView: React.FC = () => {
       setProducts(liveProds && liveProds.length > 0 ? liveProds : [...sharedStore.getProducts()]);
       setShowAddModal(false);
       setNewProdName('');
+      setNewDescription('');
       setNewWarranty('');
       setNewThumbnail('');
       setNewGallery([]);
@@ -494,30 +560,115 @@ export const PortalProductsView: React.FC = () => {
     }
   };
 
-  // Bật / Tắt trạng thái kinh doanh của sản phẩm (đồng bộ tới toàn bộ biến thể)
+  // Bật / Tắt trạng thái kinh doanh của sản phẩm (giữ nguyên trạng thái tắt riêng của từng biến thể)
   const handleToggleProductStatus = async (p: Product) => {
     const isCurrentlyActive = p.status !== 'INACTIVE';
-    const nextStatus = isCurrentlyActive ? 'INACTIVE' : 'ACTIVE';
-    const actionText = isCurrentlyActive ? 'ngừng kinh doanh' : 'mở bán lại';
-    if (!confirm(`Bạn có chắc chắn muốn ${actionText} sản phẩm "${p.name}"? ${isCurrentlyActive ? 'Toàn bộ biến thể SKU cũng sẽ tạm ngừng bán.' : 'Toàn bộ biến thể SKU sẽ được mở bán lại.'}`)) {
+
+    if (isCurrentlyActive) {
+      if (!confirm(`Bạn có chắc chắn muốn ngừng kinh doanh sản phẩm "${p.name}"? Các biến thể SKU đang mở bán sẽ tạm ngừng bán (trạng thái tắt riêng của các SKU đã tạm dừng trước đó vẫn được ghi nhớ).`)) {
+        return;
+      }
+      const alreadyPausedIds = Array.isArray(p.variants)
+        ? p.variants.filter(v => v.isActive === false).map(v => Number(v.variantId))
+        : [];
+      savePausedVariantIds(p.productId, alreadyPausedIds);
+
+      try {
+        await productService.updateProductStatus(p.productId, 'INACTIVE', 'Quản trị viên chuyển trạng thái sang INACTIVE');
+
+        const updatedVariants = Array.isArray(p.variants)
+          ? p.variants.map(v => ({ ...v }))
+          : [];
+        sharedStore.updateProduct(p.productId, {
+          status: 'INACTIVE',
+          variants: updatedVariants
+        });
+        setProducts([...sharedStore.getProducts()]);
+
+        const prods = await productService.getAdminProducts().catch(() => []);
+        if (prods && prods.length > 0) setProducts(prods);
+      } catch (err: any) {
+        showToast(err?.response?.data?.message || err?.message || 'Không thể đổi trạng thái sản phẩm.', 'error');
+      }
       return;
     }
-    try {
-      await productService.updateProductStatus(p.productId, nextStatus, `Quản trị viên chuyển trạng thái sang ${nextStatus}`);
 
-      const updatedVariants = Array.isArray(p.variants)
-        ? p.variants.map(v => ({ ...v, isActive: nextStatus === 'ACTIVE' }))
-        : [];
+    // Chuyển từ INACTIVE -> ACTIVE: Mở modal xác nhận rõ trạng thái từng biến thể
+    const variants = Array.isArray(p.variants) ? p.variants : [];
+    const savedPausedIds = getSavedPausedVariantIds(p.productId);
+    const hasSomeActiveLocal = variants.some(v => v.isActive !== false);
+    const initialStates: Record<number, boolean> = {};
+    const detectedPrePausedIds: number[] = [];
+
+    for (const v of variants) {
+      const vid = Number(v.variantId);
+      const wasIndividuallyPaused =
+        savedPausedIds.includes(vid) || (hasSomeActiveLocal && v.isActive === false);
+      if (wasIndividuallyPaused) {
+        detectedPrePausedIds.push(vid);
+      }
+      initialStates[vid] = !wasIndividuallyPaused;
+    }
+
+    setReactivatingModal({
+      product: p,
+      variantStates: initialStates,
+      prePausedIds: detectedPrePausedIds,
+    });
+  };
+
+  const handleConfirmReactivateProduct = async (enableAllVariants: boolean) => {
+    if (!reactivatingModal) return;
+    const { product: p, variantStates } = reactivatingModal;
+    setIsReactivatingProduct(true);
+
+    try {
+      await productService.updateProductStatus(
+        p.productId,
+        'ACTIVE',
+        'Quản trị viên chuyển trạng thái sang ACTIVE',
+        enableAllVariants
+      );
+
+      const variants = Array.isArray(p.variants) ? p.variants : [];
+      const keptPausedIds: number[] = [];
+      const updatedVariants = [];
+
+      for (const v of variants) {
+        const vid = Number(v.variantId);
+        const shouldBeActive = enableAllVariants ? true : (variantStates[vid] !== false);
+        if (!shouldBeActive) {
+          keptPausedIds.push(vid);
+          if (v.isActive !== false) {
+            await productService.updateAdminVariant(vid, { isActive: false }).catch(() => {});
+          }
+        } else if (!enableAllVariants && v.isActive === false) {
+          await productService.updateAdminVariant(vid, { isActive: true }).catch(() => {});
+        }
+        updatedVariants.push({ ...v, isActive: shouldBeActive });
+      }
+
+      savePausedVariantIds(p.productId, keptPausedIds);
       sharedStore.updateProduct(p.productId, {
-        status: nextStatus,
-        variants: updatedVariants
+        status: 'ACTIVE',
+        variants: updatedVariants,
       });
       setProducts([...sharedStore.getProducts()]);
 
       const prods = await productService.getAdminProducts().catch(() => []);
       if (prods && prods.length > 0) setProducts(prods);
+
+      setReactivatingModal(null);
+      showToast(
+        keptPausedIds.length > 0
+          ? `Đã mở bán lại "${p.name}" và giữ nguyên ${keptPausedIds.length} biến thể tạm dừng!`
+          : `Đã mở bán lại "${p.name}" thành công!`,
+        'success'
+      );
     } catch (err: any) {
-      showToast(err?.response?.data?.message || err?.message || 'Không thể đổi trạng thái sản phẩm.', 'error');
+      showToast(err?.response?.data?.message || err?.message || 'Không thể mở bán lại sản phẩm.', 'error');
+    } finally {
+      setIsReactivatingProduct(false);
     }
   };
 
@@ -530,7 +681,8 @@ export const PortalProductsView: React.FC = () => {
     setEditProdBrand(p.brandName || '');
     setEditProdThumbnail(p.thumbnail || '');
     setEditProdGallery(Array.isArray(p.gallery) && p.gallery.length > 0 ? [...p.gallery] : [p.thumbnail || '']);
-    setEditProdDescription(p.warrantyPolicy || '');
+    setEditProdDescription(p.description || '');
+    setEditProdWarrantyPolicy(p.warrantyPolicy || '');
     setEditProdStatus(p.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
     setEditProdSpecGroups(p.specGroups || []);
     setEditProdVariants(p.variants || []);
@@ -547,7 +699,8 @@ export const PortalProductsView: React.FC = () => {
         if (detail.images && detail.images.length > 0) {
           setEditProdGallery(detail.images.map(img => img.imageUrl));
         }
-        setEditProdDescription(detail.warrantyPolicy || detail.description || p.warrantyPolicy || '');
+        setEditProdDescription(detail.description ?? p.description ?? '');
+        setEditProdWarrantyPolicy(detail.warrantyPolicy ?? p.warrantyPolicy ?? '');
         setEditProdStatus((detail.status as any) || p.status || 'ACTIVE');
 
         if (detail.effectiveVariantSchema && Array.isArray(detail.effectiveVariantSchema) && detail.effectiveVariantSchema.length > 0) {
@@ -671,6 +824,10 @@ export const PortalProductsView: React.FC = () => {
       showToast(`Biến thể [${sku}]: Giá bán hiện hành phải lớn hơn 0 đồng!`, 'error');
       return;
     }
+    if (salePrice > listPrice) {
+      showToast(`Biến thể [${sku}]: Giá bán hiện hành không được lớn hơn giá niêm yết gốc!`, 'error');
+      return;
+    }
 
     setSavingVariantId(v.variantId);
     try {
@@ -691,6 +848,7 @@ export const PortalProductsView: React.FC = () => {
       };
 
       await productService.updateAdminVariant(v.variantId, payload);
+      markVariantIndividuallyPaused(editingProduct.productId, Number(v.variantId), !payload.isActive);
 
       const updatedVarName = variantSchemaService.buildVariantName(editProdName, v, editVariantSchema);
       handleUpdateEditVariant(varIdx, {
@@ -761,30 +919,48 @@ export const PortalProductsView: React.FC = () => {
       ...createEmptyDraftVariant(),
       imageUrl: editProdThumbnail || editProdGallery[0] || ''
     });
+    setAddVarInEditError('');
     setShowAddVariantInEdit(true);
   };
 
   const handleSaveNewVariantInEdit = async () => {
     if (!editingProduct) return;
+    setAddVarInEditError('');
     const sku = newVarDraftInEdit.sku.trim().toUpperCase();
     if (!sku) {
-      showToast('Vui lòng nhập mã SKU cho biến thể mới!', 'error');
+      const msg = 'Vui lòng nhập mã SKU cho biến thể mới!';
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
       return;
     }
     if (editProdVariants.some(v => (v.sku || '').toUpperCase() === sku)) {
-      showToast(`Mã SKU "${sku}" đã tồn tại trong sản phẩm này!`, 'error');
+      const msg = `Mã SKU "${sku}" đã tồn tại trong sản phẩm này!`;
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
       return;
     }
     if (!Number.isFinite(newVarDraftInEdit.listPrice) || newVarDraftInEdit.listPrice <= 0) {
-      showToast('Giá niêm yết gốc phải lớn hơn 0 đồng!', 'error');
+      const msg = 'Giá niêm yết gốc phải lớn hơn 0 đồng!';
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
       return;
     }
     if (!Number.isFinite(newVarDraftInEdit.salePrice) || newVarDraftInEdit.salePrice <= 0) {
-      showToast('Giá bán hiện hành phải lớn hơn 0 đồng!', 'error');
+      const msg = 'Giá bán hiện hành phải lớn hơn 0 đồng!';
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
+      return;
+    }
+    if (newVarDraftInEdit.salePrice > newVarDraftInEdit.listPrice) {
+      const msg = 'Giá bán hiện hành không được lớn hơn giá niêm yết gốc!';
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
       return;
     }
     if (!Number.isFinite(newVarDraftInEdit.initialStock) || newVarDraftInEdit.initialStock <= 0) {
-      showToast('Số lượng tồn kho ban đầu phải lớn hơn 0!', 'error');
+      const msg = 'Số lượng tồn kho ban đầu phải lớn hơn 0!';
+      setAddVarInEditError(msg);
+      showToast(msg, 'error');
       return;
     }
     const finalSalePrice = newVarDraftInEdit.salePrice;
@@ -866,6 +1042,10 @@ export const PortalProductsView: React.FC = () => {
         showToast(`Biến thể [${v.sku || `#${i + 1}`}]: Giá bán hiện hành phải lớn hơn 0 đồng!`, 'error');
         return;
       }
+      if (sp > lp) {
+        showToast(`Biến thể [${v.sku || `#${i + 1}`}]: Giá bán hiện hành không được lớn hơn giá niêm yết gốc!`, 'error');
+        return;
+      }
     }
 
     setIsSavingProduct(true);
@@ -895,8 +1075,8 @@ export const PortalProductsView: React.FC = () => {
         name: editProdName.trim(),
         categoryId: matchedEditCat?.id,
         brandId: matchedEditBrand?.brandId,
-        description: editProdDescription,
-        warrantyPolicy: editProdDescription,
+        description: editProdDescription.trim(),
+        warrantyPolicy: editProdWarrantyPolicy.trim(),
         images: finalGallery.map((img, idx) => ({
           imageUrl: img,
           isPrimary: trimmedThumb ? img === trimmedThumb : idx === 0,
@@ -907,6 +1087,12 @@ export const PortalProductsView: React.FC = () => {
 
       const statusChanged = (editingProduct.status || 'ACTIVE') !== editProdStatus;
       if (statusChanged) {
+        if (editProdStatus === 'INACTIVE') {
+          const prePausedIds = editProdVariants
+            .filter(v => v && v.isActive === false)
+            .map(v => Number(v.variantId));
+          savePausedVariantIds(editingProduct.productId, prePausedIds);
+        }
         await productService.updateProductStatus(editingProduct.productId, editProdStatus, `Admin đổi trạng thái sản phẩm sang ${editProdStatus}`);
       }
 
@@ -954,15 +1140,27 @@ export const PortalProductsView: React.FC = () => {
         }
       }
 
+      if (editProdStatus === 'ACTIVE') {
+        const pausedIds = editProdVariants
+          .filter(v => v && v.isActive === false)
+          .map(v => Number(v.variantId));
+        savePausedVariantIds(editingProduct.productId, pausedIds);
+      }
+
       sharedStore.updateProduct(editingProduct.productId, {
         name: editProdName.trim(),
         categoryName: editProdCategory,
         brandName: editProdBrand,
         thumbnail: trimmedThumb || finalGallery[0] || '',
         gallery: finalGallery,
-        warrantyPolicy: editProdDescription,
+        description: editProdDescription.trim(),
+        warrantyPolicy: editProdWarrantyPolicy.trim(),
         status: editProdStatus,
-        specGroups: editProdSpecGroups
+        specGroups: editProdSpecGroups,
+        variants: (editingProduct.variants || []).map(orig => {
+          const edited = editProdVariants.find(ev => Number(ev.variantId) === Number(orig.variantId));
+          return edited ? { ...orig, ...edited, isActive: edited.isActive !== false } : orig;
+        }),
       });
 
       sharedStore.addAuditLog({
@@ -1045,6 +1243,10 @@ export const PortalProductsView: React.FC = () => {
       showToast('Giá bán biến thể phải lớn hơn 0 đồng!', 'error');
       return;
     }
+    if (editSalePrice > editListPrice) {
+      showToast('Giá bán biến thể không được lớn hơn giá niêm yết gốc!', 'error');
+      return;
+    }
 
     const currentProd = products.find(p => p.productId === editingVariant.prodId);
     const finalImage = editVariantImage.trim() || editingVariant.variant.imageUrl || currentProd?.thumbnail || '';
@@ -1090,6 +1292,7 @@ export const PortalProductsView: React.FC = () => {
         attributes: editVariantAttributes,
         imageUrl: finalImage
       });
+      markVariantIndividuallyPaused(editingVariant.prodId, Number(editingVariant.variant.variantId), !editVariantActive);
     } catch (err: any) {
       const msg = err.response?.data?.message || err.message || 'Lỗi khi cập nhật biến thể lên máy chủ';
       console.warn('[PortalProductsView] updateAdminVariant error', err);
@@ -1498,6 +1701,17 @@ export const PortalProductsView: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                <div>
+                  <label className="block font-medium text-charcoal mb-1">Mô tả sản phẩm:</label>
+                  <textarea
+                    rows={3}
+                    placeholder="Mô tả chi tiết thiết kế, hiệu năng, camera, pin và điểm nổi bật của sản phẩm..."
+                    value={newDescription}
+                    onChange={(e) => setNewDescription(e.target.value)}
+                    className="w-full p-3 bg-canvas border border-hairline rounded-lg text-ink text-xs focus:border-2 focus:border-fb-blue focus:outline-none"
+                  />
+                </div>
               </div>
 
               {/* 2. QUẢN LÝ THƯ VIỆN ẢNH (Bảng Product_Images) */}
@@ -1612,26 +1826,34 @@ export const PortalProductsView: React.FC = () => {
 
                         <div>
                           <label className="text-[10px] font-bold text-steel block mb-0.5">Giá bán (sale_price) (*):</label>
-                          <input
-                            ref={(el) => { addVariantFieldRefs.current[`salePrice-${vIdx}`] = el; }}
-                            type="number"
-                            required
-                            min={1}
-                            step={100000}
-                            placeholder="VD: 23500000"
-                            value={v.salePrice > 0 ? v.salePrice : ''}
-                            onChange={(e) => handleUpdateDraftVariant(vIdx, 'salePrice', e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
-                            className={`w-full h-8 px-2 bg-canvas border rounded text-xs font-mono font-bold focus:outline-none ${
-                              addFormErrors[`salePrice-${vIdx}`]
-                                ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700'
-                                : 'border-hairline-soft text-primary'
-                            }`}
-                          />
-                          {addFormErrors[`salePrice-${vIdx}`] && (
-                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">
-                              {addFormErrors[`salePrice-${vIdx}`]}
-                            </p>
-                          )}
+                          {(() => {
+                            const isSaleExceedList = v.listPrice > 0 && v.salePrice > v.listPrice;
+                            const saleErrMsg = addFormErrors[`salePrice-${vIdx}`] || (isSaleExceedList ? 'Giá bán không được > giá niêm yết' : '');
+                            return (
+                              <>
+                                <input
+                                  ref={(el) => { addVariantFieldRefs.current[`salePrice-${vIdx}`] = el; }}
+                                  type="number"
+                                  required
+                                  min={1}
+                                  step={100000}
+                                  placeholder="VD: 23500000"
+                                  value={v.salePrice > 0 ? v.salePrice : ''}
+                                  onChange={(e) => handleUpdateDraftVariant(vIdx, 'salePrice', e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)))}
+                                  className={`w-full h-8 px-2 bg-canvas border rounded text-xs font-mono font-bold focus:outline-none ${
+                                    saleErrMsg
+                                      ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700'
+                                      : 'border-hairline-soft text-primary'
+                                  }`}
+                                />
+                                {saleErrMsg && (
+                                  <p className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                                    {saleErrMsg}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
 
                         <div>
@@ -1802,6 +2024,45 @@ export const PortalProductsView: React.FC = () => {
                     </select>
                   </div>
 
+                  {editingProduct.status === 'INACTIVE' && editProdStatus === 'ACTIVE' && (
+                    <div className="sm:col-span-3 text-[11px] text-blue-800 bg-blue-50 p-2.5 rounded-lg border border-blue-200 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={15} className="shrink-0 text-blue-600" />
+                        <span>
+                          Sản phẩm đang chuyển sang <strong>Đang kinh doanh</strong>. Trạng thái riêng của từng biến thể SKU bên dưới sẽ được giữ nguyên theo thiết lập hiện tại.
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {getSavedPausedVariantIds(editingProduct.productId).length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pausedIds = getSavedPausedVariantIds(editingProduct.productId);
+                              setEditProdVariants(prev =>
+                                prev.map(v => ({
+                                  ...v,
+                                  isActive: !pausedIds.includes(Number(v.variantId)),
+                                }))
+                              );
+                            }}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md text-[10px] transition"
+                          >
+                            Mở bán SKU (giữ SKU đã tắt riêng)
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditProdVariants(prev => prev.map(v => ({ ...v, isActive: true })))
+                          }
+                          className="px-2.5 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 font-bold rounded-md text-[10px] transition"
+                        >
+                          Bật tất cả SKU
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {editProdVariants.length > 0 && (
                     <div className="sm:col-span-3 text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-center gap-2">
                       <AlertCircle size={15} className="shrink-0 text-amber-600" />
@@ -1812,13 +2073,24 @@ export const PortalProductsView: React.FC = () => {
                   )}
 
                   <div className="sm:col-span-3">
-                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Mô tả sản phẩm & Chính sách bảo hành:</label>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Mô tả sản phẩm:</label>
                     <textarea
-                      rows={2}
+                      rows={3}
                       value={editProdDescription}
                       onChange={(e) => setEditProdDescription(e.target.value)}
                       className="w-full p-2.5 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:outline-none focus:border-blue-600"
-                      placeholder="Mô tả tóm tắt tính năng sản phẩm, cam kết chính hãng, thời hạn bảo hành..."
+                      placeholder="Mô tả chi tiết thiết kế, hiệu năng, camera, tính năng nổi bật của sản phẩm..."
+                    />
+                  </div>
+
+                  <div className="sm:col-span-3">
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">Chính sách bảo hành:</label>
+                    <input
+                      type="text"
+                      value={editProdWarrantyPolicy}
+                      onChange={(e) => setEditProdWarrantyPolicy(e.target.value)}
+                      className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-800 text-xs focus:outline-none focus:border-blue-600"
+                      placeholder="VD: Bảo hành 12 tháng chính hãng, 1 đổi 1 trong 30 ngày..."
                     />
                   </div>
                 </div>
@@ -1848,27 +2120,30 @@ export const PortalProductsView: React.FC = () => {
                     </div>
 
                     <div className="flex-1 w-full space-y-2">
-                      <label className="text-[11px] font-bold text-slate-700 block">Đường dẫn ảnh đại diện (Thumbnail):</label>
-                      <input
-                        type="url"
-                        placeholder="Dán URL ảnh đại diện (https://...)..."
-                        value={editProdThumbnail}
-                        onChange={(e) => setEditProdThumbnail(e.target.value)}
-                        className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600 font-mono"
-                      />
+                      <label className="text-[11px] font-bold text-slate-700 block">Ảnh đại diện sản phẩm (Thumbnail):</label>
+                      <p className="text-[11px] text-slate-500">
+                        Tải tệp hình ảnh từ máy tính lên MinIO hoặc chọn ảnh chính ở thư viện bên dưới.
+                      </p>
 
                       <div className="flex items-center gap-2 pt-1">
-                        <label className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition">
-                          <Upload size={13} className="text-blue-600" />
-                          <span>Tải ảnh từ máy</span>
+                        <label className={`px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition ${
+                          isUploadingThumbnail ? 'opacity-50 pointer-events-none' : ''
+                        }`}>
+                          {isUploadingThumbnail ? (
+                            <Loader2 size={13} className="animate-spin text-blue-600" />
+                          ) : (
+                            <Upload size={13} className="text-blue-600" />
+                          )}
+                          <span>{isUploadingThumbnail ? 'Đang tải MinIO...' : 'Tải ảnh từ máy'}</span>
                           <input
                             type="file"
-                            accept="image/*"
+                            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
                             onChange={handleProductThumbnailUpload}
+                            disabled={isUploadingThumbnail}
                             className="hidden"
                           />
                         </label>
-                        <span className="text-[10px] text-slate-400 italic">Hỗ trợ PNG, JPG, WEBP</span>
+                        <span className="text-[10px] text-slate-400 italic">Hỗ trợ PNG, JPG, WEBP, GIF, SVG</span>
                       </div>
                     </div>
                   </div>
@@ -2004,19 +2279,32 @@ export const PortalProductsView: React.FC = () => {
 
                             <div>
                               <label className="text-[10px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
-                              <input
-                                type="number"
-                                min={1}
-                                step={10000}
-                                value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : ''}
-                                onChange={(e) => handleUpdateEditVariant(varIdx, { salePrice: e.target.value === '' ? '' : Number(e.target.value) })}
-                                className={`w-full h-8 px-2.5 bg-white border rounded text-xs font-mono font-bold focus:outline-none ${
-                                  Number(v.salePrice || 0) <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 text-emerald-700 focus:border-blue-600'
-                                }`}
-                              />
-                              {Number(v.salePrice || 0) <= 0 && (
-                                <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
-                              )}
+                              {(() => {
+                                const lp = Number(v.listPrice || 0);
+                                const sp = Number(v.salePrice || 0);
+                                const isInvalidZero = sp <= 0;
+                                const isExceedList = lp > 0 && sp > lp;
+                                const hasErr = isInvalidZero || isExceedList;
+                                return (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      step={10000}
+                                      value={v.salePrice !== undefined && v.salePrice !== null ? v.salePrice : ''}
+                                      onChange={(e) => handleUpdateEditVariant(varIdx, { salePrice: e.target.value === '' ? '' : Number(e.target.value) })}
+                                      className={`w-full h-8 px-2.5 bg-white border rounded text-xs font-mono font-bold focus:outline-none ${
+                                        hasErr ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700' : 'border-slate-300 text-emerald-700 focus:border-blue-600'
+                                      }`}
+                                    />
+                                    {isInvalidZero ? (
+                                      <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
+                                    ) : isExceedList ? (
+                                      <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán không được lớn hơn giá niêm yết</p>
+                                    ) : null}
+                                  </>
+                                );
+                              })()}
                             </div>
 
                             <div>
@@ -2240,13 +2528,9 @@ export const PortalProductsView: React.FC = () => {
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    <input
-                      type="url"
-                      placeholder="Dán liên kết ảnh URL cho biến thể này..."
-                      value={newVarDraftInEdit.imageUrl || ''}
-                      onChange={(e) => setNewVarDraftInEdit(prev => ({ ...prev, imageUrl: e.target.value }))}
-                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600"
-                    />
+                    <p className="text-[11px] text-slate-500">
+                      Tải ảnh từ máy tính lên MinIO hoặc chọn từ thư viện ảnh sản phẩm.
+                    </p>
 
                     <div className="flex items-center gap-2">
                       <label className={`px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-semibold text-[11px] flex items-center gap-1 cursor-pointer transition shadow-2xs ${
@@ -2323,6 +2607,13 @@ export const PortalProductsView: React.FC = () => {
                 )}
               </div>
 
+              {addVarInEditError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl flex items-center gap-2 text-xs font-semibold">
+                  <AlertCircle size={14} className="shrink-0 text-rose-600" />
+                  <span>{addVarInEditError}</span>
+                </div>
+              )}
+
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá niêm yết gốc (VNĐ) *:</label>
@@ -2332,21 +2623,39 @@ export const PortalProductsView: React.FC = () => {
                     step={10000}
                     placeholder="VD: 25000000"
                     value={newVarDraftInEdit.listPrice > 0 ? newVarDraftInEdit.listPrice : ''}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
+                    onChange={(e) => {
+                      setAddVarInEditError('');
+                      setNewVarDraftInEdit({ ...newVarDraftInEdit, listPrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) });
+                    }}
                     className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
                   />
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
-                  <input
-                    type="number"
-                    min={1}
-                    step={10000}
-                    placeholder="VD: 23500000"
-                    value={newVarDraftInEdit.salePrice > 0 ? newVarDraftInEdit.salePrice : ''}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
-                    className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
-                  />
+                  {(() => {
+                    const isExceedList = newVarDraftInEdit.listPrice > 0 && newVarDraftInEdit.salePrice > newVarDraftInEdit.listPrice;
+                    return (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          step={10000}
+                          placeholder="VD: 23500000"
+                          value={newVarDraftInEdit.salePrice > 0 ? newVarDraftInEdit.salePrice : ''}
+                          onChange={(e) => {
+                            setAddVarInEditError('');
+                            setNewVarDraftInEdit({ ...newVarDraftInEdit, salePrice: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) });
+                          }}
+                          className={`w-full h-9 px-3 bg-white border rounded-lg font-mono font-bold text-xs focus:outline-none ${
+                            isExceedList ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700' : 'border-slate-300 text-slate-900 focus:border-blue-600'
+                          }`}
+                        />
+                        {isExceedList && (
+                          <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán không được &gt; giá niêm yết</p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div>
                   <label className="text-[11px] font-bold text-slate-700 block mb-1">Tồn kho ban đầu *:</label>
@@ -2355,7 +2664,10 @@ export const PortalProductsView: React.FC = () => {
                     min={1}
                     placeholder="VD: 10"
                     value={newVarDraftInEdit.initialStock > 0 ? newVarDraftInEdit.initialStock : ''}
-                    onChange={(e) => setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })}
+                    onChange={(e) => {
+                      setAddVarInEditError('');
+                      setNewVarDraftInEdit({ ...newVarDraftInEdit, initialStock: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) });
+                    }}
                     className="w-full h-9 px-3 bg-white border border-slate-300 rounded-lg text-slate-900 font-mono font-bold text-xs focus:outline-none focus:border-blue-600"
                   />
                 </div>
@@ -2468,22 +2780,25 @@ export const PortalProductsView: React.FC = () => {
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    <input
-                      type="url"
-                      placeholder="Dán URL ảnh cho biến thể này..."
-                      value={editVariantImage}
-                      onChange={(e) => setEditVariantImage(e.target.value)}
-                      className="w-full h-8 px-2.5 bg-white border border-slate-300 rounded-lg text-slate-900 text-xs focus:outline-none focus:border-blue-600 font-mono"
-                    />
+                    <p className="text-[11px] text-slate-500">
+                      Tải ảnh từ máy tính lên MinIO hoặc chọn nhanh từ thư viện ảnh sản phẩm bên dưới.
+                    </p>
 
                     <div className="flex items-center gap-2">
-                      <label className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs transition">
-                        <Upload size={12} className="text-indigo-600" />
-                        <span>Tải từ máy</span>
+                      <label className={`px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-slate-700 font-bold text-[11px] flex items-center gap-1 cursor-pointer shadow-xs transition ${
+                        isUploadingVariantImage ? 'opacity-50 pointer-events-none' : ''
+                      }`}>
+                        {isUploadingVariantImage ? (
+                          <Loader2 size={12} className="animate-spin text-indigo-600" />
+                        ) : (
+                          <Upload size={12} className="text-indigo-600" />
+                        )}
+                        <span>{isUploadingVariantImage ? 'Đang tải MinIO...' : 'Tải từ máy'}</span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
                           onChange={handleVariantFileUpload}
+                          disabled={isUploadingVariantImage}
                           className="hidden"
                         />
                       </label>
@@ -2564,19 +2879,30 @@ export const PortalProductsView: React.FC = () => {
 
                   <div>
                     <label className="text-[11px] font-bold text-slate-700 block mb-1">Giá bán hiện hành (VNĐ) *:</label>
-                    <input
-                      type="number"
-                      step={50000}
-                      min={1}
-                      value={editSalePrice ? editSalePrice : ''}
-                      onChange={(e) => setEditSalePrice(e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
-                      className={`w-full h-8 px-2.5 bg-white border rounded-lg text-xs font-extrabold font-mono focus:outline-none ${
-                        editSalePrice <= 0 ? 'border-rose-500 text-rose-700' : 'border-slate-300 focus:border-blue-600 text-blue-700'
-                      }`}
-                    />
-                    {editSalePrice <= 0 && (
-                      <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
-                    )}
+                    {(() => {
+                      const isInvalidZero = editSalePrice <= 0;
+                      const isExceedList = editListPrice > 0 && editSalePrice > editListPrice;
+                      const hasErr = isInvalidZero || isExceedList;
+                      return (
+                        <>
+                          <input
+                            type="number"
+                            step={50000}
+                            min={1}
+                            value={editSalePrice ? editSalePrice : ''}
+                            onChange={(e) => setEditSalePrice(e.target.value === '' ? 0 : parseInt(e.target.value, 10))}
+                            className={`w-full h-8 px-2.5 bg-white border rounded-lg text-xs font-extrabold font-mono focus:outline-none ${
+                              hasErr ? 'border-rose-500 ring-2 ring-rose-500/20 text-rose-700' : 'border-slate-300 focus:border-blue-600 text-blue-700'
+                            }`}
+                          />
+                          {isInvalidZero ? (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán phải &gt; 0</p>
+                          ) : isExceedList ? (
+                            <p className="text-[10px] text-rose-600 font-semibold mt-0.5">Giá bán không được lớn hơn giá niêm yết</p>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   <div>
@@ -2660,6 +2986,139 @@ export const PortalProductsView: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* ================= MODAL XÁC NHẬN MỞ BÁN LẠI SẢN PHẨM & BIẾN THỂ ================= */}
+      {reactivatingModal && (
+        <div className="fixed inset-0 z-[75] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 text-xs animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <Eye size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">
+                    Xác nhận mở bán lại sản phẩm
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    {reactivatingModal.product.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isReactivatingProduct}
+                onClick={() => setReactivatingModal(null)}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 space-y-1">
+              <p className="font-bold text-[11px]">
+                Chọn trạng thái mở bán cho từng biến thể SKU con:
+              </p>
+              <p className="text-[11px] leading-relaxed">
+                {reactivatingModal.prePausedIds.length > 0
+                  ? `Phát hiện ${reactivatingModal.prePausedIds.length} biến thể SKU đã được tắt riêng trước đó — hệ thống mặc định giữ nguyên trạng thái "Tạm dừng" cho các SKU này.`
+                  : 'Bạn có thể chọn mở bán tất cả hoặc giữ tạm dừng riêng từng biến thể SKU bên dưới.'}
+              </p>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 border border-slate-200 rounded-xl">
+              {(reactivatingModal.product.variants || []).map(v => {
+                const vid = Number(v.variantId);
+                const checked = reactivatingModal.variantStates[vid] !== false;
+                const wasPrePaused = reactivatingModal.prePausedIds.includes(vid);
+
+                return (
+                  <label
+                    key={vid}
+                    className="flex items-center justify-between gap-3 p-3 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={isReactivatingProduct}
+                        onChange={(e) => {
+                          const nextChecked = e.target.checked;
+                          setReactivatingModal(prev =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  variantStates: {
+                                    ...prev.variantStates,
+                                    [vid]: nextChecked,
+                                  },
+                                }
+                              : null
+                          );
+                        }}
+                        className="w-4 h-4 rounded text-emerald-600 accent-emerald-600"
+                      />
+                      <div className="min-w-0">
+                        <div className="font-mono font-bold text-slate-900 truncate">
+                          {v.sku}
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {v.variantName || v.color}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {wasPrePaused && (
+                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-bold">
+                          Đã tắt riêng trước đó
+                        </span>
+                      )}
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          checked
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-700'
+                        }`}
+                      >
+                        {checked ? 'Đang bán' : 'Tạm dừng'}
+                      </span>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                disabled={isReactivatingProduct}
+                onClick={() => setReactivatingModal(null)}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                disabled={isReactivatingProduct}
+                onClick={() => handleConfirmReactivateProduct(true)}
+                className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-xl text-xs transition"
+              >
+                Mở bán tất cả SKU
+              </button>
+              <button
+                type="button"
+                disabled={isReactivatingProduct}
+                onClick={() => handleConfirmReactivateProduct(false)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold rounded-xl text-xs shadow-xs transition flex items-center gap-1.5"
+              >
+                {isReactivatingProduct && <Loader2 size={13} className="animate-spin" />}
+                <span>Xác nhận mở bán theo lựa chọn</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
