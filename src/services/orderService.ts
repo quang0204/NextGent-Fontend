@@ -469,12 +469,16 @@ export const orderService = {
   /**
    * API 8.9: Xác nhận nhận hàng hoàn kho & Hoàn tất hủy đơn (STAFF / ADMIN)
    */
-  async receiveReturnOrder(orderId: number, note?: string): Promise<{ success: boolean; data?: any; message?: string }> {
+  async receiveReturnOrder(
+    orderId: number,
+    note?: string,
+    condition: 'INTACT' | 'DAMAGED' = 'INTACT'
+  ): Promise<{ success: boolean; data?: any; message?: string }> {
     try {
       const res = await apiClient.post<{ success: boolean; data: any; message?: string }>(
         `/admin/orders/${orderId}/receive-return`,
         null,
-        { params: { note } }
+        { params: { note, condition } }
       );
       return res.data;
     } catch (err: any) {

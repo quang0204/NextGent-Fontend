@@ -532,11 +532,32 @@ export const PortalOrdersView: React.FC = () => {
   const handleConfirmMb04 = async () => {
     if (!mb04Modal) return;
     const isRestock = mb04SealCondition === 'INTACT';
-    const returnId = (mb04Modal as any).returnId;
-    if (!returnId) {
-      alert('Đơn hàng chưa có yêu cầu đổi trả (returnId) trên hệ thống để lập phiếu hoàn kho MB04.');
+    if (mb04Modal.status === 'RETURNING' || !(mb04Modal as any).returnId) {
+      try {
+        const res = await orderService.receiveReturnOrder(mb04Modal.orderId, mb04Reason, mb04SealCondition);
+        if (res && res.success) {
+          setBulkActionFeedback(
+            res.message ||
+              (isRestock
+                ? `✓ Đã lập phiếu MB04 nhập lại tồn khả dụng và chuyển đơn #${mb04Modal.orderCode} sang Đã hủy!`
+                : `✓ Đã lập phiếu MB04 chuyển sang kho kiểm định/thanh lý và chuyển đơn #${mb04Modal.orderCode} sang Đã hủy!`)
+          );
+          setTimeout(() => setBulkActionFeedback(null), 4000);
+          await loadAdminOrders();
+          if (viewDetailModal?.orderId === mb04Modal.orderId) {
+            setViewDetailModal(null);
+          }
+          setMb04Modal(null);
+        } else {
+          alert(res?.message || 'Không thể xử lý nhận hàng hoàn kho MB04.');
+        }
+      } catch (err: any) {
+        alert(err?.response?.data?.message || err?.message || 'Lỗi khi ký duyệt hoàn kho MB04.');
+      }
       return;
     }
+
+    const returnId = (mb04Modal as any).returnId;
     try {
       await returnService.inspectReturn(returnId, {
         status: isRestock ? 'APPROVED' : 'REJECTED',
@@ -558,23 +579,11 @@ export const PortalOrdersView: React.FC = () => {
     }
   };
 
-  // Xác nhận nhận kiện hàng hoàn về kho & Hoàn tất hủy đơn (API 8.9)
-  const handleReceiveReturn = async (order: OrderDetail) => {
-    const confirmMsg = `Xác nhận nhận lại kiện hàng đơn #${order.orderCode} từ bưu tá?\n\nHệ thống sẽ:\n1. Kiểm đếm và hoàn tồn kho vật lý (MB04).\n2. Chuyển trạng thái đơn sang ĐÃ HỦY.\n${order.paymentStatus === 'PAID' ? '3. Ghi nhận CHỜ HOÀN TIỀN cho khách hàng.' : ''}`;
-    if (!window.confirm(confirmMsg)) return;
-
-    try {
-      const res = await orderService.receiveReturnOrder(order.orderId, 'Thủ kho nhận kiện hàng hoàn về và nhập lại kho');
-      if (res && res.success) {
-        setBulkActionFeedback(`✓ ${res.message || `Đã tiếp nhận hàng hoàn kho cho đơn #${order.orderCode}!`}`);
-        setTimeout(() => setBulkActionFeedback(null), 4000);
-        await loadAdminOrders();
-      } else {
-        alert(res?.message || 'Không thể xử lý nhận hàng hoàn kho.');
-      }
-    } catch (err: any) {
-      alert(err?.response?.data?.message || err?.message || 'Lỗi khi nhận hàng hoàn kho.');
-    }
+  // Mở modal kiểm định ngoại quan MB04 cho đơn đang hoàn về (API 8.9)
+  const handleReceiveReturn = (order: OrderDetail) => {
+    setMb04Reason(order.cancelReason || 'Khách hàng từ chối nhận (Đổi ý, không lấy máy)');
+    setMb04SealCondition('INTACT');
+    setMb04Modal(order);
   };
 
   // Duyệt hàng loạt theo trạng thái đích
@@ -2118,6 +2127,15 @@ export const PortalOrdersView: React.FC = () => {
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2 text-slate-800 font-medium text-xs focus:outline-none focus:border-blue-500"
                 >
                   <option value="Khách hàng từ chối nhận (Đổi ý, không lấy máy)">Khách hàng từ chối nhận (Đổi ý, không lấy máy)</option>
+                  {mb04Modal.cancelReason &&
+                    ![
+                      'Khách hàng từ chối nhận (Đổi ý, không lấy máy)',
+                      'Không liên lạc được khách sau 3 lần phát',
+                      'Sai thông tin địa chỉ giao nhận',
+                      'Khách yêu cầu hẹn lại ngày nhưng quá hạn lưu kho',
+                    ].includes(mb04Modal.cancelReason) && (
+                      <option value={mb04Modal.cancelReason}>{mb04Modal.cancelReason}</option>
+                    )}
                   <option value="Không liên lạc được khách sau 3 lần phát">Không liên lạc được khách sau 3 lần phát</option>
                   <option value="Sai thông tin địa chỉ giao nhận">Sai thông tin địa chỉ giao nhận</option>
                   <option value="Khách yêu cầu hẹn lại ngày nhưng quá hạn lưu kho">Khách yêu cầu hẹn lại ngày nhưng quá hạn lưu kho</option>
@@ -2150,8 +2168,8 @@ export const PortalOrdersView: React.FC = () => {
                       className="accent-rose-600 w-4 h-4"
                     />
                     <div>
-                      <strong className="text-rose-700 block text-xs">Rách seal / Móp méo hộp (Không đủ điều kiện bán mới)</strong>
-                      <span className="text-[10px] text-slate-400">Chuyển sang kho cách ly chờ thanh lý, không cộng vào kho bán lẻ.</span>
+                      <strong className="text-rose-700 block text-xs">Rách seal / Móp méo hộp (Hư hại ngoại quan)</strong>
+                      <span className="text-[10px] text-slate-400">Chuyển sang kho kiểm định/thanh lý theo biên bản MB04, không cộng vào tồn khả dụng bán lẻ.</span>
                     </div>
                   </label>
                 </div>
