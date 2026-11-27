@@ -125,3 +125,59 @@ test('Order return check: REFUNDED/APPROVED/REJECTED/PENDING all surface in retu
   );
   assert.equal(resolveReturnStatus({ paymentStatus: 'PAID', statusHistory: [] }), undefined);
 });
+
+test('Variant price validation: rejects salePrice > listPrice or <= 0', () => {
+  const validateVariantPrices = (listPrice, salePrice) => {
+    if (!Number.isFinite(listPrice) || listPrice <= 0) return 'Giá niêm yết phải > 0';
+    if (!Number.isFinite(salePrice) || salePrice <= 0) return 'Giá bán phải > 0';
+    if (salePrice > listPrice) return 'Giá bán không được lớn hơn giá niêm yết';
+    return null;
+  };
+
+  assert.equal(validateVariantPrices(25000000, 23500000), null);
+  assert.equal(validateVariantPrices(25000000, 25000000), null);
+  assert.equal(validateVariantPrices(25000000, 26000000), 'Giá bán không được lớn hơn giá niêm yết');
+  assert.equal(validateVariantPrices(0, 1000000), 'Giá niêm yết phải > 0');
+  assert.equal(validateVariantPrices(25000000, 0), 'Giá bán phải > 0');
+});
+
+test('Cart checkout guard: blocks out-of-stock or unavailable selected items', () => {
+  const isOutOfStock = (item) => {
+    const effectiveStock = item.availableStock !== undefined ? item.availableStock : item.availableQty;
+    return item.inStock === false || effectiveStock <= 0;
+  };
+  const canProceedToCheckout = (selectedItems) => {
+    if (!selectedItems.length) return false;
+    return selectedItems.every((i) => {
+      const effectiveStock = i.availableStock !== undefined ? i.availableStock : i.availableQty;
+      return i.isAvailable !== false && !isOutOfStock(i) && i.quantity <= effectiveStock;
+    });
+  };
+
+  assert.equal(canProceedToCheckout([{ isAvailable: true, inStock: true, availableStock: 5, quantity: 2 }]), true);
+  assert.equal(canProceedToCheckout([{ isAvailable: true, inStock: false, availableStock: 0, quantity: 1 }]), false);
+  assert.equal(canProceedToCheckout([{ isAvailable: true, inStock: true, availableStock: 0, quantity: 1 }]), false);
+  assert.equal(canProceedToCheckout([{ isAvailable: true, inStock: true, availableStock: 1, quantity: 2 }]), false);
+  assert.equal(canProceedToCheckout([{ isAvailable: false, inStock: true, availableStock: 5, quantity: 1 }]), false);
+});
+
+test('Product reactivation: preserves individually paused variant states unless explicitly enabled', () => {
+  const resolveReactivatedVariants = (variants, savedPausedIds, enableAll) =>
+    variants.map((v) => ({
+      ...v,
+      isActive: enableAll ? true : !savedPausedIds.includes(v.variantId),
+    }));
+
+  const variants = [
+    { variantId: 101, sku: 'SKU-1', isActive: false },
+    { variantId: 102, sku: 'SKU-2', isActive: false },
+  ];
+
+  const preserved = resolveReactivatedVariants(variants, [102], false);
+  assert.equal(preserved[0].isActive, true);
+  assert.equal(preserved[1].isActive, false);
+
+  const allOn = resolveReactivatedVariants(variants, [102], true);
+  assert.equal(allOn[0].isActive, true);
+  assert.equal(allOn[1].isActive, true);
+});

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useCartStore } from '../stores/cartStore';
+import { useCartStore, isCartItemOutOfStock } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { formatVND } from '../components/common/PriceDisplay';
@@ -80,10 +80,13 @@ export const CartPage: React.FC = () => {
     }).catch(() => {});
   }, []);
 
+  const getEffectiveStock = (item: typeof items[number]) =>
+    item.availableStock !== undefined ? item.availableStock : item.availableQty;
+
   const subtotal = getSelectedTotalAmount();
   const selectedCount = getSelectedCount();
   const finalTotal = Math.max(0, subtotal - voucherDiscount);
-  const selectableItems = items.filter(i => i.isAvailable !== false);
+  const selectableItems = items.filter(i => i.isAvailable !== false && !isCartItemOutOfStock(i));
   const isAllSelected =
     selectableItems.length > 0 && selectableItems.every(i => selectedItemIds.includes(i.id));
 
@@ -122,13 +125,30 @@ export const CartPage: React.FC = () => {
       showToast('Giỏ hàng trống!', 'error');
       return;
     }
-    if (selectedItemIds.length === 0) {
-      showToast('Vui lòng tích chọn ít nhất 1 sản phẩm để tiến hành thanh toán!', 'warning');
+    const selectedItems = getSelectedItems();
+    if (selectedItems.length === 0) {
+      showToast('Vui lòng tích chọn ít nhất 1 sản phẩm còn hàng để tiến hành thanh toán!', 'warning');
       return;
     }
-    if (getSelectedItems().some(i => i.isAvailable === false)) {
+    if (selectedItems.some(i => i.isAvailable === false)) {
       showToast(
         'Vui lòng xóa sản phẩm thuộc danh mục đang tạm ẩn hoặc ngừng kinh doanh trước khi thanh toán!',
+        'warning'
+      );
+      return;
+    }
+    const outOfStockItem = selectedItems.find(i => isCartItemOutOfStock(i));
+    if (outOfStockItem) {
+      showToast(
+        `Sản phẩm "${outOfStockItem.productName}" hiện đã hết hàng! Vui lòng bỏ chọn hoặc xóa khỏi giỏ hàng trước khi thanh toán.`,
+        'error'
+      );
+      return;
+    }
+    const overStockItem = selectedItems.find(i => i.quantity > getEffectiveStock(i));
+    if (overStockItem) {
+      showToast(
+        `Sản phẩm "${overStockItem.productName}" chỉ còn ${getEffectiveStock(overStockItem)} sản phẩm trong kho! Vui lòng điều chỉnh số lượng trước khi thanh toán.`,
         'warning'
       );
       return;
@@ -215,14 +235,17 @@ export const CartPage: React.FC = () => {
           <div className="divide-y divide-hairline-soft">
             {items.map((item) => {
               const isUnavailable = item.isAvailable === false;
-              const isSelected = !isUnavailable && selectedItemIds.includes(item.id);
-              const isMaxReached = item.quantity >= item.availableQty;
+              const isOutOfStock = !isUnavailable && isCartItemOutOfStock(item);
+              const isBlocked = isUnavailable || isOutOfStock;
+              const effectiveStock = getEffectiveStock(item);
+              const isSelected = !isBlocked && selectedItemIds.includes(item.id);
+              const isMaxReached = item.quantity >= effectiveStock;
 
               return (
                 <div 
                   key={item.id} 
                   className={`p-4 sm:p-5 flex gap-3 sm:gap-4 items-center transition-colors ${
-                    isUnavailable
+                    isBlocked
                       ? 'bg-rose-50/40 opacity-75'
                       : isSelected
                       ? 'bg-canvas'
@@ -233,12 +256,14 @@ export const CartPage: React.FC = () => {
                   <input
                     type="checkbox"
                     checked={isSelected}
-                    disabled={isUnavailable}
+                    disabled={isBlocked}
                     onChange={() => toggleSelectItem(item.id)}
                     className="w-4 h-4 rounded border-hairline text-primary focus:ring-primary accent-[#0064e0] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
                     title={
                       isUnavailable
                         ? 'Sản phẩm hoặc danh mục hiện tạm ẩn'
+                        : isOutOfStock
+                        ? 'Sản phẩm tạm thời hết hàng'
                         : isSelected
                         ? 'Bỏ chọn sản phẩm này'
                         : 'Chọn sản phẩm này để mua'
@@ -289,17 +314,17 @@ export const CartPage: React.FC = () => {
                         <AlertCircle size={12} />
                         {item.unavailableReason || 'Sản phẩm hoặc danh mục hiện tạm ẩn — không thể thanh toán'}
                       </div>
-                    ) : item.inStock === false ? (
+                    ) : isOutOfStock ? (
                       <div className="text-[11px] text-critical font-bold flex items-center gap-1">
                         <AlertCircle size={12} />
-                        Sản phẩm tạm thời hết hàng
+                        Sản phẩm tạm thời hết hàng — không thể thanh toán
                       </div>
                     ) : null}
 
-                    {isMaxReached && !isUnavailable && item.inStock !== false && (
+                    {isMaxReached && !isBlocked && (
                       <div className="text-[11px] text-attention font-medium flex items-center gap-1">
                         <AlertCircle size={12} />
-                        Đã chọn số lượng khả dụng tối đa ({item.availableQty})
+                        Đã chọn số lượng khả dụng tối đa ({effectiveStock})
                       </div>
                     )}
 
@@ -335,11 +360,13 @@ export const CartPage: React.FC = () => {
                     </span>
                     <button
                       onClick={() => handleQuantityDelta(item.id, 1)}
-                      disabled={isMaxReached || isUnavailable}
+                      disabled={isMaxReached || isBlocked}
                       className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-canvas disabled:opacity-30 text-charcoal transition"
                       title={
                         isUnavailable
                           ? 'Sản phẩm hoặc danh mục hiện tạm ẩn'
+                          : isOutOfStock
+                          ? 'Sản phẩm tạm thời hết hàng'
                           : isMaxReached
                           ? 'Đã đạt giới hạn tồn kho khả dụng'
                           : 'Tăng số lượng'

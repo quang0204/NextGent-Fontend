@@ -39,6 +39,15 @@ const isUserAuthenticated = (): boolean => {
   return typeof window !== 'undefined' && !!localStorage.getItem('access_token');
 };
 
+export const isCartItemOutOfStock = (item: CartItem): boolean => {
+  const effectiveStock = item.availableStock !== undefined ? item.availableStock : item.availableQty;
+  return item.inStock === false || effectiveStock <= 0;
+};
+
+export const isCartItemSelectable = (item: CartItem): boolean => {
+  return item.isAvailable !== false && !isCartItemOutOfStock(item);
+};
+
 const getInitialItems = (): { items: CartItem[]; userId: number | null } => {
   try {
     const rawUser = localStorage.getItem('nextpick_user_v2');
@@ -70,13 +79,13 @@ export const useCartStore = create<CartStore>((set, get) => ({
   items: initial.items,
   isLoading: false,
   currentUserId: initial.userId,
-  selectedItemIds: initial.items.map((i) => i.id),
+  selectedItemIds: initial.items.filter(isCartItemSelectable).map((i) => i.id),
   buyNowItem: initialBuyNow,
 
   fetchCart: async () => {
     if (!isUserAuthenticated()) {
       const local = cartService.getLocalCartItems(get().currentUserId);
-      set({ items: local, selectedItemIds: local.map(i => i.id) });
+      set({ items: local, selectedItemIds: local.filter(isCartItemSelectable).map(i => i.id) });
       return;
     }
 
@@ -85,7 +94,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       const data = await cartService.getCart();
       if (data && Array.isArray(data.items)) {
         const mapped = data.items.map(mapBackendCartItemToCartItem);
-        const selectableIds = mapped.filter(m => m.isAvailable !== false).map(m => m.id);
+        const selectableIds = mapped.filter(isCartItemSelectable).map(m => m.id);
         const currentSelected = get().selectedItemIds;
         const retainedSelected = currentSelected.filter((id) => selectableIds.includes(id));
 
@@ -108,7 +117,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       get().fetchCart();
     } else {
       const items = cartService.getLocalCartItems(newUserId);
-      set({ items, selectedItemIds: items.map((i) => i.id) });
+      set({ items, selectedItemIds: items.filter(isCartItemSelectable).map((i) => i.id) });
     }
   },
 
@@ -327,7 +336,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
     set((state) => {
       const target = state.items.find((i) => i.id === id);
       const isSelected = state.selectedItemIds.includes(id);
-      if (!isSelected && target?.isAvailable === false) {
+      if (!isSelected && target && !isCartItemSelectable(target)) {
         return { selectedItemIds: state.selectedItemIds };
       }
       const newSelected = isSelected
@@ -339,7 +348,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   selectAllItems: () => {
     set((state) => ({
-      selectedItemIds: state.items.filter((i) => i.isAvailable !== false).map((i) => i.id)
+      selectedItemIds: state.items.filter(isCartItemSelectable).map((i) => i.id)
     }));
   },
 

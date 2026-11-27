@@ -283,10 +283,8 @@ export const sharedStore = {
     const idx = products.findIndex(p => p.productId === productId);
     if (idx === -1) return false;
     const updated = { ...products[idx], ...data };
-    if (data.status === 'INACTIVE' && Array.isArray(updated.variants)) {
+    if (data.status === 'INACTIVE' && Array.isArray(updated.variants) && !data.variants) {
       updated.variants = updated.variants.map(v => ({ ...v, isActive: false }));
-    } else if (data.status === 'ACTIVE' && Array.isArray(updated.variants)) {
-      updated.variants = updated.variants.map(v => ({ ...v, isActive: true }));
     }
     if (data.thumbnail && Array.isArray(updated.variants)) {
       const oldThumb = products[idx].thumbnail;
