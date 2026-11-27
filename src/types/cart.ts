@@ -114,12 +114,20 @@ export const mapBackendCartItemToCartItem = (b: BackendCartItem): CartItem => ({
   addedAt: b.addedAt,
 });
 
+export const getEffectiveCartStock = (
+  item: Pick<CartItem, 'availableStock' | 'availableQty'>
+): number => (item.availableStock !== undefined ? item.availableStock : item.availableQty);
+
+export const isCartItemOutOfStock = (
+  item: Pick<CartItem, 'inStock' | 'availableStock' | 'availableQty'>
+): boolean => item.inStock === false || getEffectiveCartStock(item) <= 0;
+
 export const isCartItemPurchasable = (
-  item: Pick<CartItem, 'isAvailable' | 'inStock' | 'availableQty' | 'quantity'>
+  item: Pick<CartItem, 'isAvailable' | 'inStock' | 'availableStock' | 'availableQty' | 'quantity'>
 ): boolean => {
+  const effectiveStock = getEffectiveCartStock(item);
   if (item.isAvailable === false) return false;
-  if (item.availableQty <= 0) return false;
-  if (item.quantity > item.availableQty) return false;
+  if (effectiveStock <= 0 || item.quantity > effectiveStock) return false;
   if (item.inStock === false) return false;
   return true;
 };

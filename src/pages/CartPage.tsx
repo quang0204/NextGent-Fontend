@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useCartStore, isCartItemOutOfStock } from '../stores/cartStore';
+import { useCartStore } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
 import { useToastStore } from '../stores/toastStore';
 import { formatVND } from '../components/common/PriceDisplay';
-import { isCartItemPurchasable } from '../types/cart';
+import { getEffectiveCartStock, isCartItemOutOfStock, isCartItemPurchasable } from '../types/cart';
 import { sharedStore } from '../services/sharedStore';
 import { promotionService } from '../services/promotionService';
 import { 
@@ -81,13 +81,10 @@ export const CartPage: React.FC = () => {
     }).catch(() => {});
   }, []);
 
-  const getEffectiveStock = (item: typeof items[number]) =>
-    item.availableStock !== undefined ? item.availableStock : item.availableQty;
-
   const subtotal = getSelectedTotalAmount();
   const selectedCount = getSelectedCount();
   const finalTotal = Math.max(0, subtotal - voucherDiscount);
-  const selectableItems = items.filter(i => i.isAvailable !== false && !isCartItemOutOfStock(i));
+  const selectableItems = items.filter(isCartItemPurchasable);
   const isAllSelected =
     selectableItems.length > 0 && selectableItems.every(i => selectedItemIds.includes(i.id));
 
@@ -146,10 +143,10 @@ export const CartPage: React.FC = () => {
       );
       return;
     }
-    const overStockItem = selectedItems.find(i => i.quantity > getEffectiveStock(i));
+    const overStockItem = selectedItems.find(i => i.quantity > getEffectiveCartStock(i));
     if (overStockItem) {
       showToast(
-        `Sản phẩm "${overStockItem.productName}" chỉ còn ${getEffectiveStock(overStockItem)} sản phẩm trong kho! Vui lòng điều chỉnh số lượng trước khi thanh toán.`,
+        `Sản phẩm "${overStockItem.productName}" chỉ còn ${getEffectiveCartStock(overStockItem)} sản phẩm trong kho! Vui lòng điều chỉnh số lượng trước khi thanh toán.`,
         'warning'
       );
       return;
@@ -237,9 +234,10 @@ export const CartPage: React.FC = () => {
           <div className="divide-y divide-hairline-soft">
             {items.map((item) => {
               const isUnavailable = item.isAvailable === false;
-              const isOutOfStock = !isUnavailable && isCartItemOutOfStock(item);
-              const isBlocked = isUnavailable || isOutOfStock;
-              const effectiveStock = getEffectiveStock(item);
+              const effectiveStock = getEffectiveCartStock(item);
+              const isOverStock = !isUnavailable && effectiveStock > 0 && item.quantity > effectiveStock;
+              const isOutOfStock = !isUnavailable && !isOverStock && isCartItemOutOfStock(item);
+              const isBlocked = isUnavailable || isOutOfStock || isOverStock;
               const isSelected = !isBlocked && selectedItemIds.includes(item.id);
               const isMaxReached = item.quantity >= effectiveStock;
 
@@ -264,8 +262,8 @@ export const CartPage: React.FC = () => {
                     title={
                       isUnavailable
                         ? 'Sản phẩm hoặc danh mục hiện tạm ẩn'
-                        : isOutOfStock
-                        ? 'Sản phẩm tạm thời hết hàng'
+                        : isBlocked
+                        ? 'Sản phẩm hết hàng hoặc vượt tồn kho khả dụng'
                         : isSelected
                         ? 'Bỏ chọn sản phẩm này'
                         : 'Chọn sản phẩm này để mua'
@@ -315,6 +313,11 @@ export const CartPage: React.FC = () => {
                       <div className="text-[11px] text-critical font-bold flex items-center gap-1">
                         <AlertCircle size={12} />
                         {item.unavailableReason || 'Sản phẩm hoặc danh mục hiện tạm ẩn — không thể thanh toán'}
+                      </div>
+                    ) : isOverStock ? (
+                      <div className="text-[11px] text-critical font-bold flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        {`Kho hiện chỉ còn ${effectiveStock} sản phẩm — vui lòng giảm số lượng để thanh toán`}
                       </div>
                     ) : isOutOfStock ? (
                       <div className="text-[11px] text-critical font-bold flex items-center gap-1">

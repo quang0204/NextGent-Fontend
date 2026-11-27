@@ -1,7 +1,16 @@
 import { create } from 'zustand';
-import { CartItem, isCartItemPurchasable, mapBackendCartItemToCartItem } from '../types/cart';
+import {
+  CartItem,
+  getEffectiveCartStock,
+  isCartItemOutOfStock,
+  isCartItemPurchasable,
+  mapBackendCartItemToCartItem,
+} from '../types/cart';
 import { cartService } from '../services/cartService';
 import { useToastStore } from './toastStore';
+
+export { isCartItemOutOfStock };
+export const isCartItemSelectable = isCartItemPurchasable;
 
 interface CartStore {
   items: CartItem[];
@@ -39,15 +48,6 @@ const isUserAuthenticated = (): boolean => {
   return typeof window !== 'undefined' && !!localStorage.getItem('access_token');
 };
 
-export const isCartItemOutOfStock = (item: CartItem): boolean => {
-  const effectiveStock = item.availableStock !== undefined ? item.availableStock : item.availableQty;
-  return item.inStock === false || effectiveStock <= 0;
-};
-
-export const isCartItemSelectable = (item: CartItem): boolean => {
-  return item.isAvailable !== false && !isCartItemOutOfStock(item);
-};
-
 const getInitialItems = (): { items: CartItem[]; userId: number | null } => {
   try {
     const rawUser = localStorage.getItem('nextpick_user_v2');
@@ -79,13 +79,13 @@ export const useCartStore = create<CartStore>((set, get) => ({
   items: initial.items,
   isLoading: false,
   currentUserId: initial.userId,
-  selectedItemIds: initial.items.filter(isCartItemSelectable).map((i) => i.id),
+  selectedItemIds: initial.items.filter(isCartItemPurchasable).map((i) => i.id),
   buyNowItem: initialBuyNow,
 
   fetchCart: async () => {
     if (!isUserAuthenticated()) {
       const local = cartService.getLocalCartItems(get().currentUserId);
-      set({ items: local, selectedItemIds: local.filter(isCartItemSelectable).map(i => i.id) });
+      set({ items: local, selectedItemIds: local.filter(isCartItemPurchasable).map(i => i.id) });
       return;
     }
 
@@ -94,7 +94,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       const data = await cartService.getCart();
       if (data && Array.isArray(data.items)) {
         const mapped = data.items.map(mapBackendCartItemToCartItem);
-        const selectableIds = mapped.filter(isCartItemSelectable).map(m => m.id);
+        const selectableIds = mapped.filter(isCartItemPurchasable).map(m => m.id);
         const currentSelected = get().selectedItemIds;
         const retainedSelected = currentSelected.filter((id) => selectableIds.includes(id));
 
@@ -117,7 +117,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       get().fetchCart();
     } else {
       const items = cartService.getLocalCartItems(newUserId);
-      set({ items, selectedItemIds: items.filter(isCartItemSelectable).map((i) => i.id) });
+      set({ items, selectedItemIds: items.filter(isCartItemPurchasable).map((i) => i.id) });
     }
   },
 
@@ -260,27 +260,29 @@ export const useCartStore = create<CartStore>((set, get) => ({
     }
 
     const oldQty = itemToUpdate.quantity;
+    const effectiveStock = getEffectiveCartStock(itemToUpdate);
     // Khi giảm số lượng mà giỏ đang vượt quá tồn kho còn lại (> 0), hạ thẳng về mức tồn kho hợp lệ
     const newQty =
-      delta < 0 && itemToUpdate.availableQty > 0 && oldQty > itemToUpdate.availableQty
-        ? Math.min(oldQty + delta, itemToUpdate.availableQty)
+      delta < 0 && effectiveStock > 0 && oldQty > effectiveStock
+        ? Math.min(oldQty + delta, effectiveStock)
         : oldQty + delta;
     if (newQty < 1) return { success: false };
 
-    if (delta > 0 && newQty > itemToUpdate.availableQty) {
+    if (delta > 0 && newQty > effectiveStock) {
       return {
         success: false,
         message:
-          itemToUpdate.availableQty <= 0
+          effectiveStock <= 0
             ? 'Sản phẩm này hiện tạm thời hết hàng!'
-            : `Kho hiện chỉ còn tối đa ${itemToUpdate.availableQty} sản phẩm cho phiên bản này!`
+            : `Kho hiện chỉ còn tối đa ${effectiveStock} sản phẩm cho phiên bản này!`
       };
     }
 
     // 1. Phản hồi tức thì 0ms trên giao diện (Optimistic UI)
     const updated = get().items.map((item) => {
       if (item.id === id) {
-        return { ...item, quantity: newQty, inStock: item.availableQty > 0 && newQty <= item.availableQty };
+        const stock = getEffectiveCartStock(item);
+        return { ...item, quantity: newQty, inStock: stock > 0 && newQty <= stock };
       }
       return item;
     });
@@ -343,7 +345,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
     set((state) => {
       const target = state.items.find((i) => i.id === id);
       const isSelected = state.selectedItemIds.includes(id);
-      if (!isSelected && target && !isCartItemSelectable(target)) {
+      if (!isSelected && (!target || !isCartItemPurchasable(target))) {
         return { selectedItemIds: state.selectedItemIds };
       }
       const newSelected = isSelected
@@ -355,7 +357,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   selectAllItems: () => {
     set((state) => ({
-      selectedItemIds: state.items.filter(isCartItemSelectable).map((i) => i.id)
+      selectedItemIds: state.items.filter(isCartItemPurchasable).map((i) => i.id)
     }));
   },
 
